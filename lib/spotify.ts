@@ -5,6 +5,7 @@ export const spotifyScopes = [
   "user-read-email",
   "user-read-private",
   "user-read-recently-played",
+  "user-read-currently-playing",
   "user-top-read",
   "user-library-read",
   "playlist-read-private",

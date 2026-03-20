@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
+import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { requireSession } from "@/lib/auth";
 import { touchConnectedUser } from "@/lib/connected-users";
 import { getDashboardInsights } from "@/lib/spotify-dashboard";
@@ -113,6 +114,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </div>
         </div>
       ) : null}
+      <NowPlayingPanel />
       <DashboardView
         mode="authenticated"
         insights={insights}

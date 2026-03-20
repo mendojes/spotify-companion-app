@@ -1,5 +1,6 @@
 export type DashboardRange = "week" | "month" | "all";
 export type SpotifyTimeRange = "short_term" | "medium_term" | "long_term";
+export type PlaylistSortOption = "created_desc" | "created_asc" | "last_listened_desc" | "last_listened_asc";
 export type Timeframe = "This Week" | "This Month" | "All Time";
 
 export type StatCard = {
@@ -36,10 +37,52 @@ export type GenrePulse = {
 };
 
 export type PlaylistInsight = {
+  id?: string;
   name: string;
   mood: string;
   diversity: string;
   overlap: string;
+  imageUrl?: string;
+  trackCount?: number;
+  createdAt?: string;
+  lastListenedAt?: string;
+};
+
+export type PlaylistGenreSummary = {
+  genre: string;
+  count: number;
+};
+
+export type PlaylistArtistSummary = {
+  artist: string;
+  count: number;
+};
+
+export type PlaylistTrackSummary = {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  imageUrl?: string;
+};
+
+export type PlaylistDetail = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  ownerName?: string;
+  trackCount: number;
+  uniqueArtistCount: number;
+  uniqueAlbumCount: number;
+  mood: string;
+  diversity: string;
+  overlap: string;
+  createdAt?: string;
+  lastListenedAt?: string;
+  topGenres: PlaylistGenreSummary[];
+  topArtists: PlaylistArtistSummary[];
+  repeatedTracks: PlaylistTrackSummary[];
+  sampleTracks: PlaylistTrackSummary[];
 };
 
 export type DashboardInsights = {
@@ -95,6 +138,31 @@ export type TopListsData = {
   generatedAt?: string;
 };
 
+export type RecentTrackSummary = {
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string;
+  imageUrl?: string;
+  playedAt: string;
+};
+
+export type NowPlayingState = {
+  isPlaying: boolean;
+  progressMs?: number;
+  track?: {
+    id: string;
+    title: string;
+    artist: string;
+    album: string;
+    imageUrl?: string;
+    durationMs: number;
+  };
+  recentTracks?: RecentTrackSummary[];
+  syncedRecentCount?: number;
+  syncedAt?: string;
+};
+
 type SpotifyImage = {
   url: string;
 };
@@ -113,6 +181,7 @@ export type SpotifyTrack = {
   popularity: number;
   duration_ms: number;
   album: {
+    id?: string;
     name: string;
     images?: SpotifyImage[];
   };
@@ -145,6 +214,12 @@ export type SpotifyTopTracksResponse = {
   items: SpotifyTrack[];
 };
 
+export type SpotifyCurrentlyPlayingResponse = {
+  is_playing: boolean;
+  progress_ms?: number;
+  item?: SpotifyTrack | null;
+};
+
 export type SpotifyRecentlyPlayedItem = {
   track: SpotifyTrack;
   played_at: string;
@@ -154,6 +229,16 @@ export type SpotifyRecentlyPlayedResponse = {
   items: SpotifyRecentlyPlayedItem[];
 };
 
+export type StoredRecentPlay = {
+  spotifyUserId: string;
+  trackId: string;
+  playedAt: string;
+  trackName: string;
+  artistName: string;
+  albumName: string;
+  imageUrl?: string;
+};
+
 export type SpotifySavedTrackItem = {
   added_at: string;
   track: SpotifyTrack;
@@ -161,6 +246,40 @@ export type SpotifySavedTrackItem = {
 
 export type SpotifySavedTracksResponse = {
   items: SpotifySavedTrackItem[];
+  next: string | null;
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type SpotifyPlaylist = {
+  id: string;
+  name: string;
+  images?: SpotifyImage[];
+  tracks: {
+    total: number;
+    href?: string;
+  };
+  owner?: {
+    display_name?: string;
+  };
+};
+
+export type SpotifyPlaylistsResponse = {
+  items: SpotifyPlaylist[];
+  next: string | null;
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type SpotifyPlaylistTrackItem = {
+  added_at?: string;
+  track: SpotifyTrack | null;
+};
+
+export type SpotifyPlaylistTracksResponse = {
+  items: SpotifyPlaylistTrackItem[];
   next: string | null;
   total: number;
   limit: number;

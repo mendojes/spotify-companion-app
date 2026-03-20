@@ -94,11 +94,7 @@ type DashboardData = {
   range: DashboardRange;
 };
 
-type ArtworkCardItem =
-  | TopListArtist
-  | TopListTrack
-  | TopListAlbum
-  | FavoriteTrack;
+type ArtworkCardItem = TopListArtist | TopListTrack | TopListAlbum | FavoriteTrack;
 
 function getData(mode: DashboardViewProps["mode"], insights?: DashboardInsights): DashboardData {
   if (mode === "authenticated" && insights) {
@@ -128,17 +124,29 @@ function getTopListData(mode: DashboardViewProps["mode"], topLists?: TopListsDat
   return previewTopLists;
 }
 
+function formatTimestamp(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  return `${new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(value))} UTC`;
+}
+
 function Artwork({ item, label }: { item: ArtworkCardItem; label: string }) {
   if (item.imageUrl) {
     return (
-      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-[0_12px_30px_rgba(0,0,0,0.24)]">
-        <Image src={item.imageUrl} alt={label} fill sizes="56px" className="object-cover" />
+      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-white/5 shadow-[0_12px_30px_rgba(0,0,0,0.24)]">
+        <Image src={item.imageUrl} alt={label} fill sizes="80px" className="object-cover" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[0.04] text-xs font-medium uppercase tracking-[0.18em] text-ink/50">
+    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-[24px] border border-dashed border-white/15 bg-white/[0.04] text-xs font-medium uppercase tracking-[0.18em] text-ink/50">
       Art
     </div>
   );
@@ -155,6 +163,8 @@ export function DashboardView({
   const data = getData(mode, insights);
   const topListData = getTopListData(mode, topLists);
   const playlist = buildRediscoveryPlaylist(data.forgottenFavorites);
+  const cachedAtLabel = formatTimestamp(data.cachedAt);
+  const generatedAtLabel = formatTimestamp(topListData.generatedAt);
 
   return (
     <>
@@ -175,12 +185,8 @@ export function DashboardView({
             <div className="space-y-1">
               <p className="text-sm text-mint">{data.sourceLabel}</p>
               <p className="text-xs text-ink/55">Mood model: {data.moodSource}</p>
-              {data.cachedAt ? (
-                <p className="text-xs text-ink/55">Last snapshot: {new Date(data.cachedAt).toLocaleString()}</p>
-              ) : null}
-              {data.snapshotCount ? (
-                <p className="text-xs text-ink/55">Snapshots available: {data.snapshotCount}</p>
-              ) : null}
+              {cachedAtLabel ? <p className="text-xs text-ink/55">Last snapshot: {cachedAtLabel}</p> : null}
+              {data.snapshotCount ? <p className="text-xs text-ink/55">Snapshots available: {data.snapshotCount}</p> : null}
             </div>
           </div>
 
@@ -374,9 +380,7 @@ export function DashboardView({
             </p>
             <div className="space-y-1">
               <p className="text-sm text-mint">{topListData.sourceLabel}</p>
-              {topListData.generatedAt ? (
-                <p className="text-xs text-ink/55">Generated: {new Date(topListData.generatedAt).toLocaleString()}</p>
-              ) : null}
+              {generatedAtLabel ? <p className="text-xs text-ink/55">Generated: {generatedAtLabel}</p> : null}
             </div>
           </div>
 
@@ -588,32 +592,72 @@ export function DashboardView({
               A preview of playlist intelligence beyond basic counts.
             </h2>
             <p className="text-base leading-7 text-ink/80">
-              Playlist analysis is scoped as a nice-to-have in the PRD, but the product surface is
-              already prepared for mood consistency, genre diversity, and redundancy flags.
+              Playlist analysis now uses real Spotify playlist contents, and each card opens a deeper breakdown with genre, mood, and overlap details.
             </p>
           </div>
 
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-ink/65">Open any playlist to inspect its structure in more detail.</p>
+            {!isPreview ? (
+              <Link href="/dashboard/playlists" className="rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-sm text-cyan">
+                View all playlists
+              </Link>
+            ) : null}
+          </div>
+
           <div className="grid gap-5 lg:grid-cols-3">
-            {data.playlistInsights.map((playlistCard) => (
-              <div key={playlistCard.name} className="glass-panel rounded-[30px] p-6">
-                <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Playlist insight</p>
-                <h3 className="mt-3 font-display text-2xl text-white">{playlistCard.name}</h3>
-                <div className="mt-6 space-y-4">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Mood consistency</p>
-                    <p className="mt-2 text-white">{playlistCard.mood}</p>
+            {data.playlistInsights.map((playlistCard) => {
+              const content = (
+                <>
+                  {playlistCard.imageUrl ? (
+                    <div className="relative mb-5 h-40 overflow-hidden rounded-[28px] border border-white/10 bg-white/5">
+                      <Image
+                        src={playlistCard.imageUrl}
+                        alt={playlistCard.name}
+                        fill
+                        sizes="(max-width: 1024px) 100vw, 420px"
+                        className="object-cover"
+                      />
+                    </div>
+                  ) : null}
+                  <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Playlist insight</p>
+                  <h3 className="mt-3 font-display text-2xl text-white">{playlistCard.name}</h3>
+                  {playlistCard.trackCount ? <p className="mt-2 text-sm text-cyan">{playlistCard.trackCount} tracks analyzed</p> : null}
+                  <div className="mt-6 space-y-4">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm text-ink/60">Mood consistency</p>
+                      <p className="mt-2 text-white">{playlistCard.mood}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm text-ink/60">Genre diversity</p>
+                      <p className="mt-2 text-white">{playlistCard.diversity}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm text-ink/60">Redundancy</p>
+                      <p className="mt-2 text-white">{playlistCard.overlap}</p>
+                    </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Genre diversity</p>
-                    <p className="mt-2 text-white">{playlistCard.diversity}</p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Redundancy</p>
-                    <p className="mt-2 text-white">{playlistCard.overlap}</p>
-                  </div>
+                </>
+              );
+
+              if (!isPreview && playlistCard.id) {
+                return (
+                  <Link
+                    key={playlistCard.id}
+                    href={`/dashboard/playlists/${playlistCard.id}`}
+                    className="glass-panel rounded-[30px] p-6 transition hover:border-cyan/40 hover:bg-white/[0.05]"
+                  >
+                    {content}
+                  </Link>
+                );
+              }
+
+              return (
+                <div key={playlistCard.name} className="glass-panel rounded-[30px] p-6">
+                  {content}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>

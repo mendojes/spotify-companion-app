@@ -1,0 +1,114 @@
+import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
+import {
+  NowPlayingState,
+  SpotifyCurrentlyPlayingResponse,
+  SpotifyRecentlyPlayedItem,
+  SpotifyRecentlyPlayedResponse,
+  StoredRecentPlay,
+} from "@/lib/types";
+
+const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
+const RECENT_PLAY_LOOKBACK_LIMIT = 500;
+
+function toStoredRecentPlay(spotifyUserId: string, item: SpotifyRecentlyPlayedItem): StoredRecentPlay {
+  return {
+    spotifyUserId,
+    trackId: item.track.id,
+    playedAt: item.played_at,
+    trackName: item.track.name,
+    artistName: item.track.artists.map((artist) => artist.name).join(", "),
+    albumName: item.track.album.name,
+    imageUrl: item.track.album.images?.[0]?.url,
+  };
+}
+
+export async function ensureRecentPlayIndexes() {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return;
+  }
+
+  await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).createIndex(
+    { spotifyUserId: 1, playedAt: -1, trackId: 1 },
+    { unique: true },
+  );
+}
+
+export async function syncRecentPlays(accessToken: string, spotifyUserId: string) {
+  const response = await spotifyFetch<SpotifyRecentlyPlayedResponse>("/me/player/recently-played?limit=50", accessToken);
+  const recentPlays = response.items.map((item) => toStoredRecentPlay(spotifyUserId, item));
+
+  if (!hasMongoConfig()) {
+    return recentPlays;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return recentPlays;
+  }
+
+  await ensureRecentPlayIndexes();
+
+  if (recentPlays.length > 0) {
+    await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).bulkWrite(
+      recentPlays.map((play) => ({
+        updateOne: {
+          filter: {
+            spotifyUserId: play.spotifyUserId,
+            playedAt: play.playedAt,
+            trackId: play.trackId,
+          },
+          update: { $set: play },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    );
+  }
+
+  return recentPlays;
+}
+
+export async function getStoredRecentPlays(spotifyUserId: string, limit = RECENT_PLAY_LOOKBACK_LIMIT) {
+  if (!hasMongoConfig()) {
+    return [] as StoredRecentPlay[];
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return [] as StoredRecentPlay[];
+  }
+
+  return db
+    .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({ spotifyUserId })
+    .sort({ playedAt: -1 })
+    .limit(limit)
+    .toArray();
+}
+
+export async function getNowPlaying(accessToken: string): Promise<NowPlayingState> {
+  const response = await spotifyFetchOptional<SpotifyCurrentlyPlayingResponse>("/me/player/currently-playing", accessToken);
+
+  if (!response?.item) {
+    return { isPlaying: false };
+  }
+
+  return {
+    isPlaying: response.is_playing,
+    progressMs: response.progress_ms,
+    track: {
+      id: response.item.id,
+      title: response.item.name,
+      artist: response.item.artists.map((artist) => artist.name).join(", "),
+      album: response.item.album.name,
+      imageUrl: response.item.album.images?.[0]?.url,
+      durationMs: response.item.duration_ms,
+    },
+  };
+}

@@ -102,7 +102,7 @@ export const playlistInsights: PlaylistInsight[] = [
 export const previewTopLists: TopListsData = {
   range: "medium_term",
   sourceLabel: "Preview top items",
-  generatedAt: new Date().toISOString(),
+  generatedAt: "2026-03-01T12:00:00.000Z",
   artists: [
     { id: "artist-1", rank: 1, name: "Lorde", genres: ["alt-pop", "art pop"] },
     { id: "artist-2", rank: 2, name: "Frank Ocean", genres: ["neo-soul", "alternative r&b"] },

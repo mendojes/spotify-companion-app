@@ -20,6 +20,7 @@ import {
 } from "@/lib/types";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 import { playlistInsights as mockPlaylistInsights } from "@/lib/mock-data";
+import { getPlaylistInsights } from "@/lib/spotify-playlists";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 
 const genreColors = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
@@ -350,7 +351,12 @@ function deriveStatCards(
   ];
 }
 
-async function deriveInsights(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange, accessToken?: string): Promise<DashboardInsights> {
+async function deriveInsights(
+  snapshots: SpotifyDashboardSnapshot[],
+  range: DashboardRange,
+  accessToken?: string,
+  spotifyUserId?: string,
+): Promise<DashboardInsights> {
   const sortedSnapshots = [...snapshots].sort(
     (a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime(),
   );
@@ -362,21 +368,29 @@ async function deriveInsights(snapshots: SpotifyDashboardSnapshot[], range: Dash
   const latestFetchedAt = sortedSnapshots[0]?.fetchedAt;
 
   let moodResult = deriveMoodDataFromGenres(topArtists);
+  let playlistInsights = mockPlaylistInsights as PlaylistInsight[];
 
   if (accessToken) {
     const audioFeatureTrackIds = [...new Set([...topTracks, ...longTermTopTracks].map((track) => track.id))].slice(0, 50);
 
-    if (audioFeatureTrackIds.length > 0) {
-      const response = await spotifyFetchOptional<SpotifyAudioFeaturesResponse>(
-        `/audio-features?ids=${audioFeatureTrackIds.join(",")}`,
-        accessToken,
-      );
+    const [audioFeatureResponse, livePlaylistInsights] = await Promise.all([
+      audioFeatureTrackIds.length > 0
+        ? spotifyFetchOptional<SpotifyAudioFeaturesResponse>(
+            `/audio-features?ids=${audioFeatureTrackIds.join(",")}`,
+            accessToken,
+          )
+        : Promise.resolve(null),
+      spotifyUserId ? getPlaylistInsights(accessToken, spotifyUserId).catch(() => null) : Promise.resolve(null),
+    ]);
 
-      const features = response?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
-      const fromAudio = deriveMoodDataFromAudioFeatures(features);
-      if (fromAudio) {
-        moodResult = fromAudio;
-      }
+    const features = audioFeatureResponse?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
+    const fromAudio = deriveMoodDataFromAudioFeatures(features);
+    if (fromAudio) {
+      moodResult = fromAudio;
+    }
+
+    if (livePlaylistInsights && livePlaylistInsights.length > 0) {
+      playlistInsights = livePlaylistInsights;
     }
   }
 
@@ -389,7 +403,7 @@ async function deriveInsights(snapshots: SpotifyDashboardSnapshot[], range: Dash
     moodData: moodResult.moodData,
     moodSource: moodResult.moodSource,
     forgottenFavorites: deriveForgottenFavorites(topTracks, recent, longTermTopTracks, savedTracks),
-    playlistInsights: mockPlaylistInsights as PlaylistInsight[],
+    playlistInsights,
     sourceLabel: hasMongoConfig()
       ? sortedSnapshots.length > 1
         ? "Historical Spotify cache with library depth"
@@ -547,5 +561,5 @@ export async function getDashboardInsights(
     snapshots = [snapshot];
   }
 
-  return deriveInsights(snapshots, range, accessToken);
+  return deriveInsights(snapshots, range, accessToken, spotifyUserId);
 }
