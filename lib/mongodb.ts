@@ -1,4 +1,4 @@
-import { MongoClient, Db } from "mongodb";
+﻿import { MongoClient, Db } from "mongodb";
 
 declare global {
   var mongoClientPromise: Promise<MongoClient> | undefined;
@@ -8,6 +8,7 @@ const uri = process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB_NAME || "soundscope";
 
 let mongoClientPromise: Promise<MongoClient> | null = null;
+let mongoUnavailable = false;
 
 function createClientPromise() {
   if (!uri) {
@@ -27,14 +28,26 @@ if (uri) {
 }
 
 export function hasMongoConfig() {
-  return Boolean(uri);
+  return Boolean(uri) && !mongoUnavailable;
 }
 
 export async function getDatabase(): Promise<Db | null> {
-  if (!mongoClientPromise) {
+  if (!mongoClientPromise || mongoUnavailable) {
     return null;
   }
 
-  const client = await mongoClientPromise;
-  return client.db(dbName);
+  try {
+    const client = await mongoClientPromise;
+    return client.db(dbName);
+  } catch (error) {
+    mongoUnavailable = true;
+    mongoClientPromise = null;
+
+    if (process.env.NODE_ENV !== "production") {
+      global.mongoClientPromise = undefined;
+      console.warn("MongoDB unavailable, falling back to non-cached mode.", error);
+    }
+
+    return null;
+  }
 }

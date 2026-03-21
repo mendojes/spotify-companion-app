@@ -46,6 +46,8 @@ export const forgottenFavorites: FavoriteTrack[] = [
     album: "Pure Heroine",
     lastPlayed: "143 days ago",
     affinity: 97,
+    imageUrl:
+      "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80",
   },
   {
     title: "Motion Sickness",
@@ -53,6 +55,8 @@ export const forgottenFavorites: FavoriteTrack[] = [
     album: "Stranger in the Alps",
     lastPlayed: "102 days ago",
     affinity: 94,
+    imageUrl:
+      "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=800&q=80",
   },
   {
     title: "Electric Feel",
@@ -60,6 +64,8 @@ export const forgottenFavorites: FavoriteTrack[] = [
     album: "Oracular Spectacular",
     lastPlayed: "87 days ago",
     affinity: 90,
+    imageUrl:
+      "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&w=800&q=80",
   },
   {
     title: "Nights",
@@ -67,6 +73,8 @@ export const forgottenFavorites: FavoriteTrack[] = [
     album: "Blonde",
     lastPlayed: "76 days ago",
     affinity: 88,
+    imageUrl:
+      "https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&fit=crop&w=800&q=80",
   },
 ];
 
@@ -84,18 +92,24 @@ export const playlistInsights: PlaylistInsight[] = [
     mood: "Dreamy / reflective",
     diversity: "High genre spread",
     overlap: "12% repeated artists",
+    imageUrl:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
   },
   {
     name: "Gym Reset",
     mood: "Explosive / confident",
     diversity: "Focused energy pocket",
     overlap: "Low redundancy",
+    imageUrl:
+      "https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80",
   },
   {
     name: "Rainy Window",
     mood: "Melancholic / cinematic",
     diversity: "Moderate consistency",
     overlap: "3 tracks overplayed recently",
+    imageUrl:
+      "https://images.unsplash.com/photo-1496293455970-f8581aae0e3b?auto=format&fit=crop&w=1200&q=80",
   },
 ];
 
@@ -104,24 +118,149 @@ export const previewTopLists: TopListsData = {
   sourceLabel: "Preview top items",
   generatedAt: "2026-03-01T12:00:00.000Z",
   artists: [
-    { id: "artist-1", rank: 1, name: "Lorde", genres: ["alt-pop", "art pop"] },
-    { id: "artist-2", rank: 2, name: "Frank Ocean", genres: ["neo-soul", "alternative r&b"] },
-    { id: "artist-3", rank: 3, name: "Phoebe Bridgers", genres: ["indie rock", "singer-songwriter"] },
-    { id: "artist-4", rank: 4, name: "Fred again..", genres: ["house", "uk dance"] },
-    { id: "artist-5", rank: 5, name: "SZA", genres: ["r&b", "pop"] },
+    {
+      id: "artist-1",
+      rank: 1,
+      name: "Lorde",
+      genres: ["alt-pop", "art pop"],
+      imageUrl:
+        "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "artist-2",
+      rank: 2,
+      name: "Frank Ocean",
+      genres: ["neo-soul", "alternative r&b"],
+      imageUrl:
+        "https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "artist-3",
+      rank: 3,
+      name: "Phoebe Bridgers",
+      genres: ["indie rock", "singer-songwriter"],
+      imageUrl:
+        "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "artist-4",
+      rank: 4,
+      name: "Fred again..",
+      genres: ["house", "uk dance"],
+      imageUrl:
+        "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "artist-5",
+      rank: 5,
+      name: "SZA",
+      genres: ["r&b", "pop"],
+      imageUrl:
+        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80",
+    },
   ],
   tracks: [
-    { id: "track-1", rank: 1, title: "Ribs", artist: "Lorde", album: "Pure Heroine", popularity: 82 },
-    { id: "track-2", rank: 2, title: "Nights", artist: "Frank Ocean", album: "Blonde", popularity: 84 },
-    { id: "track-3", rank: 3, title: "Kyoto", artist: "Phoebe Bridgers", album: "Punisher", popularity: 76 },
-    { id: "track-4", rank: 4, title: "Delilah (pull me out of this)", artist: "Fred again..", album: "Actual Life 3", popularity: 74 },
-    { id: "track-5", rank: 5, title: "Snooze", artist: "SZA", album: "SOS", popularity: 88 },
+    {
+      id: "track-1",
+      rank: 1,
+      title: "Ribs",
+      artist: "Lorde",
+      album: "Pure Heroine",
+      popularity: 82,
+      imageUrl:
+        "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "track-2",
+      rank: 2,
+      title: "Nights",
+      artist: "Frank Ocean",
+      album: "Blonde",
+      popularity: 84,
+      imageUrl:
+        "https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "track-3",
+      rank: 3,
+      title: "Kyoto",
+      artist: "Phoebe Bridgers",
+      album: "Punisher",
+      popularity: 76,
+      imageUrl:
+        "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "track-4",
+      rank: 4,
+      title: "Delilah (pull me out of this)",
+      artist: "Fred again..",
+      album: "Actual Life 3",
+      popularity: 74,
+      imageUrl:
+        "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "track-5",
+      rank: 5,
+      title: "Snooze",
+      artist: "SZA",
+      album: "SOS",
+      popularity: 88,
+      imageUrl:
+        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80",
+    },
   ],
   albums: [
-    { id: "album-1", rank: 1, name: "Pure Heroine", artist: "Lorde", trackCount: 1, score: 24 },
-    { id: "album-2", rank: 2, name: "Blonde", artist: "Frank Ocean", trackCount: 1, score: 23 },
-    { id: "album-3", rank: 3, name: "Punisher", artist: "Phoebe Bridgers", trackCount: 1, score: 21 },
-    { id: "album-4", rank: 4, name: "Actual Life 3", artist: "Fred again..", trackCount: 1, score: 20 },
-    { id: "album-5", rank: 5, name: "SOS", artist: "SZA", trackCount: 1, score: 19 },
+    {
+      id: "album-1",
+      rank: 1,
+      name: "Pure Heroine",
+      artist: "Lorde",
+      trackCount: 1,
+      score: 24,
+      imageUrl:
+        "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "album-2",
+      rank: 2,
+      name: "Blonde",
+      artist: "Frank Ocean",
+      trackCount: 1,
+      score: 23,
+      imageUrl:
+        "https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "album-3",
+      rank: 3,
+      name: "Punisher",
+      artist: "Phoebe Bridgers",
+      trackCount: 1,
+      score: 21,
+      imageUrl:
+        "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "album-4",
+      rank: 4,
+      name: "Actual Life 3",
+      artist: "Fred again..",
+      trackCount: 1,
+      score: 20,
+      imageUrl:
+        "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&w=800&q=80",
+    },
+    {
+      id: "album-5",
+      rank: 5,
+      name: "SOS",
+      artist: "SZA",
+      trackCount: 1,
+      score: 19,
+      imageUrl:
+        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80",
+    },
   ],
 };

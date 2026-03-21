@@ -1,4 +1,4 @@
-import { spotifyFetch } from "@/lib/spotify";
+﻿import { spotifyFetch } from "@/lib/spotify";
 import {
   SpotifyArtist,
   SpotifyTimeRange,
@@ -10,14 +10,15 @@ import {
   TopListsData,
 } from "@/lib/types";
 
-const TOP_LIST_LIMIT = 15;
+export const DASHBOARD_TOP_LIST_LIMIT = 5;
+export const FULL_TOP_LIST_LIMIT = 50;
 
-function deriveAlbums(tracks: TopListTrack[]): TopListAlbum[] {
+function deriveAlbums(tracks: TopListTrack[], limit: number): TopListAlbum[] {
   const albumMap = new Map<string, Omit<TopListAlbum, "rank">>();
 
   tracks.forEach((track) => {
     const key = `${track.album}::${track.artist}`.toLowerCase();
-    const weight = TOP_LIST_LIMIT - track.rank + 1;
+    const weight = tracks.length - track.rank + 1;
     const existing = albumMap.get(key) ?? {
       id: key,
       name: track.album,
@@ -38,15 +39,15 @@ function deriveAlbums(tracks: TopListTrack[]): TopListAlbum[] {
 
   return [...albumMap.values()]
     .sort((a, b) => b.score - a.score || b.trackCount - a.trackCount || a.name.localeCompare(b.name))
-    .slice(0, 10)
+    .slice(0, limit)
     .map((album, index) => ({
       ...album,
       rank: index + 1,
     }));
 }
 
-function toArtistList(items: SpotifyArtist[]): TopListArtist[] {
-  return items.slice(0, TOP_LIST_LIMIT).map((artist, index) => ({
+function toArtistList(items: SpotifyArtist[], limit: number): TopListArtist[] {
+  return items.slice(0, limit).map((artist, index) => ({
     id: artist.id,
     rank: index + 1,
     name: artist.name,
@@ -55,8 +56,8 @@ function toArtistList(items: SpotifyArtist[]): TopListArtist[] {
   }));
 }
 
-function toTrackList(items: SpotifyTopTracksResponse["items"]): TopListTrack[] {
-  return items.slice(0, TOP_LIST_LIMIT).map((track, index) => ({
+function toTrackList(items: SpotifyTopTracksResponse["items"], limit: number): TopListTrack[] {
+  return items.slice(0, limit).map((track, index) => ({
     id: track.id,
     rank: index + 1,
     title: track.name,
@@ -67,15 +68,21 @@ function toTrackList(items: SpotifyTopTracksResponse["items"]): TopListTrack[] {
   }));
 }
 
-export async function getSpotifyTopLists(accessToken: string, range: SpotifyTimeRange): Promise<TopListsData> {
+export async function getSpotifyTopLists(
+  accessToken: string,
+  range: SpotifyTimeRange,
+  limit = DASHBOARD_TOP_LIST_LIMIT,
+): Promise<TopListsData> {
+  const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
+
   const [artistsResponse, tracksResponse] = await Promise.all([
-    spotifyFetch<SpotifyTopArtistsResponse>(`/me/top/artists?time_range=${range}&limit=${TOP_LIST_LIMIT}`, accessToken),
-    spotifyFetch<SpotifyTopTracksResponse>(`/me/top/tracks?time_range=${range}&limit=${TOP_LIST_LIMIT}`, accessToken),
+    spotifyFetch<SpotifyTopArtistsResponse>(`/me/top/artists?time_range=${range}&limit=${boundedLimit}`, accessToken),
+    spotifyFetch<SpotifyTopTracksResponse>(`/me/top/tracks?time_range=${range}&limit=${boundedLimit}`, accessToken),
   ]);
 
-  const artists = toArtistList(artistsResponse.items);
-  const tracks = toTrackList(tracksResponse.items);
-  const albums = deriveAlbums(tracks);
+  const artists = toArtistList(artistsResponse.items, boundedLimit);
+  const tracks = toTrackList(tracksResponse.items, boundedLimit);
+  const albums = deriveAlbums(tracks, boundedLimit);
 
   return {
     range,
