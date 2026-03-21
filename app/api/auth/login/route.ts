@@ -10,5 +10,5 @@ export async function GET(request: NextRequest) {
 
   const state = createOauthState();
   await setAuthStateCookie(state);
-  return NextResponse.redirect(getSpotifyLoginUrl(state));
+  return NextResponse.redirect(getSpotifyLoginUrl(state, request));
 }
