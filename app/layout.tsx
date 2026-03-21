@@ -26,14 +26,29 @@ export const metadata: Metadata = {
     "SoundScope turns Spotify history into a vivid, on-demand dashboard for moods, trends, and forgotten favorites.",
 };
 
+const themeInitScript = `
+(function () {
+  try {
+    var stored = window.localStorage.getItem('soundscope-theme');
+    var theme = stored === 'light' || stored === 'dark'
+      ? stored
+      : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = theme;
+  } catch (error) {
+    document.documentElement.dataset.theme = 'light';
+  }
+})();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${orbitron.variable} ${spaceGrotesk.variable} ${vt323.variable} font-sans antialiased`}>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         {children}
       </body>
     </html>

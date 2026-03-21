@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Disc3, Radio, Waves, Play, Pause, History } from "lucide-react";
+import { Disc3, Heart, Play, Pause, Radio, Sparkles, Waves } from "lucide-react";
 import { NowPlayingState } from "@/lib/types";
 
 function formatPlayedAt(value: string) {
@@ -15,11 +15,11 @@ function formatPlayedAt(value: string) {
   }).format(new Date(value));
 }
 
-const COLLAPSED_RECENT_COUNT = 2;
+const COLLAPSED_RECENT_COUNT = 3;
 
 function getAdaptiveHeadingClass(value: string) {
   if (value.length > 28) {
-    return "text-xl md:text-2xl leading-[1.04] break-words";
+    return "text-xl md:text-2xl leading-[1.05] break-words";
   }
 
   if (value.length > 16) {
@@ -97,73 +97,85 @@ export function NowPlayingPanel() {
 
   return (
     <div className="w-full 2xl:sticky 2xl:top-24">
-      <div className="window-panel p-6 pt-16 md:p-7 md:pt-16">
+      <div className="window-panel p-6 pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Radio className="h-5 w-5 text-gold" />
+            <div className="icon-bubble h-11 w-11 text-[var(--theme-accent)]">
+              <Radio className="h-5 w-5" />
+            </div>
             <div>
               <p className="section-kicker">Now playing</p>
-              <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-white">Media deck</h2>
+              <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Cute player deck</h2>
             </div>
           </div>
-          <div className="rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 font-mono text-lg uppercase tracking-[0.18em] text-cyan">
-            live
+          <div className="sticker-badge px-3 py-1 font-mono text-sm uppercase tracking-[0.18em] text-[var(--theme-badge)]">live</div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-3 text-[var(--theme-badge)]">
+          <div className="sticker-badge inline-flex items-center gap-2 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.16em]">
+            <Sparkles className="h-3.5 w-3.5 text-[var(--theme-highlight)]" /> synced
+          </div>
+          <div className="sticker-badge inline-flex items-center gap-2 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.16em]">
+            <Heart className="h-3.5 w-3.5 text-[var(--theme-accent)]" /> recent plays
           </div>
         </div>
 
-        {error ? <p className="mt-6 text-sm text-gold">{error}</p> : null}
+        {error ? <p className="mt-6 rounded-[20px] border-2 border-[rgba(57,18,98,0.22)] bg-white/55 px-4 py-3 text-sm text-[var(--theme-text)]">{error}</p> : null}
 
         {state?.track ? (
           <div className="mt-6 space-y-4">
-            <div className="media-frame relative mx-auto h-56 w-full max-w-[320px] p-2">
-              {state.track.imageUrl ? (
-                <Image
-                  src={state.track.imageUrl}
-                  alt={state.track.title}
-                  fill
-                  sizes="(max-width: 1280px) 300px, 320px"
-                  className="rounded-[24px] object-cover p-1.5"
-                />
-              ) : null}
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent,rgba(11,4,18,0.2)_82%,rgba(11,4,18,0.4))]" />
-            </div>
-
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-4">
-              <p className="section-kicker">{state.isPlaying ? "Playing now" : "Paused"}</p>
-              <p className={`mt-2 font-display uppercase tracking-[0.08em] text-white ${getAdaptiveHeadingClass(state.track.title)}`}>
-                {state.track.title}
-              </p>
-              <p className={`mt-2 uppercase text-ink/78 ${getAdaptiveSubheadingClass(state.track.artist)}`}>{state.track.artist}</p>
-              <p className="mt-1 font-mono text-base uppercase tracking-[0.14em] break-words text-cyan/90">{state.track.album}</p>
-              {state.syncedAt ? <p className="mt-3 text-xs uppercase tracking-[0.18em] text-ink/55">Synced {formatPlayedAt(state.syncedAt)}</p> : null}
-            </div>
-
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 text-white">
-                  {state.isPlaying ? <Play className="h-4 w-4 text-cyan" /> : <Pause className="h-4 w-4 text-coral" />}
-                  <span className="font-mono text-base uppercase tracking-[0.16em]">Session progress</span>
+            <div className="space-y-4">
+              <div className="desktop-card overflow-hidden p-4">
+                <div className="media-frame relative h-64 w-full p-2">
+                  {state.track.imageUrl ? (
+                    <Image src={state.track.imageUrl} alt={state.track.title} fill sizes="(max-width: 1280px) 320px, 380px" className="rounded-[18px] object-cover p-1.5" />
+                  ) : null}
+                  <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.08)_36%,rgba(72,24,110,0.22))]" />
                 </div>
               </div>
-              <div className="mt-4 h-3 rounded-full bg-white/10">
-                <div
-                  className="h-3 rounded-full bg-[linear-gradient(90deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))]"
-                  style={{ width: `${progress}%` }}
-                />
+
+              <div className="desktop-card p-4">
+                <p className="section-kicker">playing now</p>
+                <p className={`mt-2 font-display uppercase tracking-[0.08em] text-[var(--theme-title)] ${getAdaptiveHeadingClass(state.track.title)}`}>{state.track.title}</p>
+                <p className={`mt-2 uppercase text-[var(--theme-muted)] ${getAdaptiveSubheadingClass(state.track.artist)}`}>{state.track.artist}</p>
+                <p className="mt-1 font-mono text-sm uppercase tracking-[0.14em] break-words text-[var(--theme-body)]">{state.track.album}</p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+              <div className="desktop-card p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">session progress</p>
+                  {state.isPlaying ? <Play className="h-4 w-4 text-[var(--theme-highlight)]" /> : <Pause className="h-4 w-4 text-[var(--theme-accent)]" />}
+                </div>
+                <div className="mt-4 h-4 rounded-full border-2 border-[rgba(57,18,98,0.18)] bg-white/45 p-1">
+                  <div className="h-full rounded-full bg-[linear-gradient(90deg,#ff91e7,var(--theme-accent)_45%,var(--theme-highlight))]" style={{ width: `${progress}%` }} />
+                </div>
+                {state.syncedAt ? <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">synced {formatPlayedAt(state.syncedAt)}</p> : null}
+              </div>
+
+              <div className="desktop-card p-4">
+                <div className="flex items-center gap-3">
+                  <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
+                    <Disc3 className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">live status</p>
+                    <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{state.isPlaying ? "spinning" : "paused"}</p>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="glass-panel rounded-[24px] p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="glass-panel rounded-[26px] p-4">
+              <div className="mb-3 flex items-center justify-between gap-3 text-[var(--theme-text)]">
                 <div className="flex items-center gap-3">
-                  <Disc3 className="h-5 w-5 text-coral" />
-                  <p className="font-mono text-base uppercase tracking-[0.16em] text-ink/78">Recent tracks</p>
+                  <div className="icon-bubble h-10 w-10 text-[var(--theme-highlight)]">
+                    <Waves className="h-4 w-4" />
+                  </div>
+                  <p className="font-mono text-base uppercase tracking-[0.16em]">Recent tracks</p>
                 </div>
                 {recentTracks.length > COLLAPSED_RECENT_COUNT ? (
-                  <Link
-                    href="/dashboard/recent"
-                    className="rounded-full border border-ink/15 bg-white/5 px-3 py-1 font-mono text-xs uppercase tracking-[0.14em] text-ink/75 transition hover:border-gold/25 hover:text-gold"
-                  >
+                  <Link href="/dashboard/recent" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                     View all
                   </Link>
                 ) : null}
@@ -172,31 +184,30 @@ export function NowPlayingPanel() {
               <div className="space-y-3">
                 {visibleRecentTracks.length > 0 ? (
                   visibleRecentTracks.map((track, index) => (
-                    <div
-                      key={`${track.trackId}:${track.playedAt}`}
-                      className={`rounded-[18px] border p-3 ${index === 0 ? "border-coral/20 bg-[linear-gradient(135deg,rgba(255,94,201,0.18),rgba(255,211,123,0.08))]" : "border-ink/10 bg-white/[0.04]"}`}
-                    >
+                    <div key={`${track.trackId}:${track.playedAt}`} className="desktop-card p-3 text-[var(--theme-text)]">
                       <div className="flex items-start gap-3">
                         {track.imageUrl ? (
-                          <div className="media-frame relative h-14 w-14 shrink-0 p-1">
-                            <Image src={track.imageUrl} alt={track.title} fill sizes="56px" className="rounded-[12px] object-cover p-1" />
+                          <div className="media-frame relative h-16 w-16 shrink-0 p-1">
+                            <Image src={track.imageUrl} alt={track.title} fill sizes="64px" className="rounded-[12px] object-cover p-1" />
                           </div>
                         ) : null}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
-                              <p className={`font-display uppercase tracking-[0.06em] text-white ${getRecentTitleClass(track.title)}`}>{track.title}</p>
-                              <p className="mt-1 text-xs uppercase tracking-[0.12em] text-ink/70 break-words">{track.artist}</p>
-                              <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-ink/55">{formatPlayedAt(track.playedAt)}</p>
+                              <p className={`font-display uppercase tracking-[0.06em] text-[var(--theme-title)] ${getRecentTitleClass(track.title)}`}>{track.title}</p>
+                              <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[var(--theme-muted)] break-words">{track.artist}</p>
+                              <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--theme-faint)]">{formatPlayedAt(track.playedAt)}</p>
                             </div>
-                            {index === 0 ? <History className="mt-1 h-4 w-4 shrink-0 text-coral" /> : <Waves className="mt-1 h-4 w-4 shrink-0 text-cyan" />}
+                            <div className="icon-bubble h-8 w-8 shrink-0 text-[var(--theme-accent)]">
+                              {index === 0 ? <Heart className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-[18px] border border-ink/10 bg-white/[0.03] p-4 text-sm text-ink/75">
+                  <div className="rounded-[18px] border-2 border-[rgba(57,18,98,0.16)] bg-white/[0.5] p-4 text-sm text-[var(--theme-body)]">
                     Recent listening history will start showing here as Spotify syncs into SoundScope.
                   </div>
                 )}
@@ -204,7 +215,7 @@ export function NowPlayingPanel() {
             </div>
           </div>
         ) : (
-          <div className="mt-6 rounded-[28px] border border-ink/10 bg-white/[0.03] p-6 text-sm text-ink/75">
+          <div className="mt-6 rounded-[24px] border-2 border-[rgba(57,18,98,0.16)] bg-white/[0.52] p-6 text-sm text-[var(--theme-body)]">
             No active playback detected right now.
           </div>
         )}

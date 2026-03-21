@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Clock3, Flame, LibraryBig, Radar, Sparkles, Waves } from "lucide-react";
+import { Clock3, Flame, Heart, ImageIcon, LibraryBig, PlaySquare, Search, SmilePlus, Sparkles, Star, Waves } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -171,9 +171,9 @@ function SectionHeader({ kicker, title, copy, meta }: { kicker: string; title: s
   return (
     <div className="max-w-4xl space-y-3">
       <p className="section-kicker">{kicker}</p>
-      <h2 className="font-display text-4xl font-bold uppercase tracking-[0.08em] text-white md:text-5xl xl:text-6xl">{title}</h2>
-      <p className="max-w-3xl text-base leading-8 text-ink/78 md:text-lg">{copy}</p>
-      {meta ? <div className="space-y-1 text-sm text-ink/65">{meta}</div> : null}
+      <h2 className="font-display text-4xl font-bold uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl xl:text-6xl">{title}</h2>
+      <p className="max-w-3xl text-base leading-8 text-[var(--theme-body)] md:text-lg">{copy}</p>
+      {meta ? <div className="space-y-1 text-sm text-[var(--theme-muted)]">{meta}</div> : null}
     </div>
   );
 }
@@ -221,23 +221,58 @@ function MetricWindow({
   icon: React.ComponentType<{ className?: string }>;
   backgroundImage?: string;
 }) {
+  const hasArtwork = Boolean(backgroundImage);
+
   return (
-    <div className="window-panel relative flex h-full min-h-[18rem] flex-col overflow-hidden p-5 pt-14">
+    <div className="window-panel relative flex h-full min-h-[18rem] flex-col overflow-hidden p-5 pt-14 text-[var(--theme-text)]">
       {backgroundImage ? (
-        <>
-          <Image src={backgroundImage} alt={label} fill sizes="(max-width: 1280px) 100vw, 420px" className="object-cover opacity-30" />
-          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(17,8,31,0.2),rgba(17,8,31,0.86)_48%,rgba(17,8,31,0.96))]" />
-        </>
+        <div className="absolute inset-x-0 bottom-0 top-[44px] overflow-hidden">
+          <Image src={backgroundImage} alt={label} fill sizes="(max-width: 1280px) 100vw, 420px" className="object-cover opacity-60" />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,245,255,0.18)_18%,rgba(70,24,108,0.74))]" />
+        </div>
       ) : null}
       <div className="relative z-10 flex h-full flex-col">
         <div className="flex items-center justify-between gap-3">
-          <p className="font-mono text-lg uppercase tracking-[0.16em] text-ink/78">{label}</p>
-          <Icon className="h-5 w-5 text-cyan" />
+          <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">{label}</p>
+          <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
+            <Icon className="h-4 w-4" />
+          </div>
         </div>
-        <div className="mt-5 flex-1">
-          <p className={`font-display uppercase tracking-[0.08em] text-white drop-shadow-[0_4px_18px_rgba(0,0,0,0.42)] ${getAdaptiveValueClass(value)}`}>{value}</p>
+        <div className={hasArtwork ? "mt-5 flex flex-1 items-end" : "mt-5 flex flex-1 items-center justify-center text-center"}>
+          <p className={`font-display uppercase tracking-[0.08em] text-white drop-shadow-[0_4px_18px_rgba(44,12,70,0.45)] ${getAdaptiveValueClass(value)}`}>{value}</p>
         </div>
-        <p className="mt-4 text-sm text-peach">{detail}</p>
+        <p className={hasArtwork ? "mt-4 max-w-[18rem] text-sm uppercase tracking-[0.1em] text-[#ffeaff]" : "mt-4 text-center text-sm uppercase tracking-[0.1em] text-[var(--theme-muted)]"}>{detail}</p>
+      </div>
+    </div>
+  );
+}
+function DesktopMiniWindow({
+  title,
+  subtitle,
+  imageUrl,
+  icon: Icon,
+}: {
+  title: string;
+  subtitle: string;
+  imageUrl?: string;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="desktop-card overflow-hidden p-3 text-[var(--theme-text)]">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">{subtitle}</p>
+        <div className="icon-bubble h-9 w-9 text-[var(--theme-accent)]">
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-[92px_1fr] sm:items-center">
+        <div className="media-frame relative h-24 w-full p-1.5 sm:h-24 sm:w-24">
+          {imageUrl ? <Image src={imageUrl} alt={title} fill sizes="96px" className="rounded-[14px] object-cover p-1" /> : null}
+        </div>
+        <div>
+          <p className="font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)]">{title}</p>
+          <p className="mt-2 text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">saved to the visual shelf</p>
+        </div>
       </div>
     </div>
   );
@@ -333,37 +368,67 @@ export function DashboardView({
 
           <div className={sidebar && !isPreview ? "grid gap-8 2xl:grid-cols-[minmax(0,1fr)_420px] 2xl:items-start" : "space-y-8"}>
             <div className="min-w-0">
-              <div className="glass-panel rounded-[40px] px-6 py-7 md:px-8 md:py-8 xl:px-10">
-                <div className="absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(255,255,255,0.18),transparent)]" />
-                <div className="relative z-10 space-y-6">
-                  <SectionHeader
-                    kicker={isPreview ? "Dashboard preview" : "Live interface"}
-                    title="A scrapbook dashboard for your listening life"
-                    copy={
-                      isPreview
-                        ? "The preview leans into a collage of artwork, taste signals, and retro widgets so the experience feels collectible and alive instead of boxed into a standard analytics grid."
-                        : "Your Spotify history now lives inside a louder, image-heavy interface with trend windows and playlist panels that feel like a saved portal from 2002."
-                    }
-                    meta={
-                      <>
-                        <p className="text-cyan">{data.sourceLabel}</p>
-                        <p>Mood model: {data.moodSource}</p>
-                        {cachedAtLabel ? <p>Last snapshot: {cachedAtLabel}</p> : null}
-                      </>
-                    }
-                  />
-
+              <div className="glass-panel rounded-[42px] px-6 py-7 md:px-8 md:py-8 xl:px-10">
+                <div className="relative z-10 space-y-8 text-[var(--theme-text)]">
                   <div className="flex flex-wrap gap-3">
-                    {timeframeTabs.map((tab) => {
-                      const active = (isPreview ? "week" : selectedRange) === tab.key;
-                      const href = isPreview ? undefined : `/dashboard?range=${tab.key}&topRange=${selectedTopRange}`;
+                    <div className="sticker-badge inline-flex items-center gap-2 px-4 py-2 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-badge)]">
+                      <SmilePlus className="h-4 w-4 text-[var(--theme-accent)]" /> live interface
+                    </div>
+                    <div className="sticker-badge inline-flex items-center gap-2 px-4 py-2 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-badge)]">
+                      <ImageIcon className="h-4 w-4 text-[var(--theme-highlight)]" /> image-heavy mode
+                    </div>
+                    <div className="sticker-badge inline-flex items-center gap-2 px-4 py-2 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-badge)]">
+                      <Heart className="h-4 w-4 text-[var(--theme-accent)]" /> soft chrome
+                    </div>
+                  </div>
 
-                      return (
-                        <TabPill key={tab.key} active={active} href={href}>
-                          {tab.label}
-                        </TabPill>
-                      );
-                    })}
+                  <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr] xl:items-start">
+                    <div className="space-y-6">
+                      <SectionHeader
+                        kicker={isPreview ? "Dashboard preview" : "Live interface"}
+                        title="A scrapbook dashboard for your listening life"
+                        copy={
+                          isPreview
+                            ? "The preview now behaves like a pastel browser desktop full of art, shortcut windows, and collectible listening widgets instead of a plain analytics canvas."
+                            : "Your Spotify history now lives inside a pastel collage of browser windows, cover-art shelves, and playful controls that feel saved from a cute 2000s homepage."
+                        }
+                        meta={
+                          <>
+                            <p className="text-[var(--theme-badge)]">{data.sourceLabel}</p>
+                            <p>Mood model: {data.moodSource}</p>
+                            {cachedAtLabel ? <p>Last snapshot: {cachedAtLabel}</p> : null}
+                          </>
+                        }
+                      />
+
+                      <div className="flex flex-wrap gap-3">
+                        {timeframeTabs.map((tab) => {
+                          const active = (isPreview ? "week" : selectedRange) === tab.key;
+                          const href = isPreview ? undefined : `/dashboard?range=${tab.key}&topRange=${selectedTopRange}`;
+
+                          return (
+                            <TabPill key={tab.key} active={active} href={href}>
+                              {tab.label}
+                            </TabPill>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                      <DesktopMiniWindow
+                        title={leadTrack?.title ?? "No top track yet"}
+                        subtitle="track popup"
+                        imageUrl={leadTrack?.imageUrl}
+                        icon={PlaySquare}
+                      />
+                      <DesktopMiniWindow
+                        title={leadAlbum?.name ?? "No top album yet"}
+                        subtitle="cover shelf"
+                        imageUrl={leadAlbum?.imageUrl}
+                        icon={Star}
+                      />
+                    </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
@@ -386,15 +451,39 @@ export function DashboardView({
           </div>
 
           <div className="grid gap-6 2xl:grid-cols-[1.2fr_0.8fr]">
-                <div className="window-panel p-6 pt-16 md:p-7 md:pt-16">
+                <div className="window-panel p-6 pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
                   <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Listening trend</p>
-                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">{data.trendHeading}</h3>
+                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{data.trendHeading}</h3>
                     </div>
-                    <span className="pixel-chip text-cyan">{data.trendBadge}</span>
+                    <div className="sticker-badge px-3 py-1 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-badge)]">{data.trendBadge}</div>
                   </div>
-                  <div className="h-[330px] rounded-[24px] border border-white/10 bg-white/[0.04] p-3">
+                  <div className="mb-4 grid gap-3 sm:grid-cols-2">
+                    <div className="desktop-card p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
+                          <Search className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">trend lens</p>
+                          <p className="text-sm text-[var(--theme-body)]">watch your listening pulse spike like a little desktop visualizer.</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="desktop-card p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="icon-bubble h-10 w-10 text-[var(--theme-highlight)]">
+                          <Sparkles className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">rediscovery blips</p>
+                          <p className="text-sm text-[var(--theme-body)]">bar peaks call out when old favorites come back into rotation.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="h-[330px] rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45] p-3">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={data.trendData}>
                         <defs>
@@ -414,10 +503,21 @@ export function DashboardView({
                   </div>
                 </div>
 
-                <div className="glass-panel rounded-[34px] p-6 md:p-7">
-                  <p className="section-kicker">Genre pulse</p>
-                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">Top lanes this month</h3>
-                  <div className="mt-6 h-[300px] rounded-[24px] border border-white/10 bg-white/[0.04] p-3">
+                <div className="glass-panel rounded-[34px] p-6 md:p-7 text-[var(--theme-text)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="section-kicker">Genre pulse</p>
+                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Top lanes this month</h3>
+                    </div>
+                    <div className="icon-bubble h-11 w-11 text-[var(--theme-accent)]">
+                      <ImageIcon className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <div className="mt-4 desktop-card p-4">
+                    <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">genre shelf</p>
+                    <p className="mt-1 text-sm text-[var(--theme-body)]">your biggest styles get stacked like icons pinned to a pastel corkboard.</p>
+                  </div>
+                  <div className="mt-6 h-[300px] rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45] p-3">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={data.genrePulse} layout="vertical" margin={{ left: 8 }}>
                         <CartesianGrid horizontal={false} stroke="rgba(255,255,255,0.06)" />
@@ -434,10 +534,10 @@ export function DashboardView({
                   </div>
                   <div className="mt-5 grid gap-3">
                     {data.genrePulse.slice(0, 3).map((genre) => (
-                      <div key={genre.genre} className="rounded-[22px] border border-white/10 bg-white/[0.05] px-4 py-3">
+                      <div key={genre.genre} className="desktop-card px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="font-display text-lg uppercase tracking-[0.08em] text-white">{genre.genre}</span>
-                          <span className="font-mono text-xl uppercase text-cyan">{genre.hours}h</span>
+                          <span className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{genre.genre}</span>
+                          <span className="font-mono text-xl uppercase text-[var(--theme-highlight)]">{genre.hours}h</span>
                         </div>
                       </div>
                     ))}
@@ -446,11 +546,18 @@ export function DashboardView({
               </div>
 
               <div className="grid gap-6 2xl:grid-cols-[0.88fr_1.12fr]">
-                <div className="glass-panel rounded-[34px] p-6 md:p-7">
-                  <p className="section-kicker">Mood analysis</p>
-                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">Vibe radar</h3>
-                  <p className="mt-3 max-w-md text-sm leading-7 text-ink/76">{getVibeSummary(data.moodData)}</p>
-                  <div className="mt-6 h-[270px] rounded-[24px] border border-white/10 bg-white/[0.04] p-3">
+                <div className="glass-panel rounded-[34px] p-6 md:p-7 text-[var(--theme-text)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="section-kicker">Mood analysis</p>
+                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Vibe radar</h3>
+                    </div>
+                    <div className="icon-bubble h-11 w-11 text-[var(--theme-highlight)]">
+                      <Heart className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <p className="mt-3 max-w-md text-sm leading-7 text-[var(--theme-body)]">{getVibeSummary(data.moodData)}</p>
+                  <div className="mt-6 h-[270px] rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45] p-3">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie data={data.moodData} dataKey="share" nameKey="mood" innerRadius={62} outerRadius={98} paddingAngle={4}>
@@ -464,22 +571,24 @@ export function DashboardView({
                   </div>
                 </div>
 
-                <div className="window-panel p-6 pt-16 md:p-7 md:pt-16">
+                <div className="window-panel p-6 pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
                   <div className="mb-6 flex items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Mood heatmap</p>
-                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">Energy vs share</h3>
+                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Energy vs share</h3>
                     </div>
-                    <Waves className="h-5 w-5 text-cyan" />
+                    <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
+                      <Waves className="h-4 w-4" />
+                    </div>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     {data.moodData.map((mood, index) => (
-                      <div key={mood.mood} className="rounded-[24px] border border-white/10 bg-white/[0.05] p-5">
+                      <div key={mood.mood} className="desktop-card p-5 text-[var(--theme-text)]">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="font-display text-xl uppercase tracking-[0.08em] text-white">{mood.mood}</p>
-                          <p className="font-mono text-xl uppercase text-cyan">{mood.share}%</p>
+                          <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{mood.mood}</p>
+                          <p className="font-mono text-xl uppercase text-[var(--theme-highlight)]">{mood.share}%</p>
                         </div>
-                        <div className="mt-4 h-3 rounded-full bg-white/10">
+                        <div className="mt-4 h-3 rounded-full bg-[rgba(57,18,98,0.1)]">
                           <div
                             className="h-3 rounded-full"
                             style={{
@@ -488,7 +597,7 @@ export function DashboardView({
                             }}
                           />
                         </div>
-                        <p className="mt-3 text-sm text-ink/68">Energy score {mood.energy}/100</p>
+                        <p className="mt-3 text-sm text-[var(--theme-muted)]">Energy score {mood.energy}/100</p>
                       </div>
                     ))}
                   </div>
@@ -505,7 +614,7 @@ export function DashboardView({
             copy="Each ranking is now built like a collectible media shelf, with art-forward cards instead of plain list rows."
             meta={
               <>
-                <p className="text-cyan">{topListData.sourceLabel}</p>
+                <p className="text-[var(--theme-badge)]">{topListData.sourceLabel}</p>
                 {generatedAtLabel ? <p>Generated: {generatedAtLabel}</p> : null}
               </>
             }
@@ -527,7 +636,7 @@ export function DashboardView({
             {!isPreview ? (
               <Link
                 href={`/dashboard/top-lists?range=${selectedTopRange}&tab=artists&page=1`}
-                className="chrome-line rounded-full bg-white/[0.05] px-4 py-2 font-mono text-lg uppercase tracking-[0.14em] text-gold transition hover:border-gold/35 hover:bg-gold/10"
+                className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
               >
                 View all rankings
               </Link>
@@ -535,25 +644,25 @@ export function DashboardView({
           </div>
 
           <div className="grid gap-6 xl:grid-cols-3">
-            <div className="glass-panel rounded-[34px] p-6">
+            <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">
               <div className="mb-6 flex items-center gap-3">
                 <LibraryBig className="h-5 w-5 text-cyan" />
                 <div>
                   <p className="section-kicker">Top artists</p>
-                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">Faces of the era</h3>
+                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Faces of the era</h3>
                 </div>
               </div>
               <div className="space-y-4">
                 {topListData.artists.map((artist) => (
-                  <div key={artist.id} className="rounded-[26px] border border-white/10 bg-white/[0.05] p-4">
+                  <div key={artist.id} className="desktop-card p-4">
                     <div className="flex items-start gap-4">
                       <Artwork imageUrl={artist.imageUrl} label={artist.name} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-3">
-                          <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-white md:text-2xl">{artist.name}</p>
-                          <p className="font-mono text-xl uppercase text-cyan">#{artist.rank}</p>
+                          <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)] md:text-2xl">{artist.name}</p>
+                          <p className="font-mono text-xl uppercase text-[var(--theme-highlight)]">#{artist.rank}</p>
                         </div>
-                        <p className="mt-2 text-sm text-ink/70">
+                        <p className="mt-2 text-sm text-[var(--theme-muted)]">
                           {artist.genres.length > 0 ? artist.genres.slice(0, 2).join(" / ") : "Genres unavailable"}
                         </p>
                       </div>
@@ -568,21 +677,21 @@ export function DashboardView({
                 <Flame className="h-5 w-5 text-coral" />
                 <div>
                   <p className="section-kicker">Top songs</p>
-                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">Tracks on repeat</h3>
+                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Tracks on repeat</h3>
                 </div>
               </div>
               <div className="space-y-4">
                 {topListData.tracks.map((track) => (
-                  <div key={track.id} className="rounded-[26px] border border-white/10 bg-white/[0.05] p-4">
+                  <div key={track.id} className="desktop-card p-4">
                     <div className="flex items-start gap-4">
                       <Artwork imageUrl={track.imageUrl} label={track.title} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-3">
-                          <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-white md:text-2xl">{track.title}</p>
-                          <p className="font-mono text-xl uppercase text-gold">#{track.rank}</p>
+                          <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)] md:text-2xl">{track.title}</p>
+                          <p className="font-mono text-xl uppercase text-[var(--theme-accent)]">#{track.rank}</p>
                         </div>
-                        <p className="mt-2 text-sm text-ink/70">{track.artist}</p>
-                        <p className="mt-1 font-mono text-lg uppercase tracking-[0.12em] text-ink/55">{track.album}</p>
+                        <p className="mt-2 text-sm text-[var(--theme-muted)]">{track.artist}</p>
+                        <p className="mt-1 font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-faint)]">{track.album}</p>
                       </div>
                     </div>
                   </div>
@@ -595,21 +704,21 @@ export function DashboardView({
                 <Sparkles className="h-5 w-5 text-gold" />
                 <div>
                   <p className="section-kicker">Top albums</p>
-                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">Projects that stick</h3>
+                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Projects that stick</h3>
                 </div>
               </div>
               <div className="space-y-4">
                 {topListData.albums.map((album) => (
-                  <div key={album.id} className="rounded-[26px] border border-white/10 bg-white/[0.05] p-4">
+                  <div key={album.id} className="desktop-card p-4">
                     <div className="flex items-start gap-4">
                       <Artwork imageUrl={album.imageUrl} label={album.name} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-3">
-                          <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-white md:text-2xl">{album.name}</p>
-                          <p className="font-mono text-xl uppercase text-mint">#{album.rank}</p>
+                          <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)] md:text-2xl">{album.name}</p>
+                          <p className="font-mono text-xl uppercase text-[var(--theme-highlight)]">#{album.rank}</p>
                         </div>
-                        <p className="mt-2 text-sm text-ink/70">{album.artist}</p>
-                        <p className="mt-1 font-mono text-lg uppercase tracking-[0.12em] text-ink/55">
+                        <p className="mt-2 text-sm text-[var(--theme-muted)]">{album.artist}</p>
+                        <p className="mt-1 font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-faint)]">
                           {album.trackCount} ranked track{album.trackCount === 1 ? "" : "s"}
                         </p>
                       </div>
@@ -631,7 +740,7 @@ export function DashboardView({
           />
 
           <div className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
-            <div className="glass-panel rounded-[36px] p-6 md:p-7">
+            <div className="glass-panel rounded-[36px] p-6 md:p-7 text-[var(--theme-text)]">
               <div className="grid gap-5 md:grid-cols-[1.05fr_0.95fr]">
                 <div className="media-frame relative min-h-[420px] p-2">
                   {data.forgottenFavorites[0]?.imageUrl ? (
@@ -643,11 +752,11 @@ export function DashboardView({
                       className="rounded-[22px] object-cover p-1.5"
                     />
                   ) : null}
-                  <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent,rgba(11,4,18,0.82))]" />
-                  <div className="absolute bottom-6 left-6 right-6 rounded-[24px] border border-white/20 bg-black/20 p-5 backdrop-blur-md">
+                  <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
+                  <div className="absolute bottom-6 left-6 right-6 rounded-[24px] border-2 border-white/35 bg-[rgba(255,245,255,0.72)] p-5 text-[var(--theme-text)] backdrop-blur-md">
                     <p className="section-kicker">Spotlight replay</p>
-                    <h3 className="mt-2 font-display text-4xl uppercase tracking-[0.08em] text-white">{data.forgottenFavorites[0]?.title}</h3>
-                    <p className="mt-2 text-sm uppercase tracking-[0.2em] text-ink/78">{data.forgottenFavorites[0]?.artist} / {data.forgottenFavorites[0]?.album}</p>
+                    <h3 className="mt-2 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{data.forgottenFavorites[0]?.title}</h3>
+                    <p className="mt-2 text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{data.forgottenFavorites[0]?.artist} / {data.forgottenFavorites[0]?.album}</p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <span className="pixel-chip text-mint">{data.forgottenFavorites[0]?.affinity}% affinity</span>
                       <span className="pixel-chip text-gold">{data.forgottenFavorites[0]?.lastPlayed}</span>
@@ -656,17 +765,17 @@ export function DashboardView({
                 </div>
                 <div className="space-y-4">
                   {data.forgottenFavorites.slice(1).map((track) => (
-                    <div key={track.title} className="rounded-[28px] border border-white/10 bg-white/[0.05] p-4">
+                    <div key={track.title} className="desktop-card p-4">
                       <div className="flex items-start gap-4">
                         <Artwork imageUrl={track.imageUrl} label={track.title} size="sm" />
                         <div className="min-w-0 flex-1">
-                          <p className="font-display text-xl uppercase tracking-[0.08em] text-white">{track.title}</p>
-                          <p className="mt-1 text-sm text-ink/70">{track.artist} / {track.album}</p>
+                          <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{track.title}</p>
+                          <p className="mt-1 text-sm text-[var(--theme-muted)]">{track.artist} / {track.album}</p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <span className="rounded-full border border-mint/20 bg-mint/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-mint">
                               {track.affinity}% affinity
                             </span>
-                            <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs uppercase tracking-[0.18em] text-ink/68">
+                            <span className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.55] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-faint)]">
                               {track.lastPlayed}
                             </span>
                           </div>
@@ -678,32 +787,34 @@ export function DashboardView({
               </div>
             </div>
 
-            <div className="window-panel p-6 pt-16 md:p-7 md:pt-16">
+            <div className="window-panel p-6 pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
               <div className="mb-6 flex items-center gap-3">
-                <Sparkles className="h-5 w-5 text-gold" />
+                <div className="icon-bubble h-11 w-11 text-[var(--theme-accent)]">
+                  <Sparkles className="h-5 w-5" />
+                </div>
                 <div>
                   <p className="section-kicker">Auto playlist</p>
-                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">Rediscovery queue logic</h3>
+                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Rediscovery queue logic</h3>
                 </div>
               </div>
               <div className="space-y-4">
                 {playlist.map((item, index) => (
-                  <div key={item.slot} className={`flex items-center justify-between rounded-[24px] border px-4 py-4 ${index === 0 ? "border-cyan/25 bg-cyan/10" : "border-white/10 bg-white/[0.05]"}`}>
+                  <div key={item.slot} className={`desktop-card flex items-center justify-between px-4 py-4 ${index === 0 ? "bg-[rgba(106,244,255,0.14)]" : "bg-[rgba(255,250,255,0.62)]"}` }>
                     <div className="flex items-center gap-4">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] font-display text-[#170718]">
                         {item.slot}
                       </div>
                       <div>
-                        <p className="font-display text-lg uppercase tracking-[0.08em] text-white">{item.label}</p>
-                        <p className="mt-1 text-sm text-ink/70">{item.reason}</p>
+                        <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{item.label}</p>
+                        <p className="mt-1 text-sm text-[var(--theme-muted)]">{item.reason}</p>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="mt-6 rounded-[24px] border border-cyan/20 bg-cyan/10 p-5">
-                <p className="font-mono text-lg uppercase tracking-[0.18em] text-cyan/80">Current logic</p>
-                <p className="mt-3 text-sm leading-7 text-ink/82">
+              <div className="mt-6 desktop-card p-5">
+                <p className="font-mono text-lg uppercase tracking-[0.18em] text-[var(--theme-highlight)]">Current logic</p>
+                <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
                   Short-term favorites, long-term staples, saved-library affinity, and recent-play gaps now get surfaced as a more collectible queue instead of a simple text list.
                 </p>
               </div>
@@ -721,9 +832,9 @@ export function DashboardView({
           />
 
           <div className="flex items-center justify-between gap-4">
-            <p className="font-mono text-lg uppercase tracking-[0.12em] text-ink/65">Open any playlist to inspect its structure in more detail.</p>
+            <p className="font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-muted)]">Open any playlist to inspect its structure in more detail.</p>
             {!isPreview ? (
-              <Link href="/dashboard/playlists" className="chrome-line rounded-full bg-cyan/10 px-4 py-2 font-mono text-lg uppercase tracking-[0.14em] text-cyan">
+              <Link href="/dashboard/playlists" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 View all playlists
               </Link>
             ) : null}
@@ -736,34 +847,34 @@ export function DashboardView({
                   {playlistCard.imageUrl ? (
                     <div className="media-frame relative mb-5 h-60 p-2">
                       <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-cover p-1.5" />
-                      <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent,rgba(11,4,18,0.82))]" />
+                      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
                       <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-3">
                         <div>
                           <p className="section-kicker">Playlist insight</p>
-                          <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-white">{playlistCard.name}</h3>
+                          <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlistCard.name}</h3>
                         </div>
-                        <div className="rounded-full border border-white/20 bg-black/20 px-3 py-1 font-mono text-lg text-cyan">0{index + 1}</div>
+                        <div className="sticker-badge px-3 py-1 font-mono text-lg text-[var(--theme-badge)]">0{index + 1}</div>
                       </div>
                     </div>
                   ) : null}
                   <div className="grid gap-4">
-                    <div className="rounded-[22px] border border-white/10 bg-white/[0.05] p-4">
-                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-ink/60">Mood consistency</p>
-                      <p className="mt-2 text-white">{playlistCard.mood}</p>
+                    <div className="desktop-card p-4">
+                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Mood consistency</p>
+                      <p className="mt-2 text-[var(--theme-title)]">{playlistCard.mood}</p>
                     </div>
-                    <div className="rounded-[22px] border border-white/10 bg-white/[0.05] p-4">
-                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-ink/60">Genre diversity</p>
-                      <p className="mt-2 text-white">{playlistCard.diversity}</p>
+                    <div className="desktop-card p-4">
+                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Genre diversity</p>
+                      <p className="mt-2 text-[var(--theme-title)]">{playlistCard.diversity}</p>
                     </div>
-                    <div className="rounded-[22px] border border-white/10 bg-white/[0.05] p-4">
-                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-ink/60">Redundancy</p>
-                      <p className="mt-2 text-white">{playlistCard.overlap}</p>
+                    <div className="desktop-card p-4">
+                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Redundancy</p>
+                      <p className="mt-2 text-[var(--theme-title)]">{playlistCard.overlap}</p>
                     </div>
                   </div>
                 </>
               );
 
-              const className = `glass-panel rounded-[32px] p-6 transition ${index === 0 ? "shadow-glow" : ""}`;
+              const className = `glass-panel rounded-[32px] p-6 text-[var(--theme-text)] transition ${index === 0 ? "shadow-glow" : ""}`;
 
               if (!isPreview && playlistCard.id) {
                 return (
@@ -784,27 +895,27 @@ export function DashboardView({
       </section>
 
       <section id="roadmap" className="px-6 py-20 pb-28 md:px-10">
-        <div className="mx-auto max-w-7xl window-panel p-8 pt-16 md:p-10 md:pt-16">
+        <div className="mx-auto max-w-7xl window-panel p-8 pt-16 md:p-10 md:pt-16 text-[var(--theme-text)]">
           <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
             <div>
               <p className="section-kicker">Build path</p>
-              <h2 className="mt-4 max-w-md font-display text-5xl font-bold uppercase tracking-[0.08em] text-white md:text-6xl">
+              <h2 className="mt-4 max-w-md font-display text-5xl font-bold uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-6xl">
                 Stronger MVP now, louder music intelligence next.
               </h2>
-              <p className="mt-5 max-w-lg text-base leading-8 text-ink/75">
+              <p className="mt-5 max-w-lg text-base leading-8 text-[var(--theme-body)]">
                 The new shell is designed so richer live data can keep slotting into a distinct visual identity without drifting back into generic analytics tiles.
               </p>
             </div>
             <div className="space-y-5">
               {roadmap.map((item, index) => (
-                <div key={item.phase} className="rounded-[28px] border border-white/10 bg-white/[0.05] p-5">
+                <div key={item.phase} className="desktop-card p-5">
                   <div className="flex items-start gap-4">
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] font-display text-[#170718]">
                       0{index + 1}
                     </div>
                     <div>
-                      <p className="font-display text-xl uppercase tracking-[0.08em] text-white">{item.phase}</p>
-                      <p className="mt-2 text-sm leading-7 text-ink/72">{item.detail}</p>
+                      <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{item.phase}</p>
+                      <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">{item.detail}</p>
                     </div>
                   </div>
                 </div>
