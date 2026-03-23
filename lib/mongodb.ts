@@ -15,7 +15,11 @@ function createClientPromise() {
     return null;
   }
 
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 5000,
+    socketTimeoutMS: 10000,
+  });
   return client.connect();
 }
 
@@ -45,8 +49,9 @@ export async function getDatabase(): Promise<Db | null> {
 
     if (process.env.NODE_ENV !== "production") {
       global.mongoClientPromise = undefined;
-      console.warn("MongoDB unavailable, falling back to non-cached mode.", error);
     }
+
+    console.warn("MongoDB unavailable, falling back to non-cached mode.", error);
 
     return null;
   }

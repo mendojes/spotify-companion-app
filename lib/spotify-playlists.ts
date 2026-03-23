@@ -1,5 +1,5 @@
-import { getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
-import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
+import { getCurrentPlaybackSource, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
+import { spotifyFetch } from "@/lib/spotify";
 import {
   PlaylistArtistSummary,
   PlaylistDetail,
@@ -14,8 +14,8 @@ import {
   SpotifyPlaylistsResponse,
   SpotifyPlaylistTrackItem,
   SpotifyPlaylistTracksResponse,
-  StoredRecentPlay,
   SpotifyTrack,
+  StoredRecentPlay,
 } from "@/lib/types";
 
 const PLAYLIST_PAGE_LIMIT = 20;
@@ -44,16 +44,6 @@ function uniqueById<T extends Identifiable>(items: T[]) {
   }
 
   return result;
-}
-
-function trackKey(track: SpotifyTrack) {
-  const primaryArtist = track.artists[0]?.name ?? "unknown";
-  return `${track.name}::${primaryArtist}`.toLowerCase();
-}
-
-function storedPlayKey(play: StoredRecentPlay) {
-  const primaryArtist = play.artistName.split(", ")[0] ?? "unknown";
-  return `${play.trackName}::${primaryArtist}`.toLowerCase();
 }
 
 async function fetchPlaylistsPage(accessToken: string, offset = 0) {
@@ -135,12 +125,12 @@ async function fetchAudioFeatures(accessToken: string, tracks: SpotifyTrack[]) {
     return [] as SpotifyAudioFeature[];
   }
 
-  const response = await spotifyFetchOptional<SpotifyAudioFeaturesResponse>(
-    `/audio-features?ids=${trackIds.join(",")}`,
-    accessToken,
-  );
-
-  return response?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
+  try {
+    const response = await spotifyFetch<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${trackIds.join(",")}`, accessToken);
+    return response.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature));
+  } catch {
+    return [] as SpotifyAudioFeature[];
+  }
 }
 
 function getDominantMood(features: SpotifyAudioFeature[]) {
@@ -287,14 +277,12 @@ function deriveCreatedAt(trackItems: PlaylistTrackWithMeta[]) {
   return new Date(Math.min(...timestamps)).toISOString();
 }
 
-function deriveLastListenedAt(tracks: SpotifyTrack[], recentPlays: StoredRecentPlay[]) {
+function deriveLastListenedAt(playlistId: string, recentPlays: StoredRecentPlay[]) {
   if (recentPlays.length === 0) {
     return undefined;
   }
 
-  const playlistTrackKeys = new Set(tracks.map(trackKey));
-  const match = recentPlays.find((item) => playlistTrackKeys.has(storedPlayKey(item)));
-  return match?.playedAt;
+  return recentPlays.find((item) => item.playlistId === playlistId)?.playedAt;
 }
 
 function sortPlaylistInsights(playlists: PlaylistInsight[], sort: PlaylistSortOption) {
@@ -351,7 +339,7 @@ async function analyzePlaylist(
       diversity: getGenreDiversity(artists, tracks.length),
       overlap: getRedundancy(tracks),
       createdAt: deriveCreatedAt(trackItems),
-      lastListenedAt: deriveLastListenedAt(tracks, recentPlays),
+      lastListenedAt: deriveLastListenedAt(playlist.id, recentPlays),
       topGenres: buildGenreSummary(artists),
       topArtists: buildArtistSummary(tracks),
       repeatedTracks: buildRepeatedTracks(tracks),
@@ -406,15 +394,81 @@ async function getRecentHistory(accessToken: string, spotifyUserId: string) {
   ).map(({ id: _id, ...play }) => play);
 }
 
+function getRecentPlaylistCandidates(recentPlays: StoredRecentPlay[], currentPlaylistId?: string) {
+  const seen = new Set<string>();
+  const playlistIds: string[] = [];
+
+  if (currentPlaylistId) {
+    seen.add(currentPlaylistId);
+    playlistIds.push(currentPlaylistId);
+  }
+
+  for (const play of recentPlays) {
+    if (!play.playlistId || seen.has(play.playlistId)) {
+      continue;
+    }
+
+    seen.add(play.playlistId);
+    playlistIds.push(play.playlistId);
+
+    if (playlistIds.length >= DASHBOARD_PLAYLIST_COUNT * 2) {
+      break;
+    }
+  }
+
+  return playlistIds;
+}
+
 export async function getPlaylistInsights(accessToken: string, spotifyUserId: string): Promise<PlaylistInsight[]> {
-  const [firstPage, recentPlays] = await Promise.all([
-    fetchPlaylistsPage(accessToken, 0),
+  const [recentPlays, currentPlaybackSource] = await Promise.all([
     getRecentHistory(accessToken, spotifyUserId),
+    getCurrentPlaybackSource(accessToken).catch(() => undefined),
   ]);
 
-  const playlists = uniqueById(firstPage.items.filter((playlist) => playlist.tracks.total > 0)).slice(0, DASHBOARD_PLAYLIST_COUNT);
-  const details = await analyzeManyPlaylists(accessToken, playlists, recentPlays);
-  return uniqueById(details).map(toInsight);
+  const currentPlaylistId = currentPlaybackSource?.type === "playlist" ? currentPlaybackSource.playlistId : undefined;
+  const candidateIds = getRecentPlaylistCandidates(recentPlays, currentPlaylistId);
+
+  if (candidateIds.length === 0) {
+    return [];
+  }
+
+  const playlists = await Promise.all(
+    candidateIds.map(async (playlistId) => {
+      try {
+        return await fetchPlaylistById(accessToken, playlistId);
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const details = await analyzeManyPlaylists(
+    accessToken,
+    playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)),
+    recentPlays,
+  );
+
+  const currentPlaybackTimestamp = currentPlaylistId ? new Date().toISOString() : undefined;
+
+  return sortPlaylistInsights(
+    uniqueById(details)
+      .map((detail) => {
+        const insight = toInsight(detail);
+
+        if (currentPlaylistId && detail.id === currentPlaylistId) {
+          return {
+            ...insight,
+            name: currentPlaybackSource?.label ?? insight.name,
+            imageUrl: currentPlaybackSource?.imageUrl ?? insight.imageUrl,
+            lastListenedAt: currentPlaybackTimestamp,
+          };
+        }
+
+        return insight;
+      })
+      .filter((playlist) => Boolean(playlist.lastListenedAt)),
+    "last_listened_desc",
+  ).slice(0, DASHBOARD_PLAYLIST_COUNT);
 }
 
 export async function getAllPlaylistInsights(

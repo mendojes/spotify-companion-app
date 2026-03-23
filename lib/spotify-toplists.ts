@@ -256,30 +256,34 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: TopListRange
     return [] as SpotifyDashboardSnapshot[];
   }
 
-  const db = await getDatabase();
-  if (!db) {
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return [] as SpotifyDashboardSnapshot[];
+    }
+
+    const window = getWindow(range, from, to);
+    const fetchedAt: { $gte?: string; $lte?: string } = {};
+
+    if (window.from) {
+      fetchedAt.$gte = window.from;
+    }
+
+    if (window.to) {
+      fetchedAt.$lte = window.to;
+    }
+
+    const query = Object.keys(fetchedAt).length > 0 ? { spotifyUserId, fetchedAt } : { spotifyUserId };
+
+    return db
+      .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
+      .find(query)
+      .sort({ fetchedAt: -1 })
+      .limit(range === "all" || range === "year" ? 365 : 180)
+      .toArray();
+  } catch {
     return [] as SpotifyDashboardSnapshot[];
   }
-
-  const window = getWindow(range, from, to);
-  const fetchedAt: { $gte?: string; $lte?: string } = {};
-
-  if (window.from) {
-    fetchedAt.$gte = window.from;
-  }
-
-  if (window.to) {
-    fetchedAt.$lte = window.to;
-  }
-
-  const query = Object.keys(fetchedAt).length > 0 ? { spotifyUserId, fetchedAt } : { spotifyUserId };
-
-  return db
-    .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
-    .find(query)
-    .sort({ fetchedAt: -1 })
-    .limit(range === "all" || range === "year" ? 365 : 180)
-    .toArray();
 }
 
 async function getFallbackSpotifyTopLists(accessToken: string, range: TopListRange, limit: number): Promise<TopListsData> {

@@ -36,6 +36,8 @@ export type FavoriteTrack = {
   lastPlayed: string;
   affinity: number;
   imageUrl?: string;
+  savedAt?: string;
+  reason?: string;
 };
 
 export type GenrePulse = {
@@ -102,6 +104,7 @@ export type DashboardInsights = {
   moodData: MoodPoint[];
   moodHeatmap: MoodHeatmapCell[];
   forgottenFavorites: FavoriteTrack[];
+  quietSavedTracks: FavoriteTrack[];
   playlistInsights: PlaylistInsight[];
   sourceLabel: string;
   moodSource: string;
@@ -188,6 +191,12 @@ export type NowPlayingState = {
     imageUrl?: string;
     durationMs: number;
   };
+  playingFrom?: {
+    type: string;
+    label: string;
+    playlistId?: string;
+    imageUrl?: string;
+  };
   recentTracks?: RecentTrackSummary[];
   syncedRecentCount?: number;
   syncedAt?: string;
@@ -244,15 +253,23 @@ export type SpotifyTopTracksResponse = {
   items: SpotifyTrack[];
 };
 
+export type SpotifyPlaybackContext = {
+  type?: string;
+  uri?: string;
+  href?: string | null;
+};
+
 export type SpotifyCurrentlyPlayingResponse = {
   is_playing: boolean;
   progress_ms?: number;
   item?: SpotifyTrack | null;
+  context?: SpotifyPlaybackContext | null;
 };
 
 export type SpotifyRecentlyPlayedItem = {
   track: SpotifyTrack;
   played_at: string;
+  context?: SpotifyPlaybackContext | null;
 };
 
 export type SpotifyRecentlyPlayedResponse = {
@@ -267,6 +284,9 @@ export type StoredRecentPlay = {
   artistName: string;
   albumName: string;
   imageUrl?: string;
+  playlistId?: string;
+  playlistName?: string;
+  sourceType?: string;
 };
 
 export type SpotifySavedTrackItem = {

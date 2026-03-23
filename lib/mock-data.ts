@@ -100,6 +100,53 @@ export const forgottenFavorites: FavoriteTrack[] = [
   },
 ];
 
+export const quietSavedTracks: FavoriteTrack[] = [
+  {
+    title: "Pink Moon",
+    artist: "Nick Drake",
+    album: "Pink Moon",
+    lastPlayed: "Not in recent listens",
+    affinity: 78,
+    savedAt: "2023-09-14T00:00:00.000Z",
+    reason: "Saved ages ago and still sitting quietly in your library.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1458560871784-56d23406c091?auto=format&fit=crop&w=800&q=80",
+  },
+  {
+    title: "Heaven or Las Vegas",
+    artist: "Cocteau Twins",
+    album: "Heaven or Las Vegas",
+    lastPlayed: "214 days ago",
+    affinity: 74,
+    savedAt: "2022-11-03T00:00:00.000Z",
+    reason: "An older save that has been out of rotation for a long stretch.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=800&q=80",
+  },
+  {
+    title: "Holocene",
+    artist: "Bon Iver",
+    album: "Bon Iver, Bon Iver",
+    lastPlayed: "156 days ago",
+    affinity: 72,
+    savedAt: "2021-05-22T00:00:00.000Z",
+    reason: "Saved long ago, but it has barely shown up in your recent listening window.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80",
+  },
+  {
+    title: "Cherry-coloured Funk",
+    artist: "Cocteau Twins",
+    album: "Heaven or Las Vegas",
+    lastPlayed: "Not in recent listens",
+    affinity: 69,
+    savedAt: "2022-11-03T00:00:00.000Z",
+    reason: "A library deep cut that still fits your taste, even without favorite-level history.",
+    imageUrl:
+      "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80",
+  },
+];
+
 export const genrePulse: GenrePulse[] = [
   { genre: "Alt-pop", hours: 10.2, color: "#31E7FF" },
   { genre: "Indie rock", hours: 8.6, color: "#53F8B7" },

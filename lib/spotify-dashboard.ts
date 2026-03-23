@@ -22,7 +22,7 @@ import {
   DashboardAnalysisEntry,
 } from "@/lib/types";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
-import { playlistInsights as mockPlaylistInsights } from "@/lib/mock-data";
+
 import { getPlaylistInsights } from "@/lib/spotify-playlists";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 
@@ -551,10 +551,64 @@ function deriveForgottenFavorites(
       };
     })
     .sort((a, b) => Number(Boolean(a.recentPlay)) - Number(Boolean(b.recentPlay)) || b.affinity - a.affinity)
-    .slice(0, 4)
+    .slice(0, 12)
     .map<FavoriteTrack>(({ recentPlay: _recentPlay, ...track }) => track);
 }
 
+function deriveQuietSavedTracks(
+  savedTracks: SpotifySavedTrackItem[] = [],
+  recent: SpotifyRecentlyPlayedItem[],
+  excludedTitles: Set<string>,
+): FavoriteTrack[] {
+  const recentMap = new Map<string, string>();
+  recent.forEach((item) => {
+    const key = titleKey(item.track.name, item.track.artists[0]?.name ?? "Unknown Artist");
+    if (!recentMap.has(key)) {
+      recentMap.set(key, item.played_at);
+    }
+  });
+
+  const candidateMap = new Map<string, FavoriteTrack & { recentPlay?: string; dormantScore: number }>();
+
+  savedTracks.forEach((item, index) => {
+    const track = item.track;
+    const artist = track.artists[0]?.name ?? "Unknown Artist";
+    const dedupeKey = titleKey(track.name, artist);
+
+    if (excludedTitles.has(dedupeKey)) {
+      return;
+    }
+
+    const recentPlay = recentMap.get(dedupeKey);
+    const daysSinceSaved = Math.max(0, daysSince(item.added_at));
+    const daysSincePlayed = recentPlay ? daysSince(recentPlay) : Math.max(45, Math.floor(daysSinceSaved * 0.45));
+    const dormantScore = daysSincePlayed + Math.min(24, Math.floor(daysSinceSaved / 45)) + Math.max(0, 12 - index);
+    const affinity = Math.max(58, Math.min(92, Math.round(40 + dormantScore * 0.75 + track.popularity * 0.18)));
+
+    const existing = candidateMap.get(track.id);
+    if (!existing || dormantScore > existing.dormantScore) {
+      candidateMap.set(track.id, {
+        title: track.name,
+        artist,
+        album: track.album.name,
+        lastPlayed: recentPlay ? `${daysSincePlayed} days ago` : "Not in recent listens",
+        affinity,
+        imageUrl: track.album.images?.[0]?.url,
+        savedAt: item.added_at,
+        reason: recentPlay
+          ? `Saved earlier and absent from rotation for ${daysSincePlayed} days.`
+          : "Saved in your library, but it has not shown up in your recent listening window.",
+        recentPlay,
+        dormantScore,
+      });
+    }
+  });
+
+  return [...candidateMap.values()]
+    .sort((a, b) => b.dormantScore - a.dormantScore || b.affinity - a.affinity)
+    .slice(0, 12)
+    .map(({ recentPlay: _recentPlay, dormantScore: _dormantScore, ...track }) => track);
+}
 function deriveStatCards(
   topArtists: SpotifyArtist[],
   topTracks: SpotifyTopTracksResponse["items"],
@@ -685,7 +739,7 @@ async function deriveInsights(
     ...deriveMoodDataFromGenres(topArtists),
     moodHeatmap: deriveMoodHeatmapFallback(deriveMoodDataFromGenres(topArtists).moodData),
   };
-  let playlistInsights = mockPlaylistInsights as PlaylistInsight[];
+  let playlistInsights: PlaylistInsight[] = [];
 
   if (accessToken) {
     const audioFeatureTrackIds = [
@@ -707,6 +761,13 @@ async function deriveInsights(
     }
   }
 
+  const forgottenFavorites = deriveForgottenFavorites(topTracks, recent, longTermTopTracks, savedTracks);
+  const quietSavedTracks = deriveQuietSavedTracks(
+    savedTracks,
+    recent,
+    new Set(forgottenFavorites.map((track) => titleKey(track.title, track.artist))),
+  );
+
   return {
     statCards: deriveStatCards(topArtists, topTracks, recent, sortedSnapshots.length, range),
     trendData: deriveTrendData(recent, range),
@@ -716,7 +777,8 @@ async function deriveInsights(
     moodData: moodResult.moodData,
     moodHeatmap: moodResult.moodHeatmap,
     moodSource: moodResult.moodSource,
-    forgottenFavorites: deriveForgottenFavorites(topTracks, recent, longTermTopTracks, savedTracks),
+    forgottenFavorites,
+    quietSavedTracks,
     playlistInsights,
     sourceLabel: hasMongoConfig() ? (sortedSnapshots.length > 1 ? "Historical Spotify cache with library depth" : "Live Spotify data with Mongo cache") : "Live Spotify data",
     cachedAt: latestFetchedAt,
@@ -730,12 +792,16 @@ async function ensureIndexes() {
     return;
   }
 
-  const db = await getDatabase();
-  if (!db) {
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    await db.collection(SNAPSHOT_HISTORY_COLLECTION).createIndex({ spotifyUserId: 1, fetchedAt: -1 });
+  } catch {
     return;
   }
-
-  await db.collection(SNAPSHOT_HISTORY_COLLECTION).createIndex({ spotifyUserId: 1, fetchedAt: -1 });
 }
 
 async function getHistoricalSnapshots(spotifyUserId: string, range: DashboardRange) {
@@ -743,15 +809,19 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: DashboardRan
     return [] as SpotifyDashboardSnapshot[];
   }
 
-  const db = await getDatabase();
-  if (!db) {
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return [] as SpotifyDashboardSnapshot[];
+    }
+
+    const windowStart = getRangeWindow(range);
+    const query = windowStart ? { spotifyUserId, fetchedAt: { $gte: windowStart.toISOString() } } : { spotifyUserId };
+
+    return db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).find(query).sort({ fetchedAt: -1 }).limit(range === "all" ? 180 : 60).toArray();
+  } catch {
     return [] as SpotifyDashboardSnapshot[];
   }
-
-  const windowStart = getRangeWindow(range);
-  const query = windowStart ? { spotifyUserId, fetchedAt: { $gte: windowStart.toISOString() } } : { spotifyUserId };
-
-  return db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).find(query).sort({ fetchedAt: -1 }).limit(range === "all" ? 180 : 60).toArray();
 }
 
 async function getLatestSnapshot(spotifyUserId: string) {
@@ -759,12 +829,16 @@ async function getLatestSnapshot(spotifyUserId: string) {
     return null;
   }
 
-  const db = await getDatabase();
-  if (!db) {
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return null;
+    }
+
+    return db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).find({ spotifyUserId }).sort({ fetchedAt: -1 }).limit(1).next();
+  } catch {
     return null;
   }
-
-  return db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).find({ spotifyUserId }).sort({ fetchedAt: -1 }).limit(1).next();
 }
 
 async function writeSnapshot(snapshot: SpotifyDashboardSnapshot) {
@@ -772,12 +846,16 @@ async function writeSnapshot(snapshot: SpotifyDashboardSnapshot) {
     return;
   }
 
-  const db = await getDatabase();
-  if (!db) {
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    await db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).insertOne(snapshot);
+  } catch {
     return;
   }
-
-  await db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).insertOne(snapshot);
 }
 
 async function fetchSavedTracks(accessToken: string, limit = 50) {

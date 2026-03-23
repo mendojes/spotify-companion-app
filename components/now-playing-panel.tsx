@@ -61,7 +61,24 @@ function useNowPlayingState() {
 
         const nextState = (await response.json()) as NowPlayingState;
         if (!cancelled) {
-          setState(nextState);
+          setState((previous) => {
+            if (nextState.track) {
+              return nextState;
+            }
+
+            if (previous?.track) {
+              return {
+                ...previous,
+                isPlaying: false,
+                progressMs: previous.progressMs,
+                recentTracks: nextState.recentTracks ?? previous.recentTracks,
+                syncedRecentCount: nextState.syncedRecentCount ?? previous.syncedRecentCount,
+                syncedAt: nextState.syncedAt ?? previous.syncedAt,
+              };
+            }
+
+            return nextState;
+          });
           setError(null);
         }
       } catch {
@@ -97,7 +114,7 @@ export function NowPlayingPanel() {
 
   return (
     <div className="w-full 2xl:sticky 2xl:top-24">
-      <div className="window-panel p-6 pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
+      <div className="window-panel p-6 pt-16 text-[var(--theme-text)] md:p-7 md:pt-16">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="icon-bubble h-11 w-11 text-[var(--theme-accent)]">
@@ -105,19 +122,23 @@ export function NowPlayingPanel() {
             </div>
             <div>
               <p className="section-kicker">Now playing</p>
-              <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Cute player deck</h2>
+              <h2 className="mt-1 font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Current playback</h2>
             </div>
           </div>
           <div className="sticker-badge px-3 py-1 font-mono text-sm uppercase tracking-[0.18em] text-[var(--theme-badge)]">live</div>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-3 text-[var(--theme-badge)]">
-          <div className="sticker-badge inline-flex items-center gap-2 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.16em]">
-            <Sparkles className="h-3.5 w-3.5 text-[var(--theme-highlight)]" /> synced
-          </div>
-          <div className="sticker-badge inline-flex items-center gap-2 px-3 py-1.5 font-mono text-xs uppercase tracking-[0.16em]">
-            <Heart className="h-3.5 w-3.5 text-[var(--theme-accent)]" /> recent plays
-          </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-[var(--theme-text)]">
+          {state?.syncedAt ? (
+            <div className="sticker-badge px-3 py-1 font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-badge)]">
+              synced {formatPlayedAt(state.syncedAt)}
+            </div>
+          ) : null}
+          {state?.syncedRecentCount ? (
+            <div className="sticker-badge px-3 py-1 font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-badge)]">
+              {state.syncedRecentCount} recent plays
+            </div>
+          ) : null}
         </div>
 
         {error ? <p className="mt-6 rounded-[20px] border-2 border-[rgba(57,18,98,0.22)] bg-white/55 px-4 py-3 text-sm text-[var(--theme-text)]">{error}</p> : null}
@@ -125,7 +146,7 @@ export function NowPlayingPanel() {
         {state?.track ? (
           <div className="mt-6 space-y-4">
             <div className="space-y-4">
-              <div className="desktop-card overflow-hidden p-4">
+              <div className="desktop-card overflow-hidden p-3">
                 <div className="media-frame relative h-64 w-full p-2">
                   {state.track.imageUrl ? (
                     <Image src={state.track.imageUrl} alt={state.track.title} fill sizes="(max-width: 1280px) 320px, 380px" className="rounded-[18px] object-cover p-1.5" />
@@ -135,10 +156,10 @@ export function NowPlayingPanel() {
               </div>
 
               <div className="desktop-card p-4">
-                <p className="section-kicker">playing now</p>
+                <p className="section-kicker">Playing now</p>
                 <p className={`mt-2 font-display uppercase tracking-[0.08em] text-[var(--theme-title)] ${getAdaptiveHeadingClass(state.track.title)}`}>{state.track.title}</p>
                 <p className={`mt-2 uppercase text-[var(--theme-muted)] ${getAdaptiveSubheadingClass(state.track.artist)}`}>{state.track.artist}</p>
-                <p className="mt-1 font-mono text-sm uppercase tracking-[0.14em] break-words text-[var(--theme-body)]">{state.track.album}</p>
+                <p className="mt-1 break-words font-mono text-sm uppercase tracking-[0.14em] text-[var(--theme-body)]">{state.track.album}</p>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
@@ -150,18 +171,21 @@ export function NowPlayingPanel() {
                 <div className="mt-4 h-4 rounded-full border-2 border-[rgba(57,18,98,0.18)] bg-white/45 p-1">
                   <div className="h-full rounded-full bg-[linear-gradient(90deg,#ff91e7,var(--theme-accent)_45%,var(--theme-highlight))]" style={{ width: `${progress}%` }} />
                 </div>
-                {state.syncedAt ? <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">synced {formatPlayedAt(state.syncedAt)}</p> : null}
               </div>
 
-              <div className="desktop-card p-4">
-                <div className="flex items-center gap-3">
-                  <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
-                    <Disc3 className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">live status</p>
-                    <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{state.isPlaying ? "spinning" : "paused"}</p>
-                  </div>
+              <div className="desktop-card overflow-hidden p-4">
+                <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">Playing from</p>
+                <div className="mt-4 rounded-[20px] border-2 border-[rgba(57,18,98,0.16)] bg-white/[0.45] p-4">
+                  <p className="break-words font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">
+                    {state.playingFrom?.label ?? state.track.album}
+                  </p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">
+                    {state.playingFrom?.type === "playlist"
+                      ? "playlist source"
+                      : state.playingFrom?.type === "collection"
+                        ? "library source"
+                        : "album source"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -195,7 +219,7 @@ export function NowPlayingPanel() {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
                               <p className={`font-display uppercase tracking-[0.06em] text-[var(--theme-title)] ${getRecentTitleClass(track.title)}`}>{track.title}</p>
-                              <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[var(--theme-muted)] break-words">{track.artist}</p>
+                              <p className="mt-1 break-words text-xs uppercase tracking-[0.12em] text-[var(--theme-muted)]">{track.artist}</p>
                               <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--theme-faint)]">{formatPlayedAt(track.playedAt)}</p>
                             </div>
                             <div className="icon-bubble h-8 w-8 shrink-0 text-[var(--theme-accent)]">

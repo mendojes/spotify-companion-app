@@ -7,6 +7,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { requireSession } from "@/lib/auth";
 import { touchConnectedUser } from "@/lib/connected-users";
 import { getDashboardInsights } from "@/lib/spotify-dashboard";
+import { getAppUrl } from "@/lib/spotify";
 import { getSpotifyTopLists } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
@@ -50,6 +51,33 @@ function normalizeDate(value?: string) {
   return value;
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unknown Spotify error";
+}
+
+function isSpotifyAuthError(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("401") || normalized.includes("403") || normalized.includes("refresh") || normalized.includes("token");
+}
+
+function buildReturnTo(range: DashboardRange, topRange: TopListRange, topFrom?: string, topTo?: string) {
+  const params = new URLSearchParams({
+    range,
+    topRange,
+  });
+
+  if (topRange === "custom" && topFrom && topTo) {
+    params.set("topFrom", topFrom);
+    params.set("topTo", topTo);
+  }
+
+  return `/dashboard?${params.toString()}`;
+}
+
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
   const styles = {
     cyan: "bg-[rgba(229,255,255,0.78)] text-[#3a1a58]",
@@ -67,7 +95,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect("/login");
   }
 
-  await touchConnectedUser(session.spotifyUserId);
+  const activeSession = session;
+
+  await touchConnectedUser(activeSession.spotifyUserId);
 
   const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag } = await searchParams;
   const selectedRange = normalizeRange(range);
@@ -75,6 +105,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const selectedTopFrom = normalizeDate(topFrom);
   const selectedTopTo = normalizeDate(topTo);
   const selectedHeroRange = dashboardRangeToTopListRange(selectedRange);
+  const returnTo = buildReturnTo(selectedRange, selectedTopRange, selectedTopFrom, selectedTopTo);
 
   let insights;
   let topLists;
@@ -83,18 +114,30 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let topListsError: string | null = null;
 
   try {
-    insights = await getDashboardInsights(session.accessToken, session.spotifyUserId, selectedRange);
-  } catch {
-    dashboardError = "Spotify data could not be loaded right now, so the dashboard is showing preview fallback sections.";
+    insights = await getDashboardInsights(activeSession.accessToken, activeSession.spotifyUserId, selectedRange);
+  } catch (error) {
+    const message = getErrorMessage(error);
+
+    if (isSpotifyAuthError(message)) {
+      redirect(getAppUrl(`/api/auth/refresh?returnTo=${encodeURIComponent(returnTo)}`));
+    }
+
+    dashboardError = `Spotify data could not be loaded right now, so the dashboard is showing preview fallback sections. (${message})`;
   }
 
   try {
     [topLists, heroTopLists] = await Promise.all([
-      getSpotifyTopLists(session.accessToken, session.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-      getSpotifyTopLists(session.accessToken, session.spotifyUserId, selectedHeroRange),
+      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange),
     ]);
-  } catch {
-    topListsError = "Top artist, track, and album lists could not be loaded right now, so preview rankings are showing instead.";
+  } catch (error) {
+    const message = getErrorMessage(error);
+
+    if (isSpotifyAuthError(message)) {
+      redirect(getAppUrl(`/api/auth/refresh?returnTo=${encodeURIComponent(returnTo)}`));
+    }
+
+    topListsError = `Top artist, track, and album lists could not be loaded right now, so preview rankings are showing instead. (${message})`;
   }
 
   return (
@@ -111,13 +154,16 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
-            <ThemeToggle />`r`n            <Link href="/social" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">`r`n              <Sparkles className="h-4 w-4" /> Community`r`n            </Link>
+            <ThemeToggle />
+            <Link href="/social" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+              <Sparkles className="h-4 w-4" /> Community
+            </Link>
             <a href={`/api/dashboard/refresh?range=${selectedRange}`} className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
               <RefreshCcw className="h-4 w-4" /> Refresh snapshot
             </a>
             <div className="hidden desktop-card px-4 py-2 text-right md:block">
-              <p className="text-sm text-[var(--theme-title)]">{session.displayName}</p>
-              <p className="font-mono text-lg uppercase tracking-[0.14em] text-[var(--theme-muted)]">{session.email ?? "Spotify connected"}</p>
+              <p className="text-sm text-[var(--theme-title)]">{activeSession.displayName}</p>
+              <p className="font-mono text-lg uppercase tracking-[0.14em] text-[var(--theme-muted)]">{activeSession.email ?? "Spotify connected"}</p>
             </div>
             <a href="/api/auth/logout" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
               <LogOut className="h-4 w-4" /> Log out
@@ -154,6 +200,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         selectedTopFrom={selectedTopFrom}
         selectedTopTo={selectedTopTo}
         sidebar={<NowPlayingPanel />}
+        rediscoveryPagePath="/dashboard/rediscovery"
       />
 
       <div className="px-6 pb-12 md:px-10">
@@ -166,5 +213,3 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
-
-

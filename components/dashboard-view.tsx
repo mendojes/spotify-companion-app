@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Clock3, Flame, Heart, ImageIcon, LibraryBig, PlaySquare, Search, SmilePlus, Sparkles, Star, Waves } from "lucide-react";
@@ -21,6 +21,7 @@ import {
 import {
   dashboardStats,
   forgottenFavorites,
+  quietSavedTracks,
   genrePulse,
   moodData,
   moodHeatmap,
@@ -85,6 +86,7 @@ type DashboardViewProps = {
   analysisBasePath?: string | null;
   topListsPagePath?: string | null;
   playlistsPagePath?: string | null;
+  rediscoveryPagePath?: string | null;
 };
 
 type DashboardData = {
@@ -96,6 +98,7 @@ type DashboardData = {
   moodData: MoodPoint[];
   moodHeatmap: MoodHeatmapCell[];
   forgottenFavorites: FavoriteTrack[];
+  quietSavedTracks: FavoriteTrack[];
   playlistInsights: PlaylistInsight[];
   sourceLabel: string;
   moodSource: string;
@@ -121,6 +124,7 @@ function getData(mode: DashboardViewProps["mode"], insights?: DashboardInsights)
     moodData: moodData as MoodPoint[],
     moodHeatmap: moodHeatmap as MoodHeatmapCell[],
     forgottenFavorites: forgottenFavorites as FavoriteTrack[],
+    quietSavedTracks: quietSavedTracks as FavoriteTrack[],
     playlistInsights: playlistInsights as PlaylistInsight[],
     sourceLabel: "Preview dataset",
     moodSource: "Genre-based preview model",
@@ -290,6 +294,38 @@ function DesktopMiniWindow({
   );
 }
 
+function TrackShelfCard({
+  track,
+  accent = "mint",
+}: {
+  track: FavoriteTrack;
+  accent?: "mint" | "gold";
+}) {
+  const accentClass = accent === "gold"
+    ? "border-gold/25 bg-gold/10 text-gold"
+    : "border-mint/20 bg-mint/10 text-mint";
+
+  return (
+    <div className="desktop-card p-4">
+      <div className="flex items-start gap-4">
+        <Artwork imageUrl={track.imageUrl} label={track.title} size="sm" />
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{track.title}</p>
+          <p className="mt-1 text-sm text-[var(--theme-muted)]">{track.artist} / {track.album}</p>
+          {track.reason ? <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{track.reason}</p> : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className={`rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em] ${accentClass}`}>
+              {track.affinity}% match
+            </span>
+            <span className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.55] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-faint)]">
+              {track.lastPlayed}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function TrendMarquee({ tracks }: { tracks: TopListsData["tracks"] }) {
   const items = [...tracks, ...tracks];
 
@@ -318,11 +354,57 @@ export function DashboardView({
   analysisBasePath = "/dashboard/analysis",
   topListsPagePath = "/dashboard/top-lists",
   playlistsPagePath = "/dashboard/playlists",
+  rediscoveryPagePath = "/dashboard/rediscovery",
 }: DashboardViewProps) {
   const isPreview = mode === "preview";
   const data = getData(mode, insights);
   const topListData = getTopListData(mode, topLists);
   const heroTopListData = getTopListData(mode, heroTopLists ?? topLists);
+  const [livePlaylistInsights, setLivePlaylistInsights] = useState<PlaylistInsight[] | null>(null);
+  const playlistCards = livePlaylistInsights ?? data.playlistInsights;
+
+  useEffect(() => {
+    if (mode !== "authenticated") {
+      setLivePlaylistInsights(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadPlaylistInsights() {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/dashboard/playlist-insights", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Could not refresh playlist insights.");
+        }
+
+        const payload = (await response.json()) as { playlistInsights?: PlaylistInsight[] };
+        if (!cancelled) {
+          const nextInsights = payload.playlistInsights ?? [];
+
+          if (nextInsights.length > 0) {
+            setLivePlaylistInsights(nextInsights);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          // Keep the last successful live set instead of snapping back to stale server data.
+        }
+      }
+    }
+
+    loadPlaylistInsights();
+    const timer = window.setInterval(loadPlaylistInsights, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [mode]);
   const playlist = buildRediscoveryPlaylist(data.forgottenFavorites);
   const cachedAtLabel = formatTimestamp(data.cachedAt);
   const generatedAtLabel = formatTimestamp(topListData.generatedAt);
@@ -841,9 +923,19 @@ export function DashboardView({
             title="Bring buried favorites back with a little drama"
             copy="The rediscovery area now behaves like a memory wall, with spotlight artwork and supporting widgets for why each track deserves a return."
           />
-
           <div className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
             <div className="glass-panel rounded-[36px] p-6 md:p-7 text-[var(--theme-text)]">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="section-kicker">Forgotten favorites</p>
+                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Big songs that fell out of orbit</h3>
+                </div>
+                {!isPreview && rediscoveryPagePath ? (
+                  <Link href={`${rediscoveryPagePath}?range=${selectedRange}`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                    View more
+                  </Link>
+                ) : null}
+              </div>
               <div className="grid gap-5 md:grid-cols-[1.05fr_0.95fr]">
                 <div className="media-frame relative min-h-[420px] p-2">
                   {data.forgottenFavorites[0]?.imageUrl ? (
@@ -867,24 +959,8 @@ export function DashboardView({
                   </div>
                 </div>
                 <div className="space-y-4">
-                  {data.forgottenFavorites.slice(1).map((track) => (
-                    <div key={track.title} className="desktop-card p-4">
-                      <div className="flex items-start gap-4">
-                        <Artwork imageUrl={track.imageUrl} label={track.title} size="sm" />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{track.title}</p>
-                          <p className="mt-1 text-sm text-[var(--theme-muted)]">{track.artist} / {track.album}</p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <span className="rounded-full border border-mint/20 bg-mint/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-mint">
-                              {track.affinity}% affinity
-                            </span>
-                            <span className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.55] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-faint)]">
-                              {track.lastPlayed}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  {data.forgottenFavorites.slice(1, 4).map((track) => (
+                    <TrackShelfCard key={`${track.title}-${track.artist}`} track={track} accent="mint" />
                   ))}
                 </div>
               </div>
@@ -896,33 +972,48 @@ export function DashboardView({
                   <Sparkles className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="section-kicker">Auto playlist</p>
-                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Rediscovery queue logic</h3>
+                  <p className="section-kicker">Saved deep cuts</p>
+                  <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Older saves worth revisiting</h3>
                 </div>
               </div>
               <div className="space-y-4">
-                {playlist.map((item, index) => (
-                  <div key={item.slot} className={`desktop-card flex items-center justify-between px-4 py-4 ${index === 0 ? "bg-[rgba(106,244,255,0.14)]" : "bg-[rgba(255,250,255,0.62)]"}` }>
-                    <div className="flex items-center gap-4">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] font-display text-[#170718]">
-                        {item.slot}
-                      </div>
-                      <div>
-                        <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{item.label}</p>
-                        <p className="mt-1 text-sm text-[var(--theme-muted)]">{item.reason}</p>
-                      </div>
-                    </div>
-                  </div>
+                {data.quietSavedTracks.slice(0, 3).map((track) => (
+                  <TrackShelfCard key={`${track.title}-${track.artist}`} track={track} accent="gold" />
                 ))}
               </div>
               <div className="mt-6 desktop-card p-5">
                 <p className="font-mono text-lg uppercase tracking-[0.18em] text-[var(--theme-highlight)]">Current logic</p>
                 <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
-                  Short-term favorites, long-term staples, saved-library affinity, and recent-play gaps now get surfaced as a more collectible queue instead of a simple text list.
+                  Favorites still use affinity and historical importance, while saved deep cuts widen the net to older library songs that have gone quiet even without favorite-level history.
                 </p>
               </div>
+              {playlist.length > 0 ? (
+                <div className="mt-4 space-y-3">
+                  {playlist.slice(0, 3).map((item, index) => (
+                    <div key={item.slot} className={`desktop-card flex items-center justify-between px-4 py-4 ${index === 0 ? "bg-[rgba(106,244,255,0.14)]" : "bg-[rgba(255,250,255,0.62)]"}`}>
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] font-display text-[#170718]">
+                          {item.slot}
+                        </div>
+                        <div>
+                          <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{item.label}</p>
+                          <p className="mt-1 text-sm text-[var(--theme-muted)]">{item.reason}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
+
+          {!isPreview && rediscoveryPagePath ? (
+            <div className="flex justify-end">
+              <Link href={`${rediscoveryPagePath}?range=${selectedRange}`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                View more rediscovery
+              </Link>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -944,7 +1035,7 @@ export function DashboardView({
           </div>
 
           <div className="grid gap-5 lg:grid-cols-3">
-            {data.playlistInsights.map((playlistCard, index) => {
+            {playlistCards.map((playlistCard, index) => {
               const content = (
                 <>
                   {playlistCard.imageUrl ? (

@@ -86,6 +86,7 @@ export default async function SocialProfilePage({ params, searchParams }: Social
         analysisBasePath={null}
         topListsPagePath={null}
         playlistsPagePath={null}
+        rediscoveryPagePath={null}
       />
     </main>
   );

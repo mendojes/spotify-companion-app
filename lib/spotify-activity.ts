@@ -11,7 +11,73 @@ import {
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const RECENT_PLAY_LOOKBACK_LIMIT = 500;
 
+function getPlaylistIdFromContext(context?: SpotifyRecentlyPlayedItem["context"] | SpotifyCurrentlyPlayingResponse["context"]) {
+  if (!context?.uri || context.type !== "playlist") {
+    return undefined;
+  }
+
+  const match = context.uri.match(/^spotify:playlist:(.+)$/);
+  return match?.[1];
+}
+
+export async function getPlayingFrom(accessToken: string, response: SpotifyCurrentlyPlayingResponse) {
+  const playlistId = getPlaylistIdFromContext(response.context);
+
+  if (playlistId) {
+    try {
+      const playlist = await spotifyFetch<{ id: string; name: string; images?: Array<{ url: string }> }>(`/playlists/${playlistId}?fields=id,name,images`, accessToken);
+      return {
+        type: "playlist",
+        label: playlist.name,
+        playlistId: playlist.id,
+        imageUrl: playlist.images?.[0]?.url ?? response.item?.album.images?.[0]?.url,
+      };
+    } catch {
+      return {
+        type: "playlist",
+        label: "Spotify playlist",
+        playlistId,
+        imageUrl: response.item?.album.images?.[0]?.url,
+      };
+    }
+  }
+
+  if (response.context?.type === "album" || response.context?.type === "artist" || !response.context?.type) {
+    return {
+      type: response.context?.type ?? "album",
+      label: response.item?.album.name ?? "Unknown release",
+      imageUrl: response.item?.album.images?.[0]?.url,
+    };
+  }
+
+  if (response.context?.type === "collection") {
+    return {
+      type: "collection",
+      label: "Your library",
+      imageUrl: response.item?.album.images?.[0]?.url,
+    };
+  }
+
+  return {
+    type: response.context?.type ?? "unknown",
+    label: response.item?.album.name ?? "Unknown source",
+    imageUrl: response.item?.album.images?.[0]?.url,
+  };
+}
+
+export async function getCurrentPlaybackSource(accessToken: string) {
+  const response = await spotifyFetchOptional<SpotifyCurrentlyPlayingResponse>("/me/player/currently-playing", accessToken);
+
+  if (!response?.item) {
+    return undefined;
+  }
+
+  return getPlayingFrom(accessToken, response);
+}
+
 function toStoredRecentPlay(spotifyUserId: string, item: SpotifyRecentlyPlayedItem): StoredRecentPlay {
+  const playlistId = getPlaylistIdFromContext(item.context);
+
   return {
     spotifyUserId,
     trackId: item.track.id,
@@ -20,6 +86,8 @@ function toStoredRecentPlay(spotifyUserId: string, item: SpotifyRecentlyPlayedIt
     artistName: item.track.artists.map((artist) => artist.name).join(", "),
     albumName: item.track.album.name,
     imageUrl: item.track.album.images?.[0]?.url,
+    playlistId,
+    sourceType: item.context?.type,
   };
 }
 
@@ -37,6 +105,7 @@ export async function ensureRecentPlayIndexes() {
     { spotifyUserId: 1, playedAt: -1, trackId: 1 },
     { unique: true },
   );
+  await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, playedAt: -1 });
 }
 
 export async function syncRecentPlays(accessToken: string, spotifyUserId: string) {
@@ -110,5 +179,6 @@ export async function getNowPlaying(accessToken: string): Promise<NowPlayingStat
       imageUrl: response.item.album.images?.[0]?.url,
       durationMs: response.item.duration_ms,
     },
+    playingFrom: await getPlayingFrom(accessToken, response),
   };
 }

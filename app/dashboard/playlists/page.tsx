@@ -27,7 +27,7 @@ function normalizeSort(sort?: string): PlaylistSortOption {
     return sort;
   }
 
-  return "created_desc";
+  return "last_listened_desc";
 }
 
 function formatDateLabel(value?: string) {
@@ -81,7 +81,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
               Browse every playlist we can access, sort them by timeline signals, and open any one for deeper mood, genre, and overlap analysis.
             </p>
             <p className="mt-3 text-sm text-ink/60">
-              Created is estimated from the oldest track add date we can see, and last listened is estimated from recent-play matches.
+              Created is estimated from the oldest track add date we can see, and last listened only updates when Spotify gives us exact playlist playback context.
             </p>
           </div>
           <div className="flex gap-3">
