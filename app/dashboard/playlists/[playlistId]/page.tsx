@@ -1,8 +1,7 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
-import { touchConnectedUser } from "@/lib/connected-users";
 import { getPlaylistDetail } from "@/lib/spotify-playlists";
 
 type PlaylistDetailPageProps = {
@@ -28,8 +27,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     redirect("/login");
   }
 
-  await touchConnectedUser(session.spotifyUserId);
-
   const { playlistId } = await params;
   const detail = await getPlaylistDetail(session.accessToken, session.spotifyUserId, playlistId);
 
@@ -44,7 +41,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
           <div className="flex items-center gap-6">
             {detail.imageUrl ? (
               <div className="relative h-36 w-36 overflow-hidden rounded-[32px] border border-white/10 bg-white/5">
-                <Image src={detail.imageUrl} alt={detail.name} fill sizes="144px" className="object-cover" />
+                <Image src={detail.imageUrl} alt={detail.name} fill sizes="144px" className="object-contain bg-white/[0.2]" />
               </div>
             ) : null}
             <div>
@@ -126,7 +123,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
                 <div key={track.id} className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                   {track.imageUrl ? (
                     <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                      <Image src={track.imageUrl} alt={track.title} fill sizes="64px" className="object-cover" />
+                      <Image src={track.imageUrl} alt={track.title} fill sizes="64px" className="object-contain bg-white/[0.2]" />
                     </div>
                   ) : null}
                   <div className="min-w-0 flex-1">
@@ -146,7 +143,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
               <div key={track.id} className="flex items-center gap-4 rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
                 {track.imageUrl ? (
                   <div className="relative h-20 w-20 overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
-                    <Image src={track.imageUrl} alt={track.title} fill sizes="80px" className="object-cover" />
+                    <Image src={track.imageUrl} alt={track.title} fill sizes="80px" className="object-contain bg-white/[0.2]" />
                   </div>
                 ) : null}
                 <div className="min-w-0 flex-1">
@@ -162,3 +159,4 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     </main>
   );
 }
+

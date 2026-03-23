@@ -70,7 +70,7 @@ function Artwork({ src, alt }: { src?: string; alt: string }) {
 
   return (
     <div className="relative h-28 w-28 overflow-hidden rounded-[28px] border border-white/10 bg-white/5">
-      <Image src={src} alt={alt} fill sizes="112px" className="object-cover" />
+      <Image src={src} alt={alt} fill sizes="112px" className="object-contain bg-white/[0.2]" />
     </div>
   );
 }
@@ -250,3 +250,5 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
     </main>
   );
 }
+
+

@@ -1,11 +1,11 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { Disc3, LogOut, RefreshCcw, Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
+import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { requireSession } from "@/lib/auth";
-import { touchConnectedUser } from "@/lib/connected-users";
 import { getDashboardInsights } from "@/lib/spotify-dashboard";
 import { getAppUrl } from "@/lib/spotify";
 import { getSpotifyTopLists } from "@/lib/spotify-toplists";
@@ -97,8 +97,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   const activeSession = session;
 
-  await touchConnectedUser(activeSession.spotifyUserId);
-
   const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag } = await searchParams;
   const selectedRange = normalizeRange(range);
   const selectedTopRange = normalizeTopRange(topRange);
@@ -155,8 +153,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
             <ThemeToggle />
-            <Link href="/social" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
-              <Sparkles className="h-4 w-4" /> Community
+            <Link href="/privacy" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+              <Sparkles className="h-4 w-4" /> Privacy
             </Link>
             <a href={`/api/dashboard/refresh?range=${selectedRange}`} className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
               <RefreshCcw className="h-4 w-4" /> Refresh snapshot
@@ -204,7 +202,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       />
 
       <div className="px-6 pb-12 md:px-10">
-        <div className="mx-auto max-w-7xl">
+        <div className="mx-auto max-w-7xl space-y-4">
+          <SpotifyComplianceNote />
           <Link href="/" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
             <Disc3 className="h-4 w-4" /> Back to home
           </Link>
@@ -213,3 +212,4 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
+

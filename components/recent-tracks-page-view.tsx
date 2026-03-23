@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -91,7 +91,7 @@ export function RecentTracksPageView() {
                 >
                   {track.imageUrl ? (
                     <div className="relative h-28 w-28 overflow-hidden rounded-[28px] border border-ink/12 bg-white/5">
-                      <Image src={track.imageUrl} alt={track.title} fill sizes="112px" className="object-cover" />
+                      <Image src={track.imageUrl} alt={track.title} fill sizes="112px" className="object-contain bg-white/[0.2]" />
                     </div>
                   ) : null}
                   <div className="min-w-0 flex-1">
@@ -113,4 +113,6 @@ export function RecentTracksPageView() {
     </section>
   );
 }
+
+
 

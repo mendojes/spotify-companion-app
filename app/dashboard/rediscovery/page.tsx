@@ -1,4 +1,4 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
@@ -30,7 +30,7 @@ function TrackRow({ track, accent }: { track: FavoriteTrack; accent: "mint" | "g
       <div className="flex items-start gap-4">
         {track.imageUrl ? (
           <div className="media-frame relative h-28 w-28 shrink-0 p-1.5">
-            <Image src={track.imageUrl} alt={track.title} fill sizes="112px" className="rounded-[18px] object-cover p-1" />
+            <Image src={track.imageUrl} alt={track.title} fill sizes="112px" className="rounded-[18px] object-contain bg-white/[0.2] p-1" />
           </div>
         ) : (
           <div className="media-frame flex h-28 w-28 shrink-0 items-center justify-center p-3 font-mono text-lg uppercase tracking-[0.16em] text-ink/60">
@@ -154,3 +154,5 @@ export default async function RediscoveryPage({
     </main>
   );
 }
+
+

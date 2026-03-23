@@ -1,4 +1,4 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
@@ -68,7 +68,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                 <div key={`${entry.trackId}-${entry.playedAt}`} className="flex items-start gap-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
                   {entry.imageUrl ? (
                     <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[28px] border border-white/10 bg-white/5">
-                      <Image src={entry.imageUrl} alt={entry.title} fill sizes="112px" className="object-cover" />
+                      <Image src={entry.imageUrl} alt={entry.title} fill sizes="112px" className="object-contain bg-white/[0.2]" />
                     </div>
                   ) : (
                     <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[28px] border border-dashed border-white/15 text-xs uppercase tracking-[0.18em] text-ink/50">
@@ -101,4 +101,6 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
     </main>
   );
 }
+
+
 

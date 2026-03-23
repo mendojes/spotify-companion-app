@@ -1,4 +1,4 @@
-import crypto from "node:crypto";
+﻿import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
@@ -6,7 +6,6 @@ import {
   refreshSpotifyAccessToken,
   type SpotifyProfile,
 } from "@/lib/spotify";
-import { ensureConnectedUserIndexes, upsertConnectedUser } from "@/lib/connected-users";
 
 const SESSION_COOKIE = "soundscope_session";
 const STATE_COOKIE = "soundscope_oauth_state";
@@ -143,15 +142,6 @@ export async function setSessionCookie(session: AuthSession) {
       maxAge: SESSION_TTL_MS / 1000,
     },
   );
-
-  await ensureConnectedUserIndexes();
-  await upsertConnectedUser({
-    spotifyUserId: session.spotifyUserId,
-    displayName: session.displayName,
-    email: session.email,
-    imageUrl: session.imageUrl,
-    refreshToken: session.refreshToken,
-  });
 }
 
 export async function clearSessionCookie() {
@@ -201,3 +191,5 @@ export async function refreshSession(session: AuthSession) {
 export function createOauthState() {
   return crypto.randomBytes(24).toString("base64url");
 }
+
+

@@ -1,6 +1,7 @@
-import { Disc3, LayoutGrid, Sparkles, Stars } from "lucide-react";
+﻿import { Disc3, LayoutGrid, Sparkles, Stars } from "lucide-react";
 import { DashboardView } from "@/components/dashboard-view";
 import { Hero } from "@/components/hero";
+import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getSession } from "@/lib/auth";
 
@@ -28,15 +29,18 @@ export default async function Home({ searchParams }: HomeProps) {
           <div className="flex items-center gap-3">
             <ThemeToggle />
             <div className="hidden items-center gap-3 md:flex">
-            <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="#dashboard">
-              <LayoutGrid className="h-4 w-4" /> Preview
-            </a>
-            <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="#roadmap">
-              <Stars className="h-4 w-4" /> Roadmap
-            </a>
-            <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href={session ? "/dashboard" : "/login"}>
-              <Sparkles className="h-4 w-4" /> {session ? "Open dashboard" : "Connect Spotify"}
-            </a>
+              <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="#dashboard">
+                <LayoutGrid className="h-4 w-4" /> Preview
+              </a>
+              <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="#roadmap">
+                <Stars className="h-4 w-4" /> Roadmap
+              </a>
+              <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href={session ? "/dashboard" : "/login"}>
+                <Sparkles className="h-4 w-4" /> {session ? "Open dashboard" : "Connect Spotify"}
+              </a>
+              <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/privacy">
+                <Disc3 className="h-4 w-4" /> Privacy
+              </a>
             </div>
           </div>
         </div>
@@ -51,7 +55,13 @@ export default async function Home({ searchParams }: HomeProps) {
         </div>
       ) : null}
       <Hero isAuthenticated={Boolean(session)} />
+      <div className="px-6 pt-4 md:px-10">
+        <div className="mx-auto max-w-7xl">
+          <SpotifyComplianceNote compact />
+        </div>
+      </div>
       <DashboardView mode="preview" />
     </main>
   );
 }
+

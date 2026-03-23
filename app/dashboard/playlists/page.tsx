@@ -1,8 +1,7 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
-import { touchConnectedUser } from "@/lib/connected-users";
 import { playlistInsights as previewPlaylistInsights } from "@/lib/mock-data";
 import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
@@ -52,8 +51,6 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
   if (!session) {
     redirect("/login");
   }
-
-  await touchConnectedUser(session.spotifyUserId);
 
   const { sort } = await searchParams;
   const selectedSort = normalizeSort(sort);
@@ -125,7 +122,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
               <div className="flex items-start gap-5">
                 {playlist.imageUrl ? (
                   <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
-                    <Image src={playlist.imageUrl} alt={playlist.name} fill sizes="112px" className="object-cover" />
+                    <Image src={playlist.imageUrl} alt={playlist.name} fill sizes="112px" className="object-contain bg-white/[0.2]" />
                   </div>
                 ) : (
                   <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] border border-dashed border-white/15 bg-white/[0.04] text-xs uppercase tracking-[0.2em] text-ink/50">
@@ -162,3 +159,4 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
     </main>
   );
 }
+

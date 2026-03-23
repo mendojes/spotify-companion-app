@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Fragment, type ReactNode, useEffect, useState } from "react";
 import Image from "next/image";
@@ -171,7 +171,7 @@ function Artwork({
   if (imageUrl) {
     return (
       <div className={`media-frame relative shrink-0 ${dimensions} p-1.5`}>
-        <Image src={imageUrl} alt={label} fill sizes="128px" className="rounded-[18px] object-cover p-1.5" />
+        <Image src={imageUrl} alt={label} fill sizes="128px" className="rounded-[18px] object-contain bg-white/[0.2] p-1.5" />
       </div>
     );
   }
@@ -243,7 +243,7 @@ function MetricWindow({
     <div className="window-panel relative flex h-full min-h-[18rem] flex-col overflow-hidden p-5 pt-14 text-[var(--theme-text)]">
       {backgroundImage ? (
         <div className="absolute inset-x-0 bottom-0 top-[44px] overflow-hidden">
-          <Image src={backgroundImage} alt={label} fill sizes="(max-width: 1280px) 100vw, 420px" className="object-cover opacity-60" />
+          <Image src={backgroundImage} alt={label} fill sizes="(max-width: 1280px) 100vw, 420px" className="object-contain bg-white/[0.2] opacity-60" />
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,245,255,0.18)_18%,rgba(70,24,108,0.74))]" />
         </div>
       ) : null}
@@ -283,7 +283,7 @@ function DesktopMiniWindow({
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-[92px_1fr] sm:items-center">
         <div className="media-frame relative h-24 w-full p-1.5 sm:h-24 sm:w-24">
-          {imageUrl ? <Image src={imageUrl} alt={title} fill sizes="96px" className="rounded-[14px] object-cover p-1" /> : null}
+          {imageUrl ? <Image src={imageUrl} alt={title} fill sizes="96px" className="rounded-[14px] object-contain bg-white/[0.2] p-1" /> : null}
         </div>
         <div>
           <p className="font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)]">{title}</p>
@@ -944,7 +944,7 @@ export function DashboardView({
                       alt={data.forgottenFavorites[0].title}
                       fill
                       sizes="(max-width: 1280px) 100vw, 500px"
-                      className="rounded-[22px] object-cover p-1.5"
+                      className="rounded-[22px] object-contain bg-white/[0.2] p-1.5"
                     />
                   ) : null}
                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
@@ -1040,7 +1040,7 @@ export function DashboardView({
                 <>
                   {playlistCard.imageUrl ? (
                     <div className="media-frame relative mb-5 h-60 p-2">
-                      <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-cover p-1.5" />
+                      <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-contain bg-white/[0.2] p-1.5" />
                       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
                       <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-3">
                         <div>
@@ -1121,6 +1121,8 @@ export function DashboardView({
     </>
   );
 }
+
+
 
 
 

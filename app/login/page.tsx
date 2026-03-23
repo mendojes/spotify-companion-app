@@ -1,18 +1,19 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { Bolt, Disc3, Heart, ImageIcon, Sparkles } from "lucide-react";
 import { hasSpotifyAuthConfig } from "@/lib/env";
 import { getSession } from "@/lib/auth";
 import { getSpotifyRedirectUri } from "@/lib/spotify";
+import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type LoginPageProps = {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; deleted?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const session = await getSession();
-  const { error } = await searchParams;
+  const { error, deleted } = await searchParams;
   const isConfigured = hasSpotifyAuthConfig();
   const configuredRedirectUri = getSpotifyRedirectUri();
 
@@ -39,6 +40,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 </h1>
                 <p className="mt-5 max-w-lg text-base leading-8 text-[var(--theme-body)]">
                   Connect your account to unlock recent plays, top rotations, playlist breakdowns, and a dashboard built like a cute browser full of album covers, stickers, and little player windows.
+                </p>
+                <p className="mt-4 max-w-lg text-sm leading-7 text-[var(--theme-muted)]">
+                  Before OAuth starts, SoundScope explains which Spotify scopes it uses and gives you a self-serve page to disconnect and delete cached local data later.
                 </p>
               </div>
 
@@ -89,6 +93,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               </div>
             ) : null}
 
+            {deleted ? (
+              <div className="mt-6 rounded-[24px] border-[3px] border-[rgba(44,12,70,0.9)] bg-[rgba(229,255,255,0.82)] px-5 py-4 text-sm text-[var(--theme-text)]">
+                Your local SoundScope session and cached Spotify data were deleted.
+              </div>
+            ) : null}
+
             {!isConfigured ? (
               <div className="mt-6 rounded-[24px] border-[3px] border-[rgba(44,12,70,0.9)] bg-[rgba(255,247,224,0.86)] px-5 py-4 text-sm text-[var(--theme-text)]">
                 Missing one or more auth settings in `.env.local`. You need `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `AUTH_SECRET` before OAuth can start.
@@ -97,6 +107,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
             <div className="mt-6 desktop-card p-5 text-sm text-[var(--theme-text)]">
               Spotify requires the redirect URI to exactly match one allowlisted value. On Vercel, add your deployed callback URL to Spotify, or set `SPOTIFY_REDIRECT_URI` to that exact production callback.
+            </div>
+
+            <div className="mt-6">
+              <SpotifyComplianceNote />
             </div>
 
             <div className="mt-8 flex flex-wrap gap-4">
@@ -112,6 +126,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
               <Link href="/" className="chrome-line inline-flex items-center rounded-full bg-white/[0.58] px-5 py-3 font-mono text-lg uppercase tracking-[0.14em] text-[var(--theme-text)]">
                 Back to home
+              </Link>
+              <Link href="/privacy" className="chrome-line inline-flex items-center rounded-full bg-white/[0.58] px-5 py-3 font-mono text-lg uppercase tracking-[0.14em] text-[var(--theme-text)]">
+                Privacy
               </Link>
             </div>
 
@@ -145,3 +162,4 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     </main>
   );
 }
+

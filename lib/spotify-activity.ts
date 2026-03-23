@@ -12,12 +12,25 @@ const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const RECENT_PLAY_LOOKBACK_LIMIT = 500;
 
 function getPlaylistIdFromContext(context?: SpotifyRecentlyPlayedItem["context"] | SpotifyCurrentlyPlayingResponse["context"]) {
-  if (!context?.uri || context.type !== "playlist") {
+  if (context?.type !== "playlist") {
     return undefined;
   }
 
-  const match = context.uri.match(/^spotify:playlist:(.+)$/);
-  return match?.[1];
+  if (context.uri) {
+    const uriMatch = context.uri.match(/^spotify:playlist:(.+)$/);
+    if (uriMatch?.[1]) {
+      return uriMatch[1];
+    }
+  }
+
+  if (context.href) {
+    const hrefMatch = context.href.match(/\/playlists\/([^/?]+)/);
+    if (hrefMatch?.[1]) {
+      return hrefMatch[1];
+    }
+  }
+
+  return undefined;
 }
 
 export async function getPlayingFrom(accessToken: string, response: SpotifyCurrentlyPlayingResponse) {
@@ -25,7 +38,8 @@ export async function getPlayingFrom(accessToken: string, response: SpotifyCurre
 
   if (playlistId) {
     try {
-      const playlist = await spotifyFetch<{ id: string; name: string; images?: Array<{ url: string }> }>(`/playlists/${playlistId}?fields=id,name,images`, accessToken);
+      const playlistPath = response.context?.href ? `${response.context.href.replace("https://api.spotify.com/v1", "")}?fields=id,name,images` : `/playlists/${playlistId}?fields=id,name,images`;
+      const playlist = await spotifyFetch<{ id: string; name: string; images?: Array<{ url: string }> }>(playlistPath, accessToken);
       return {
         type: "playlist",
         label: playlist.name,
