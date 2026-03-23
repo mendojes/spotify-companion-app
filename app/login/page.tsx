@@ -14,6 +14,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const session = await getSession();
   const { error } = await searchParams;
   const isConfigured = hasSpotifyAuthConfig();
+  const configuredRedirectUri = getSpotifyRedirectUri();
 
   return (
     <main className="city-pop-shell flex min-h-screen items-center justify-center px-6 py-10 md:px-10">
@@ -60,7 +61,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                     </div>
                     <div>
                       <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">redirect uri</p>
-                      <p className="mt-1 break-all text-sm text-[var(--theme-title)]">{getSpotifyRedirectUri()}</p>
+                      <p className="mt-1 break-all text-sm text-[var(--theme-title)]">
+                        {configuredRedirectUri || "Auto-detected from the current deploy URL"}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -93,7 +96,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             ) : null}
 
             <div className="mt-6 desktop-card p-5 text-sm text-[var(--theme-text)]">
-              Spotify requires the redirect URI to exactly match one allowlisted value. Keep using `127.0.0.1` and make sure Spotify has the exact callback shown here.
+              Spotify requires the redirect URI to exactly match one allowlisted value. On Vercel, add your deployed callback URL to Spotify, or set `SPOTIFY_REDIRECT_URI` to that exact production callback.
             </div>
 
             <div className="mt-8 flex flex-wrap gap-4">

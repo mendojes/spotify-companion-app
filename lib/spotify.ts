@@ -1,5 +1,6 @@
 const spotifyApiBase = "https://api.spotify.com/v1";
 const spotifyAccountsBase = "https://accounts.spotify.com";
+const spotifyCallbackPath = "/api/auth/callback/spotify";
 
 export const spotifyScopes = [
   "user-read-email",
@@ -26,12 +27,48 @@ export type SpotifyProfile = {
   images?: Array<{ url: string }>;
 };
 
-export function getSpotifyRedirectUri() {
-  return process.env.SPOTIFY_REDIRECT_URI ?? "";
+type OriginRequestLike = {
+  url: string;
+  headers?: Headers;
+};
+
+function normalizeOrigin(origin: string) {
+  return origin.endsWith("/") ? origin.slice(0, -1) : origin;
 }
 
-export function getAppOrigin() {
-  const redirectUri = getSpotifyRedirectUri();
+function getOriginFromRequest(request?: OriginRequestLike) {
+  if (!request) {
+    return "";
+  }
+
+  const forwardedProto = request.headers?.get("x-forwarded-proto");
+  const forwardedHost = request.headers?.get("x-forwarded-host") ?? request.headers?.get("host");
+
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  return new URL(request.url).origin;
+}
+
+export function getSpotifyRedirectUri(request?: OriginRequestLike) {
+  const configuredRedirectUri = process.env.SPOTIFY_REDIRECT_URI;
+
+  if (configuredRedirectUri) {
+    return configuredRedirectUri;
+  }
+
+  const requestOrigin = getOriginFromRequest(request);
+
+  if (!requestOrigin) {
+    return "";
+  }
+
+  return `${normalizeOrigin(requestOrigin)}${spotifyCallbackPath}`;
+}
+
+export function getAppOrigin(request?: OriginRequestLike) {
+  const redirectUri = getSpotifyRedirectUri(request);
 
   if (!redirectUri) {
     return "http://127.0.0.1:3000";
@@ -40,15 +77,15 @@ export function getAppOrigin() {
   return new URL(redirectUri).origin;
 }
 
-export function getAppUrl(path: string) {
-  return new URL(path, getAppOrigin()).toString();
+export function getAppUrl(path: string, request?: OriginRequestLike) {
+  return new URL(path, getAppOrigin(request)).toString();
 }
 
-export function getSpotifyLoginUrl(state: string) {
+export function getSpotifyLoginUrl(state: string, request?: OriginRequestLike) {
   const params = new URLSearchParams({
     client_id: process.env.SPOTIFY_CLIENT_ID ?? "",
     response_type: "code",
-    redirect_uri: getSpotifyRedirectUri(),
+    redirect_uri: getSpotifyRedirectUri(request),
     scope: spotifyScopes.join(" "),
     state,
     show_dialog: "true",
@@ -69,7 +106,7 @@ function getSpotifyBasicAuthHeader() {
   return `Basic ${credentials}`;
 }
 
-export async function exchangeSpotifyCode(code: string) {
+export async function exchangeSpotifyCode(code: string, request?: OriginRequestLike) {
   const response = await fetch(`${spotifyAccountsBase}/api/token`, {
     method: "POST",
     headers: {
@@ -79,7 +116,7 @@ export async function exchangeSpotifyCode(code: string) {
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: getSpotifyRedirectUri(),
+      redirect_uri: getSpotifyRedirectUri(request),
     }),
     cache: "no-store",
   });
