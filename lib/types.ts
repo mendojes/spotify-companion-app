@@ -1,4 +1,5 @@
 export type DashboardRange = "week" | "month" | "all";
+export type TopListRange = "week" | "month" | "year" | "all" | "custom";
 export type SpotifyTimeRange = "short_term" | "medium_term" | "long_term";
 export type PlaylistSortOption = "created_desc" | "created_asc" | "last_listened_desc" | "last_listened_asc";
 export type Timeframe = "This Week" | "This Month" | "All Time";
@@ -19,6 +20,13 @@ export type MoodPoint = {
   mood: string;
   share: number;
   energy: number;
+};
+
+export type MoodHeatmapCell = {
+  period: string;
+  mood: string;
+  intensity: number;
+  minutes: number;
 };
 
 export type FavoriteTrack = {
@@ -92,6 +100,7 @@ export type DashboardInsights = {
   trendBadge: string;
   genrePulse: GenrePulse[];
   moodData: MoodPoint[];
+  moodHeatmap: MoodHeatmapCell[];
   forgottenFavorites: FavoriteTrack[];
   playlistInsights: PlaylistInsight[];
   sourceLabel: string;
@@ -130,14 +139,35 @@ export type TopListAlbum = {
 };
 
 export type TopListsData = {
-  range: SpotifyTimeRange;
+  range: TopListRange;
   artists: TopListArtist[];
   tracks: TopListTrack[];
   albums: TopListAlbum[];
   sourceLabel: string;
   generatedAt?: string;
+  from?: string;
+  to?: string;
 };
 
+export type DashboardAnalysisEntry = {
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string;
+  imageUrl?: string;
+  playedAt: string;
+  durationMs: number;
+  mood?: string;
+  period?: string;
+};
+
+export type DashboardAnalysisDetail = {
+  section: "trend" | "heatmap";
+  title: string;
+  subtitle: string;
+  range: DashboardRange;
+  entries: DashboardAnalysisEntry[];
+};
 export type RecentTrackSummary = {
   trackId: string;
   title: string;
@@ -290,8 +320,14 @@ export type SpotifyDashboardSnapshot = {
   spotifyUserId: string;
   topArtists: SpotifyTopArtistsResponse["items"];
   topTracks: SpotifyTopTracksResponse["items"];
+  mediumTermTopArtists?: SpotifyTopArtistsResponse["items"];
+  mediumTermTopTracks?: SpotifyTopTracksResponse["items"];
+  longTermTopArtists?: SpotifyTopArtistsResponse["items"];
   longTermTopTracks?: SpotifyTopTracksResponse["items"];
   savedTracks?: SpotifySavedTrackItem[];
   recent: SpotifyRecentlyPlayedItem[];
   fetchedAt: string;
 };
+
+
+

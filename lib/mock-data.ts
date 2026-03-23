@@ -1,6 +1,7 @@
 import {
   FavoriteTrack,
   GenrePulse,
+  MoodHeatmapCell,
   MoodPoint,
   PlaylistInsight,
   StatCard,
@@ -38,7 +39,28 @@ export const moodData: MoodPoint[] = [
   { mood: "Joyful", share: 14, energy: 67 },
   { mood: "Focus", share: 10, energy: 58 },
 ];
-
+export const moodHeatmap: MoodHeatmapCell[] = [
+  { period: "Morning", mood: "Focus", intensity: 88, minutes: 72 },
+  { period: "Morning", mood: "Chill", intensity: 66, minutes: 54 },
+  { period: "Morning", mood: "Joyful", intensity: 44, minutes: 32 },
+  { period: "Morning", mood: "Energetic", intensity: 28, minutes: 18 },
+  { period: "Morning", mood: "Moody", intensity: 24, minutes: 16 },
+  { period: "Afternoon", mood: "Joyful", intensity: 74, minutes: 63 },
+  { period: "Afternoon", mood: "Energetic", intensity: 81, minutes: 71 },
+  { period: "Afternoon", mood: "Focus", intensity: 47, minutes: 38 },
+  { period: "Afternoon", mood: "Chill", intensity: 36, minutes: 28 },
+  { period: "Afternoon", mood: "Moody", intensity: 20, minutes: 14 },
+  { period: "Evening", mood: "Energetic", intensity: 70, minutes: 58 },
+  { period: "Evening", mood: "Joyful", intensity: 62, minutes: 51 },
+  { period: "Evening", mood: "Moody", intensity: 55, minutes: 43 },
+  { period: "Evening", mood: "Chill", intensity: 40, minutes: 31 },
+  { period: "Evening", mood: "Focus", intensity: 22, minutes: 15 },
+  { period: "Late Night", mood: "Moody", intensity: 79, minutes: 68 },
+  { period: "Late Night", mood: "Chill", intensity: 86, minutes: 75 },
+  { period: "Late Night", mood: "Focus", intensity: 58, minutes: 44 },
+  { period: "Late Night", mood: "Joyful", intensity: 26, minutes: 18 },
+  { period: "Late Night", mood: "Energetic", intensity: 18, minutes: 12 },
+];
 export const forgottenFavorites: FavoriteTrack[] = [
   {
     title: "Ribs",
@@ -114,7 +136,7 @@ export const playlistInsights: PlaylistInsight[] = [
 ];
 
 export const previewTopLists: TopListsData = {
-  range: "medium_term",
+  range: "month",
   sourceLabel: "Preview top items",
   generatedAt: "2026-03-01T12:00:00.000Z",
   artists: [
@@ -264,3 +286,8 @@ export const previewTopLists: TopListsData = {
     },
   ],
 };
+
+
+
+
+

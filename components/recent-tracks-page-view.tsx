@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -56,7 +56,7 @@ export function RecentTracksPageView() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-3xl space-y-3">
             <p className="text-sm uppercase tracking-[0.3em] text-coral/80">Recent History</p>
-            <h1 className="font-display text-5xl text-white md:text-6xl">Everything still spinning in your orbit.</h1>
+            <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">Everything still spinning in your orbit.</h1>
             <p className="text-base leading-7 text-ink/80">
               A wider look at the tracks SoundScope has synced from your recent listening history.
             </p>
@@ -78,7 +78,7 @@ export function RecentTracksPageView() {
             <Disc3 className="h-5 w-5 text-coral" />
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-coral/80">Synced Tracks</p>
-              <h2 className="mt-1 font-display text-3xl text-white">Recent plays</h2>
+              <h2 className="mt-1 font-display text-3xl text-[var(--theme-title)]">Recent plays</h2>
             </div>
           </div>
 
@@ -95,7 +95,7 @@ export function RecentTracksPageView() {
                     </div>
                   ) : null}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-display text-3xl text-white">{track.title}</p>
+                    <p className="truncate font-display text-3xl text-[var(--theme-title)]">{track.title}</p>
                     <p className="mt-2 truncate text-base text-ink/80">{track.artist}</p>
                     <p className="mt-2 truncate text-sm uppercase tracking-[0.2em] text-ink/55">{track.album}</p>
                   </div>
@@ -113,3 +113,4 @@ export function RecentTracksPageView() {
     </section>
   );
 }
+

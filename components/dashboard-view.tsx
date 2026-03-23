@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Clock3, Flame, Heart, ImageIcon, LibraryBig, PlaySquare, Search, SmilePlus, Sparkles, Star, Waves } from "lucide-react";
@@ -23,6 +23,7 @@ import {
   forgottenFavorites,
   genrePulse,
   moodData,
+  moodHeatmap,
   playlistInsights,
   previewTopLists,
   trendData,
@@ -33,9 +34,10 @@ import {
   DashboardRange,
   FavoriteTrack,
   GenrePulse,
+  MoodHeatmapCell,
   MoodPoint,
   PlaylistInsight,
-  SpotifyTimeRange,
+  TopListRange,
   StatCard,
   TopListsData,
   TrendPoint,
@@ -47,12 +49,13 @@ const timeframeTabs: Array<{ key: DashboardRange; label: string }> = [
   { key: "all", label: "All Time" },
 ];
 
-const topRangeTabs: Array<{ key: SpotifyTimeRange; label: string }> = [
-  { key: "short_term", label: "Last 4 Weeks" },
-  { key: "medium_term", label: "Last 6 Months" },
-  { key: "long_term", label: "All Time" },
+const topRangeTabs: Array<{ key: TopListRange; label: string }> = [
+  { key: "week", label: "1 Week" },
+  { key: "month", label: "1 Month" },
+  { key: "year", label: "1 Year" },
+  { key: "all", label: "All Time" },
+  { key: "custom", label: "Custom" },
 ];
-
 const roadmap = [
   {
     phase: "MVP foundation",
@@ -74,8 +77,14 @@ type DashboardViewProps = {
   selectedRange?: DashboardRange;
   topLists?: TopListsData;
   heroTopLists?: TopListsData;
-  selectedTopRange?: SpotifyTimeRange;
+  selectedTopRange?: TopListRange;
+  selectedTopFrom?: string;
+  selectedTopTo?: string;
   sidebar?: ReactNode;
+  dashboardBasePath?: string;
+  analysisBasePath?: string | null;
+  topListsPagePath?: string | null;
+  playlistsPagePath?: string | null;
 };
 
 type DashboardData = {
@@ -85,6 +94,7 @@ type DashboardData = {
   trendBadge: string;
   genrePulse: GenrePulse[];
   moodData: MoodPoint[];
+  moodHeatmap: MoodHeatmapCell[];
   forgottenFavorites: FavoriteTrack[];
   playlistInsights: PlaylistInsight[];
   sourceLabel: string;
@@ -95,6 +105,7 @@ type DashboardData = {
 };
 
 const moodColors = ["#7AF7FF", "#6E82FF", "#FF5EC9", "#FFD37B", "#8EFFD1"];
+const moodOrder = ["Energetic", "Chill", "Moody", "Joyful", "Focus"];
 
 function getData(mode: DashboardViewProps["mode"], insights?: DashboardInsights): DashboardData {
   if (mode === "authenticated" && insights) {
@@ -108,6 +119,7 @@ function getData(mode: DashboardViewProps["mode"], insights?: DashboardInsights)
     trendBadge: "Session-aware insights",
     genrePulse: genrePulse as GenrePulse[],
     moodData: moodData as MoodPoint[],
+    moodHeatmap: moodHeatmap as MoodHeatmapCell[],
     forgottenFavorites: forgottenFavorites as FavoriteTrack[],
     playlistInsights: playlistInsights as PlaylistInsight[],
     sourceLabel: "Preview dataset",
@@ -298,8 +310,14 @@ export function DashboardView({
   selectedRange = "week",
   topLists,
   heroTopLists,
-  selectedTopRange = "medium_term",
+  selectedTopRange = "month",
+  selectedTopFrom,
+  selectedTopTo,
   sidebar,
+  dashboardBasePath = "/dashboard",
+  analysisBasePath = "/dashboard/analysis",
+  topListsPagePath = "/dashboard/top-lists",
+  playlistsPagePath = "/dashboard/playlists",
 }: DashboardViewProps) {
   const isPreview = mode === "preview";
   const data = getData(mode, insights);
@@ -308,6 +326,9 @@ export function DashboardView({
   const playlist = buildRediscoveryPlaylist(data.forgottenFavorites);
   const cachedAtLabel = formatTimestamp(data.cachedAt);
   const generatedAtLabel = formatTimestamp(topListData.generatedAt);
+  const topRangeQuery = selectedTopRange === "custom" && selectedTopFrom && selectedTopTo ? `&topFrom=${selectedTopFrom}&topTo=${selectedTopTo}` : "";
+  const moodHeatmapPeriods = [...new Set(data.moodHeatmap.map((cell) => cell.period))];
+  const heatmapCellByKey = new Map(data.moodHeatmap.map((cell) => [`${cell.mood}::${cell.period}`, cell]));
   const leadArtist = heroTopListData.artists[0];
   const leadTrack = heroTopListData.tracks[0];
   const leadAlbum = heroTopListData.albums[0];
@@ -404,12 +425,30 @@ export function DashboardView({
                       <div className="flex flex-wrap gap-3">
                         {timeframeTabs.map((tab) => {
                           const active = (isPreview ? "week" : selectedRange) === tab.key;
-                          const href = isPreview ? undefined : `/dashboard?range=${tab.key}&topRange=${selectedTopRange}`;
+                          const href = isPreview
+                            ? undefined
+                            : `${dashboardBasePath}?range=${tab.key}&topRange=${selectedTopRange}${selectedTopRange === "custom" && selectedTopFrom && selectedTopTo ? `&topFrom=${selectedTopFrom}&topTo=${selectedTopTo}` : ""}`;
+
+                          if (!href) {
+                            return (
+                              <TabPill key={tab.key} active={active}>
+                                {tab.label}
+                              </TabPill>
+                            );
+                          }
 
                           return (
-                            <TabPill key={tab.key} active={active} href={href}>
+                            <a
+                              key={tab.key}
+                              href={href}
+                              className={`rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.16em] transition ${
+                                active
+                                  ? "neon-outline bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] text-[#170718]"
+                                  : "chrome-line bg-white/[0.05] text-ink/82 hover:border-cyan/40 hover:text-white"
+                              }`}
+                            >
                               {tab.label}
-                            </TabPill>
+                            </a>
                           );
                         })}
                       </div>
@@ -467,7 +506,7 @@ export function DashboardView({
                         </div>
                         <div>
                           <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">trend lens</p>
-                          <p className="text-sm text-[var(--theme-body)]">watch your listening pulse spike like a little desktop visualizer.</p>
+                          <p className="text-sm text-[var(--theme-body)]">track how much time you actually spent listening across each bucket in the selected range.</p>
                         </div>
                       </div>
                     </div>
@@ -477,8 +516,8 @@ export function DashboardView({
                           <Sparkles className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">rediscovery blips</p>
-                          <p className="text-sm text-[var(--theme-body)]">bar peaks call out when old favorites come back into rotation.</p>
+                          <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">artist spread</p>
+                          <p className="text-sm text-[var(--theme-body)]">the magenta bars show how wide your artist rotation got during each listening window.</p>
                         </div>
                       </div>
                     </div>
@@ -493,21 +532,34 @@ export function DashboardView({
                           </linearGradient>
                         </defs>
                         <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-                        <XAxis dataKey="label" stroke="#FFF6F4" tickLine={false} axisLine={false} />
-                        <YAxis stroke="#FFF6F4" tickLine={false} axisLine={false} />
+                        <XAxis dataKey="label" stroke="var(--theme-text)" tickLine={false} axisLine={false} />
+                        <YAxis stroke="var(--theme-text)" tickLine={false} axisLine={false} />
                         <Tooltip contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }} />
                         <Area type="monotone" dataKey="minutes" stroke="#7AF7FF" strokeWidth={3} fill="url(#minutesFill)" />
                         <Bar dataKey="rediscovered" fill="#FF5EC9" radius={[10, 10, 0, 0]} barSize={20} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
+                  {!isPreview && analysisBasePath ? (
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      {data.trendData.map((point) => (
+                        <Link
+                          key={point.label}
+                          href={`${analysisBasePath}?section=trend&range=${selectedRange}&label=${encodeURIComponent(point.label)}`}
+                          className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
+                        >
+                          Open {point.label} sessions
+                        </Link>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="glass-panel rounded-[34px] p-6 md:p-7 text-[var(--theme-text)]">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Genre pulse</p>
-                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Top lanes this month</h3>
+                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Genres driving the mix</h3>
                     </div>
                     <div className="icon-bubble h-11 w-11 text-[var(--theme-accent)]">
                       <ImageIcon className="h-5 w-5" />
@@ -522,7 +574,7 @@ export function DashboardView({
                       <BarChart data={data.genrePulse} layout="vertical" margin={{ left: 8 }}>
                         <CartesianGrid horizontal={false} stroke="rgba(255,255,255,0.06)" />
                         <XAxis type="number" hide />
-                        <YAxis type="category" dataKey="genre" stroke="#FFF6F4" tickLine={false} axisLine={false} width={96} />
+                        <YAxis type="category" dataKey="genre" stroke="var(--theme-text)" tickLine={false} axisLine={false} width={96} />
                         <Tooltip contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }} />
                         <Bar dataKey="hours" radius={[0, 14, 14, 0]} barSize={18}>
                           {data.genrePulse.map((entry) => (
@@ -575,31 +627,65 @@ export function DashboardView({
                   <div className="mb-6 flex items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Mood heatmap</p>
-                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Energy vs share</h3>
+                      <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Time of day x mood</h3>
                     </div>
                     <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
                       <Waves className="h-4 w-4" />
                     </div>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {data.moodData.map((mood, index) => (
-                      <div key={mood.mood} className="desktop-card p-5 text-[var(--theme-text)]">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{mood.mood}</p>
-                          <p className="font-mono text-xl uppercase text-[var(--theme-highlight)]">{mood.share}%</p>
+                  <div className="desktop-card p-4">
+                    <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">session mood map</p>
+                    <p className="mt-1 text-sm text-[var(--theme-body)]">brighter cells mark the times of day where each listening mood shows up the most in your recent sessions.</p>
+                  </div>
+                  <div className="mt-5 overflow-hidden rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45]">
+                    <div className="grid" style={{ gridTemplateColumns: `minmax(140px, 1.2fr) repeat(${moodHeatmapPeriods.length}, minmax(0, 1fr))` }}>
+                      <div className="border-b border-[rgba(57,18,98,0.12)] bg-white/[0.38] p-4 font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">Mood</div>
+                      {moodHeatmapPeriods.map((period) => (
+                        <div key={period} className="border-b border-l border-[rgba(57,18,98,0.12)] bg-white/[0.38] p-4 text-center font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">
+                          {period}
                         </div>
-                        <div className="mt-4 h-3 rounded-full bg-[rgba(57,18,98,0.1)]">
-                          <div
-                            className="h-3 rounded-full"
-                            style={{
-                              width: `${mood.energy}%`,
-                              background: `linear-gradient(90deg, ${moodColors[index % moodColors.length]}, #FFD37B)`,
-                            }}
-                          />
-                        </div>
-                        <p className="mt-3 text-sm text-[var(--theme-muted)]">Energy score {mood.energy}/100</p>
-                      </div>
-                    ))}
+                      ))}
+                      {moodOrder.map((mood, rowIndex) => (
+                        <Fragment key={mood}>
+                          <div className="border-b border-[rgba(57,18,98,0.12)] bg-white/[0.32] p-4 font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">
+                            {mood}
+                          </div>
+                          {moodHeatmapPeriods.map((period) => {
+                            const cell = heatmapCellByKey.get(`${mood}::${period}`);
+                            const intensity = cell?.intensity ?? 0;
+                            const alpha = Math.max(18, Math.round((intensity / 100) * 85)).toString(16).padStart(2, "0");
+                            if (!analysisBasePath) {
+                              return (
+                                <div
+                                  key={`${mood}-${period}`}
+                                  className="border-b border-l border-[rgba(57,18,98,0.12)] p-4 text-center"
+                                  style={{
+                                    background: `linear-gradient(135deg, rgba(255,255,255,0.16), ${moodColors[rowIndex % moodColors.length]}${alpha})`,
+                                  }}
+                                >
+                                  <p className="font-mono text-lg uppercase text-[var(--theme-title)]">{intensity}%</p>
+                                  <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--theme-muted)]">{Math.round(cell?.minutes ?? 0)} min</p>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <Link
+                                key={`${mood}-${period}`}
+                                href={`${analysisBasePath}?section=heatmap&range=${selectedRange}&mood=${encodeURIComponent(mood)}&period=${encodeURIComponent(period)}`}
+                                className="border-b border-l border-[rgba(57,18,98,0.12)] p-4 text-center transition hover:brightness-110"
+                                style={{
+                                  background: `linear-gradient(135deg, rgba(255,255,255,0.16), ${moodColors[rowIndex % moodColors.length]}${alpha})`,
+                                }}
+                              >
+                                <p className="font-mono text-lg uppercase text-[var(--theme-title)]">{intensity}%</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--theme-muted)]">{Math.round(cell?.minutes ?? 0)} min</p>
+                              </Link>
+                            );
+                          })}
+                        </Fragment>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -620,26 +706,43 @@ export function DashboardView({
             }
           />
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-3">
-              {topRangeTabs.map((tab) => {
-                const active = (isPreview ? "medium_term" : selectedTopRange) === tab.key;
-                const href = isPreview ? undefined : `/dashboard?range=${selectedRange}&topRange=${tab.key}`;
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-3">
+                {topRangeTabs.map((tab) => {
+                  const active = (isPreview ? "month" : selectedTopRange) === tab.key;
+                  const href = isPreview ? undefined : `${dashboardBasePath}?range=${selectedRange}&topRange=${tab.key}${tab.key === "custom" ? topRangeQuery : ""}`;
 
-                return (
-                  <TabPill key={tab.key} active={active} href={href}>
-                    {tab.label}
-                  </TabPill>
-                );
-              })}
+                  return (
+                    <TabPill key={tab.key} active={active} href={href}>
+                      {tab.label}
+                    </TabPill>
+                  );
+                })}
+              </div>
+              {!isPreview && playlistsPagePath ? (
+                <Link
+                  href={`${topListsPagePath}?range=${selectedTopRange}&tab=artists&page=1${selectedTopRange === "custom" && selectedTopFrom && selectedTopTo ? `&from=${selectedTopFrom}&to=${selectedTopTo}` : ""}`}
+                  className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
+                >
+                  View all rankings
+                </Link>
+              ) : null}
             </div>
-            {!isPreview ? (
-              <Link
-                href={`/dashboard/top-lists?range=${selectedTopRange}&tab=artists&page=1`}
-                className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
-              >
-                View all rankings
-              </Link>
+            {!isPreview && playlistsPagePath ? (
+              <form action={dashboardBasePath} method="get" className="desktop-card flex flex-wrap items-end gap-3 p-4">
+                <input type="hidden" name="range" value={selectedRange} />
+                <input type="hidden" name="topRange" value="custom" />
+                <label className="space-y-2 text-sm text-[var(--theme-muted)]">
+                  <span className="block font-mono uppercase tracking-[0.14em]">From</span>
+                  <input name="topFrom" type="date" defaultValue={selectedTopRange === "custom" ? selectedTopFrom : undefined} className="rounded-2xl border border-white/15 bg-white/60 px-3 py-2 text-[var(--theme-text)]" />
+                </label>
+                <label className="space-y-2 text-sm text-[var(--theme-muted)]">
+                  <span className="block font-mono uppercase tracking-[0.14em]">To</span>
+                  <input name="topTo" type="date" defaultValue={selectedTopRange === "custom" ? selectedTopTo : undefined} className="rounded-2xl border border-white/15 bg-white/60 px-3 py-2 text-[var(--theme-text)]" />
+                </label>
+                <button type="submit" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">Apply custom window</button>
+              </form>
             ) : null}
           </div>
 
@@ -833,8 +936,8 @@ export function DashboardView({
 
           <div className="flex items-center justify-between gap-4">
             <p className="font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-muted)]">Open any playlist to inspect its structure in more detail.</p>
-            {!isPreview ? (
-              <Link href="/dashboard/playlists" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+            {!isPreview && playlistsPagePath ? (
+              <Link href={playlistsPagePath} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 View all playlists
               </Link>
             ) : null}
@@ -876,9 +979,9 @@ export function DashboardView({
 
               const className = `glass-panel rounded-[32px] p-6 text-[var(--theme-text)] transition ${index === 0 ? "shadow-glow" : ""}`;
 
-              if (!isPreview && playlistCard.id) {
+              if (!isPreview && playlistCard.id && playlistsPagePath) {
                 return (
-                  <Link key={playlistCard.id} href={`/dashboard/playlists/${playlistCard.id}`} className={`${className} hover:border-cyan/40 hover:bg-white/[0.05]`}>
+                  <Link key={playlistCard.id} href={`${playlistsPagePath ?? "/dashboard/playlists"}/${playlistCard.id}`} className={`${className} hover:border-cyan/40 hover:bg-white/[0.05]`}>
                     {content}
                   </Link>
                 );
@@ -927,6 +1030,29 @@ export function DashboardView({
     </>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

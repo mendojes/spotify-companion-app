@@ -1,6 +1,6 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 
-type ConnectedUser = {
+export type ConnectedUser = {
   spotifyUserId: string;
   displayName: string;
   email?: string;
@@ -13,8 +13,28 @@ type ConnectedUser = {
   lastSnapshotError?: string;
 };
 
+export type CommunityUserProfile = {
+  spotifyUserId: string;
+  displayName: string;
+  imageUrl?: string;
+  lastSeenAt: string;
+  lastSnapshotAt?: string;
+  lastSnapshotStatus?: "success" | "error";
+};
+
 const CONNECTED_USERS_COLLECTION = "connected_users";
 const ACTIVE_WINDOW_MS = 1000 * 60 * 60 * 24 * 30;
+
+function toCommunityUserProfile(user: ConnectedUser): CommunityUserProfile {
+  return {
+    spotifyUserId: user.spotifyUserId,
+    displayName: user.displayName,
+    imageUrl: user.imageUrl,
+    lastSeenAt: user.lastSeenAt,
+    lastSnapshotAt: user.lastSnapshotAt,
+    lastSnapshotStatus: user.lastSnapshotStatus,
+  };
+}
 
 export async function ensureConnectedUserIndexes() {
   if (!hasMongoConfig()) {
@@ -126,4 +146,23 @@ export async function listActiveConnectedUsers(limit = 25) {
     .sort({ lastSeenAt: -1 })
     .limit(limit)
     .toArray();
+}
+
+export async function listCommunityUsers(limit = 24) {
+  const users = await listActiveConnectedUsers(limit);
+  return users.map(toCommunityUserProfile);
+}
+
+export async function getCommunityUserProfile(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return null;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return null;
+  }
+
+  const user = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne({ spotifyUserId });
+  return user ? toCommunityUserProfile(user) : null;
 }

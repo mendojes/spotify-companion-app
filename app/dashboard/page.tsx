@@ -8,10 +8,10 @@ import { requireSession } from "@/lib/auth";
 import { touchConnectedUser } from "@/lib/connected-users";
 import { getDashboardInsights } from "@/lib/spotify-dashboard";
 import { getSpotifyTopLists } from "@/lib/spotify-toplists";
-import { DashboardRange, SpotifyTimeRange } from "@/lib/types";
+import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
-  searchParams: Promise<{ range?: string; topRange?: string; refreshed?: string; refresh_error?: string }>;
+  searchParams: Promise<{ range?: string; topRange?: string; topFrom?: string; topTo?: string; refreshed?: string; refresh_error?: string }>;
 };
 
 function normalizeRange(range?: string): DashboardRange {
@@ -22,24 +22,32 @@ function normalizeRange(range?: string): DashboardRange {
   return "week";
 }
 
-function mapDashboardRangeToTopRange(range: DashboardRange): SpotifyTimeRange {
-  if (range === "week") {
-    return "short_term";
-  }
-
-  if (range === "all") {
-    return "long_term";
-  }
-
-  return "medium_term";
-}
-
-function normalizeTopRange(range: string | undefined, selectedRange: DashboardRange): SpotifyTimeRange {
-  if (range === "short_term" || range === "long_term" || range === "medium_term") {
+function normalizeTopRange(range?: string): TopListRange {
+  if (range === "week" || range === "month" || range === "year" || range === "all" || range === "custom") {
     return range;
   }
 
-  return mapDashboardRangeToTopRange(selectedRange);
+  return "month";
+}
+
+function dashboardRangeToTopListRange(range: DashboardRange): TopListRange {
+  if (range === "month") {
+    return "month";
+  }
+
+  if (range === "all") {
+    return "all";
+  }
+
+  return "week";
+}
+
+function normalizeDate(value?: string) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return undefined;
+  }
+
+  return value;
 }
 
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
@@ -61,10 +69,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   await touchConnectedUser(session.spotifyUserId);
 
-  const { range, topRange, refreshed, refresh_error: refreshErrorFlag } = await searchParams;
+  const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag } = await searchParams;
   const selectedRange = normalizeRange(range);
-  const selectedTopRange = normalizeTopRange(topRange, selectedRange);
-  const heroTopRange = mapDashboardRangeToTopRange(selectedRange);
+  const selectedTopRange = normalizeTopRange(topRange);
+  const selectedTopFrom = normalizeDate(topFrom);
+  const selectedTopTo = normalizeDate(topTo);
+  const selectedHeroRange = dashboardRangeToTopListRange(selectedRange);
 
   let insights;
   let topLists;
@@ -80,8 +90,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   try {
     [topLists, heroTopLists] = await Promise.all([
-      getSpotifyTopLists(session.accessToken, selectedTopRange),
-      getSpotifyTopLists(session.accessToken, heroTopRange),
+      getSpotifyTopLists(session.accessToken, session.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+      getSpotifyTopLists(session.accessToken, session.spotifyUserId, selectedHeroRange),
     ]);
   } catch {
     topListsError = "Top artist, track, and album lists could not be loaded right now, so preview rankings are showing instead.";
@@ -101,7 +111,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
-            <ThemeToggle />
+            <ThemeToggle />`r`n            <Link href="/social" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">`r`n              <Sparkles className="h-4 w-4" /> Community`r`n            </Link>
             <a href={`/api/dashboard/refresh?range=${selectedRange}`} className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
               <RefreshCcw className="h-4 w-4" /> Refresh snapshot
             </a>
@@ -141,6 +151,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         topLists={topLists}
         heroTopLists={heroTopLists}
         selectedTopRange={selectedTopRange}
+        selectedTopFrom={selectedTopFrom}
+        selectedTopTo={selectedTopTo}
         sidebar={<NowPlayingPanel />}
       />
 
@@ -154,3 +166,5 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
+
+
