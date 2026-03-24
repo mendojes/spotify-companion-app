@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { Disc3, LogOut, RefreshCcw, Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
@@ -6,6 +6,8 @@ import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { requireSession } from "@/lib/auth";
+import { getDashboardInsights } from "@/lib/spotify-dashboard";
+import { getSpotifyTopLists } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
@@ -88,6 +90,27 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let dashboardError: string | null = null;
   let topListsError: string | null = null;
 
+  try {
+    [insights, topLists, heroTopLists] = await Promise.all([
+      getDashboardInsights(activeSession.accessToken, activeSession.spotifyUserId, selectedRange),
+      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange),
+    ]);
+  } catch (error) {
+    dashboardError = `Spotify data could not be loaded right now, so the dashboard is showing preview fallback sections. (${getErrorMessage(error)})`;
+
+    try {
+      heroTopLists = await getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange);
+    } catch (topError) {
+      topListsError = `Top artist, track, and album lists could not be loaded right now, so preview rankings are showing instead. (${getErrorMessage(topError)})`;
+    }
+
+    try {
+      topLists = await getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo);
+    } catch (topError) {
+      topListsError = `Top artist, track, and album lists could not be loaded right now, so preview rankings are showing instead. (${getErrorMessage(topError)})`;
+    }
+  }
 
   return (
     <main className="city-pop-shell relative overflow-hidden pb-10">
@@ -112,7 +135,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             </a>
             <div className="hidden desktop-card px-4 py-2 text-right md:block">
               <p className="text-sm text-[var(--theme-title)]">{activeSession.displayName}</p>
-              <p className="font-mono text-lg uppercase tracking-[0.14em] text-[var(--theme-muted)]">{activeSession.email ?? "Spotify connected"}</p>
             </div>
             <a href="/api/auth/logout" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
               <LogOut className="h-4 w-4" /> Log out
@@ -163,4 +185,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
+
+
 

@@ -449,7 +449,7 @@ export function DashboardView({
     let cancelled = false;
     let timer: number | undefined;
     const hasServerPlaylistInsights = data.playlistInsights.length > 0;
-    const refreshDelayMs = hasServerPlaylistInsights ? 1000 * 60 : 1000 * 15;
+    const refreshDelayMs = hasServerPlaylistInsights ? 1000 * 60 * 3 : 1000 * 60;
 
     async function loadPlaylistInsights() {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {

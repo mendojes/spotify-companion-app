@@ -23,7 +23,10 @@ const PLAYLIST_PAGE_LIMIT = 20;
 const PLAYLIST_TRACK_LIMIT = 100;
 const DASHBOARD_PLAYLIST_COUNT = 3;
 const PLAYLIST_ANALYSIS_CONCURRENCY = 3;
-const PLAYLIST_INSIGHTS_TTL_MS = 1000 * 60;
+const PLAYLIST_INSIGHTS_TTL_MS = 1000 * 60 * 5;
+const PLAYLIST_RECENT_SYNC_TTL_MS = 1000 * 60 * 5;
+
+const lastGoodPlaylistInsights = new Map<string, PlaylistInsight[]>();
 
 type PlaylistTrackWithMeta = {
   addedAt?: string;
@@ -383,20 +386,26 @@ function toInsight(detail: PlaylistDetail): PlaylistInsight {
 }
 
 async function getRecentHistory(accessToken: string, spotifyUserId: string) {
-  const [syncedRecent, storedRecent] = await Promise.all([
-    syncRecentPlays(accessToken, spotifyUserId).catch(() => [] as StoredRecentPlay[]),
-    getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
-  ]);
+  const storedRecent = await getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]);
+  const storedPlaylistPlays = storedRecent.filter((play) => Boolean(play.playlistId));
+
+  const syncedRecent = await getCachedValue(
+    `playlist-recent-sync:${spotifyUserId}`,
+    PLAYLIST_RECENT_SYNC_TTL_MS,
+    () => syncRecentPlays(accessToken, spotifyUserId).catch(() => storedRecent),
+  ).catch(() => storedRecent as StoredRecentPlay[]);
+
+  const preferredRecent = storedPlaylistPlays.length > 0 ? storedRecent : syncedRecent;
 
   return uniqueById(
-    [...syncedRecent, ...storedRecent].map((play) => ({
+    [...preferredRecent, ...storedRecent].map((play) => ({
       id: `${play.trackId}:${play.playedAt}`,
       ...play,
     })),
   ).map(({ id: _id, ...play }) => play);
 }
 
-function getRecentPlaylistCandidates(recentPlays: StoredRecentPlay[], currentPlaylistId?: string) {
+function getRecentPlaylistCandidates(recentPlays: StoredRecentPlay[], currentPlaylistId?: string, fallbackPlaylistIds: string[] = []) {
   const seen = new Set<string>();
   const playlistIds: string[] = [];
 
@@ -414,6 +423,19 @@ function getRecentPlaylistCandidates(recentPlays: StoredRecentPlay[], currentPla
     playlistIds.push(play.playlistId);
 
     if (playlistIds.length >= DASHBOARD_PLAYLIST_COUNT) {
+      return playlistIds;
+    }
+  }
+
+  for (const playlistId of fallbackPlaylistIds) {
+    if (!playlistId || seen.has(playlistId)) {
+      continue;
+    }
+
+    seen.add(playlistId);
+    playlistIds.push(playlistId);
+
+    if (playlistIds.length >= DASHBOARD_PLAYLIST_COUNT) {
       break;
     }
   }
@@ -422,16 +444,21 @@ function getRecentPlaylistCandidates(recentPlays: StoredRecentPlay[], currentPla
 }
 
 export async function getPlaylistInsights(accessToken: string, spotifyUserId: string): Promise<PlaylistInsight[]> {
+  const lastGood = lastGoodPlaylistInsights.get(spotifyUserId) ?? [];
   const [recentPlays, currentPlaybackSource] = await Promise.all([
     getRecentHistory(accessToken, spotifyUserId),
     getCurrentPlaybackSource(accessToken).catch(() => undefined),
   ]);
 
   const currentPlaylistId = currentPlaybackSource?.type === "playlist" ? currentPlaybackSource.playlistId : undefined;
-  const candidateIds = getRecentPlaylistCandidates(recentPlays, currentPlaylistId);
+  const candidateIds = getRecentPlaylistCandidates(
+    recentPlays,
+    currentPlaylistId,
+    lastGood.map((playlist) => playlist.id).filter((id): id is string => Boolean(id)),
+  );
 
   if (candidateIds.length === 0) {
-    return [];
+    return lastGood;
   }
 
   const playlists = await Promise.all(
@@ -452,7 +479,7 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
 
   const currentPlaybackTimestamp = currentPlaylistId ? new Date().toISOString() : undefined;
 
-  return sortPlaylistInsights(
+  const nextInsights = sortPlaylistInsights(
     uniqueById(details)
       .map((detail) => {
         const insight = toInsight(detail);
@@ -471,6 +498,13 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
       .filter((playlist) => Boolean(playlist.lastListenedAt)),
     "last_listened_desc",
   ).slice(0, DASHBOARD_PLAYLIST_COUNT);
+
+  if (nextInsights.length > 0) {
+    lastGoodPlaylistInsights.set(spotifyUserId, nextInsights);
+    return nextInsights;
+  }
+
+  return lastGood;
 }
 
 export async function getAllPlaylistInsights(
@@ -502,6 +536,7 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
 
 export function invalidatePlaylistInsightsCache(spotifyUserId: string) {
   invalidateCachedValue(`playlist-insights:${spotifyUserId}`);
+  invalidateCachedValue(`playlist-recent-sync:${spotifyUserId}`);
 }
 
 export async function getCachedPlaylistInsights(accessToken: string, spotifyUserId: string): Promise<PlaylistInsight[]> {
