@@ -4,11 +4,15 @@ declare global {
   var mongoClientPromise: Promise<MongoClient> | undefined;
 }
 
-const uri = process.env.MONGODB_URI;
+const uri = process.env.spotify_app_MONGODB_URI || process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB_NAME || "soundscope";
+const SERVER_SELECTION_TIMEOUT_MS = 1500;
+const CONNECT_TIMEOUT_MS = 1500;
+const SOCKET_TIMEOUT_MS = 5000;
+const RETRY_BACKOFF_MS = 10_000;
 
 let mongoClientPromise: Promise<MongoClient> | null = null;
-let mongoUnavailable = false;
+let lastConnectionFailureAt = 0;
 
 function createClientPromise() {
   if (!uri) {
@@ -16,36 +20,69 @@ function createClientPromise() {
   }
 
   const client = new MongoClient(uri, {
-    serverSelectionTimeoutMS: 5000,
-    connectTimeoutMS: 5000,
-    socketTimeoutMS: 10000,
+    serverSelectionTimeoutMS: SERVER_SELECTION_TIMEOUT_MS,
+    connectTimeoutMS: CONNECT_TIMEOUT_MS,
+    socketTimeoutMS: SOCKET_TIMEOUT_MS,
   });
-  return client.connect();
+
+  const connectionPromise = client.connect().catch(async (error) => {
+    lastConnectionFailureAt = Date.now();
+    mongoClientPromise = null;
+
+    if (process.env.NODE_ENV !== "production") {
+      global.mongoClientPromise = undefined;
+    }
+
+    try {
+      await client.close();
+    } catch {
+      // Ignore cleanup errors after a failed connection attempt.
+    }
+
+    throw error;
+  });
+
+  if (process.env.NODE_ENV !== "production") {
+    global.mongoClientPromise = connectionPromise;
+  }
+
+  return connectionPromise;
 }
 
-if (uri) {
-  mongoClientPromise = global.mongoClientPromise ?? createClientPromise();
-
-  if (process.env.NODE_ENV !== "production" && mongoClientPromise) {
-    global.mongoClientPromise = mongoClientPromise;
+function getClientPromise() {
+  if (!uri) {
+    return null;
   }
+
+  if (mongoClientPromise) {
+    return mongoClientPromise;
+  }
+
+  if (lastConnectionFailureAt && Date.now() - lastConnectionFailureAt < RETRY_BACKOFF_MS) {
+    return null;
+  }
+
+  mongoClientPromise = global.mongoClientPromise ?? createClientPromise();
+  return mongoClientPromise;
 }
 
 export function hasMongoConfig() {
-  return Boolean(uri) && !mongoUnavailable;
+  return Boolean(uri);
 }
 
 export async function getDatabase(): Promise<Db | null> {
-  if (!mongoClientPromise || mongoUnavailable) {
+  const clientPromise = getClientPromise();
+  if (!clientPromise) {
     return null;
   }
 
   try {
-    const client = await mongoClientPromise;
+    const client = await clientPromise;
+    lastConnectionFailureAt = 0;
     return client.db(dbName);
   } catch (error) {
-    mongoUnavailable = true;
     mongoClientPromise = null;
+    lastConnectionFailureAt = Date.now();
 
     if (process.env.NODE_ENV !== "production") {
       global.mongoClientPromise = undefined;
