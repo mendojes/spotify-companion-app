@@ -27,6 +27,8 @@ const PLAYLIST_ANALYSIS_CONCURRENCY = 3;
 const PLAYLIST_INSIGHTS_TTL_MS = 1000 * 60 * 5;
 const PLAYLIST_RECENT_SYNC_TTL_MS = 1000 * 60 * 5;
 const PLAYLIST_INSIGHTS_COLLECTION = "spotify_playlist_insights";
+const PLAYLIST_DETAIL_CACHE_COLLECTION = "spotify_playlist_detail_cache";
+const PLAYLIST_DETAIL_REFRESH_LIMIT = 6;
 
 const lastGoodPlaylistInsights = new Map<string, PlaylistInsight[]>();
 
@@ -37,6 +39,10 @@ type PlaylistTrackWithMeta = {
 
 type Identifiable = { id?: string };
 
+type CachedPlaylistDetail = PlaylistDetail & {
+  spotifyUserId: string;
+  updatedAt: string;
+};
 type StoredPlaylistInsights = {
   spotifyUserId: string;
   updatedAt: string;
@@ -88,6 +94,71 @@ async function writeStoredPlaylistInsights(spotifyUserId: string, playlistInsigh
   }
 }
 
+async function getCachedPlaylistDetails(spotifyUserId: string, playlistIds?: string[]) {
+  if (!hasMongoConfig()) {
+    return [] as CachedPlaylistDetail[];
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return [] as CachedPlaylistDetail[];
+    }
+
+    const query = playlistIds && playlistIds.length > 0
+      ? { spotifyUserId, id: { $in: playlistIds } }
+      : { spotifyUserId };
+
+    return db.collection<CachedPlaylistDetail>(PLAYLIST_DETAIL_CACHE_COLLECTION).find(query).toArray();
+  } catch {
+    return [] as CachedPlaylistDetail[];
+  }
+}
+
+async function writeCachedPlaylistDetails(spotifyUserId: string, details: PlaylistDetail[]) {
+  if (!hasMongoConfig() || details.length === 0) {
+    return;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    await db.collection<CachedPlaylistDetail>(PLAYLIST_DETAIL_CACHE_COLLECTION).bulkWrite(
+      details.map((detail) => ({
+        updateOne: {
+          filter: { spotifyUserId, id: detail.id },
+          update: {
+            $set: {
+              ...detail,
+              spotifyUserId,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    );
+  } catch {
+    return;
+  }
+}
+
+function toBasicInsight(playlist: SpotifyPlaylist, recentPlays: StoredRecentPlay[] = []): PlaylistInsight {
+  return {
+    id: playlist.id,
+    name: playlist.name,
+    imageUrl: playlist.images?.[0]?.url,
+    trackCount: playlist.tracks.total,
+    mood: "Analysis pending",
+    diversity: "Playlist cached, deeper analysis loading",
+    overlap: "Open the playlist after more syncs",
+    lastListenedAt: deriveLastListenedAt(playlist.id, recentPlays),
+  };
+}
 function uniqueById<T extends Identifiable>(items: T[]) {
   const seen = new Set<string>();
   const result: T[] = [];
@@ -600,6 +671,9 @@ export async function getCachedPlaylistInsights(accessToken: string, spotifyUser
     getPlaylistInsights(accessToken, spotifyUserId),
   );
 }
+
+
+
 
 
 
