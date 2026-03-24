@@ -6,9 +6,6 @@ import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { requireSession } from "@/lib/auth";
-import { getDashboardInsights } from "@/lib/spotify-dashboard";
-import { getAppUrl } from "@/lib/spotify";
-import { getSpotifyTopLists } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
@@ -59,25 +56,6 @@ function getErrorMessage(error: unknown) {
   return "Unknown Spotify error";
 }
 
-function isSpotifyAuthError(message: string) {
-  const normalized = message.toLowerCase();
-  return normalized.includes("401") || normalized.includes("403") || normalized.includes("refresh") || normalized.includes("token");
-}
-
-function buildReturnTo(range: DashboardRange, topRange: TopListRange, topFrom?: string, topTo?: string) {
-  const params = new URLSearchParams({
-    range,
-    topRange,
-  });
-
-  if (topRange === "custom" && topFrom && topTo) {
-    params.set("topFrom", topFrom);
-    params.set("topTo", topTo);
-  }
-
-  return `/dashboard?${params.toString()}`;
-}
-
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
   const styles = {
     cyan: "bg-[rgba(229,255,255,0.78)] text-[#3a1a58]",
@@ -103,7 +81,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const selectedTopFrom = normalizeDate(topFrom);
   const selectedTopTo = normalizeDate(topTo);
   const selectedHeroRange = dashboardRangeToTopListRange(selectedRange);
-  const returnTo = buildReturnTo(selectedRange, selectedTopRange, selectedTopFrom, selectedTopTo);
 
   let insights;
   let topLists;
@@ -111,32 +88,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let dashboardError: string | null = null;
   let topListsError: string | null = null;
 
-  try {
-    insights = await getDashboardInsights(activeSession.accessToken, activeSession.spotifyUserId, selectedRange);
-  } catch (error) {
-    const message = getErrorMessage(error);
-
-    if (isSpotifyAuthError(message)) {
-      redirect(getAppUrl(`/api/auth/refresh?returnTo=${encodeURIComponent(returnTo)}`));
-    }
-
-    dashboardError = `Spotify data could not be loaded right now, so the dashboard is showing preview fallback sections. (${message})`;
-  }
-
-  try {
-    [topLists, heroTopLists] = await Promise.all([
-      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange),
-    ]);
-  } catch (error) {
-    const message = getErrorMessage(error);
-
-    if (isSpotifyAuthError(message)) {
-      redirect(getAppUrl(`/api/auth/refresh?returnTo=${encodeURIComponent(returnTo)}`));
-    }
-
-    topListsError = `Top artist, track, and album lists could not be loaded right now, so preview rankings are showing instead. (${message})`;
-  }
 
   return (
     <main className="city-pop-shell relative overflow-hidden pb-10">

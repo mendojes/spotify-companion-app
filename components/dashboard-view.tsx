@@ -107,6 +107,12 @@ type DashboardData = {
   range: DashboardRange;
 };
 
+type DashboardHydrationPayload = {
+  insights: DashboardInsights;
+  topLists: TopListsData;
+  heroTopLists: TopListsData;
+};
+
 const moodColors = ["#7AF7FF", "#6E82FF", "#FF5EC9", "#FFD37B", "#8EFFD1"];
 const moodOrder = ["Energetic", "Chill", "Moody", "Joyful", "Focus"];
 
@@ -357,13 +363,25 @@ export function DashboardView({
   rediscoveryPagePath = "/dashboard/rediscovery",
 }: DashboardViewProps) {
   const isPreview = mode === "preview";
-  const data = getData(mode, insights);
-  const topListData = getTopListData(mode, topLists);
-  const heroTopListData = getTopListData(mode, heroTopLists ?? topLists);
+  const [hydratedInsights, setHydratedInsights] = useState<DashboardInsights | undefined>(insights);
+  const [hydratedTopLists, setHydratedTopLists] = useState<TopListsData | undefined>(topLists);
+  const [hydratedHeroTopLists, setHydratedHeroTopLists] = useState<TopListsData | undefined>(heroTopLists ?? topLists);
+  const activeInsights = hydratedInsights ?? insights;
+  const activeTopLists = hydratedTopLists ?? topLists;
+  const activeHeroTopLists = hydratedHeroTopLists ?? heroTopLists ?? hydratedTopLists ?? topLists;
+  const data = getData(mode, activeInsights);
+  const topListData = getTopListData(mode, activeTopLists);
+  const heroTopListData = getTopListData(mode, activeHeroTopLists);
   const [livePlaylistInsights, setLivePlaylistInsights] = useState<PlaylistInsight[] | null>(() => (
     mode === "authenticated" && data.playlistInsights.length > 0 ? data.playlistInsights : null
   ));
   const playlistCards = livePlaylistInsights ?? data.playlistInsights;
+
+  useEffect(() => {
+    setHydratedInsights(insights);
+    setHydratedTopLists(topLists);
+    setHydratedHeroTopLists(heroTopLists ?? topLists);
+  }, [heroTopLists, insights, topLists]);
 
   useEffect(() => {
     if (mode !== "authenticated") {
@@ -379,6 +397,49 @@ export function DashboardView({
       return data.playlistInsights.length > 0 ? data.playlistInsights : null;
     });
   }, [data.playlistInsights, mode]);
+
+  useEffect(() => {
+    if (mode !== "authenticated") {
+      return;
+    }
+
+    let cancelled = false;
+    const params = new URLSearchParams({
+      range: selectedRange,
+      topRange: selectedTopRange,
+    });
+
+    if (selectedTopRange === "custom" && selectedTopFrom && selectedTopTo) {
+      params.set("topFrom", selectedTopFrom);
+      params.set("topTo", selectedTopTo);
+    }
+
+    async function hydrateDashboard() {
+      try {
+        const response = await fetch("/api/dashboard/data?" + params.toString(), { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Could not hydrate dashboard data.");
+        }
+
+        const payload = (await response.json()) as DashboardHydrationPayload;
+        if (!cancelled) {
+          setHydratedInsights(payload.insights);
+          setHydratedTopLists(payload.topLists);
+          setHydratedHeroTopLists(payload.heroTopLists);
+        }
+      } catch {
+        if (!cancelled) {
+          // Keep the lightweight server-rendered data if live hydration fails.
+        }
+      }
+    }
+
+    void hydrateDashboard();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, selectedRange, selectedTopFrom, selectedTopRange, selectedTopTo]);
 
   useEffect(() => {
     if (mode !== "authenticated") {

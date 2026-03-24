@@ -38,6 +38,11 @@ export default async function Home({ searchParams }: HomeProps) {
               <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href={session ? "/dashboard" : "/login"}>
                 <Sparkles className="h-4 w-4" /> {session ? "Open dashboard" : "Connect Spotify"}
               </a>
+              {session ? (
+                <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/api/auth/logout">
+                  <Disc3 className="h-4 w-4" /> Log out
+                </a>
+              ) : null}
               <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/privacy">
                 <Disc3 className="h-4 w-4" /> Privacy
               </a>
