@@ -40,6 +40,14 @@ function formatDateLabel(value?: string) {
   }).format(new Date(value));
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unknown playlist error";
+}
+
 export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps) {
   const session = await requireSession();
 
@@ -55,8 +63,8 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
 
   try {
     playlists = await getAllPlaylistInsights(session.accessToken, session.spotifyUserId, selectedSort);
-  } catch {
-    error = "Playlist analysis could not be fully refreshed right now. Showing stored playlist data when available.";
+  } catch (caughtError) {
+    error = `Playlist analysis could not be fully refreshed right now. Showing stored playlist data when available. (${getErrorMessage(caughtError)})`;
   }
 
   return (
