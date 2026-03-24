@@ -5,7 +5,7 @@ declare global {
 }
 
 const uri = process.env.spotify_app_MONGODB_URI || process.env.MONGODB_URI;
-const dbName = process.env.MONGODB_DB_NAME || "soundscope";
+const dbName = process.env.MONGODB_DB_NAME || "spotify-app-db";
 const SERVER_SELECTION_TIMEOUT_MS = 1500;
 const CONNECT_TIMEOUT_MS = 1500;
 const SOCKET_TIMEOUT_MS = 5000;
