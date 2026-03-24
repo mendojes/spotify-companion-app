@@ -1,8 +1,7 @@
-﻿import Image from "next/image";
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
-import { playlistInsights as previewPlaylistInsights } from "@/lib/mock-data";
 import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
 
@@ -41,10 +40,6 @@ function formatDateLabel(value?: string) {
   }).format(new Date(value));
 }
 
-function sortPreviewPlaylists(playlists: PlaylistInsight[]) {
-  return playlists;
-}
-
 export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps) {
   const session = await requireSession();
 
@@ -55,16 +50,13 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
   const { sort } = await searchParams;
   const selectedSort = normalizeSort(sort);
 
-  let playlists = sortPreviewPlaylists(previewPlaylistInsights);
+  let playlists: PlaylistInsight[] = [];
   let error: string | null = null;
 
   try {
-    const livePlaylists = await getAllPlaylistInsights(session.accessToken, session.spotifyUserId, selectedSort);
-    if (livePlaylists.length > 0) {
-      playlists = livePlaylists;
-    }
+    playlists = await getAllPlaylistInsights(session.accessToken, session.spotifyUserId, selectedSort);
   } catch {
-    error = "Playlist analysis could not be loaded right now, so preview insights are showing.";
+    error = "Playlist analysis could not be fully refreshed right now. Showing stored playlist data when available.";
   }
 
   return (
@@ -112,51 +104,56 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
           <div className="rounded-[24px] border border-gold/30 bg-gold/10 px-5 py-4 text-sm text-ink/85">{error}</div>
         ) : null}
 
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {playlists.map((playlist) => (
-            <Link
-              key={`${playlist.id ?? playlist.name}`}
-              href={playlist.id ? `/dashboard/playlists/${playlist.id}` : "/dashboard"}
-              className="glass-panel rounded-[30px] p-6 transition hover:border-cyan/40 hover:bg-white/[0.05]"
-            >
-              <div className="flex items-start gap-5">
-                {playlist.imageUrl ? (
-                  <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
-                    <Image src={playlist.imageUrl} alt={playlist.name} fill sizes="112px" className="object-contain bg-white/[0.2]" />
+        {playlists.length === 0 ? (
+          <div className="glass-panel rounded-[30px] p-8 text-sm text-ink/75">
+            No cached playlists are available yet. Open Spotify from one of your playlists and refresh the dashboard once so SoundScope can store your library and analysis locally.
+          </div>
+        ) : (
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {playlists.map((playlist) => (
+              <Link
+                key={`${playlist.id ?? playlist.name}`}
+                href={playlist.id ? `/dashboard/playlists/${playlist.id}` : "/dashboard"}
+                className="glass-panel rounded-[30px] p-6 transition hover:border-cyan/40 hover:bg-white/[0.05]"
+              >
+                <div className="flex items-start gap-5">
+                  {playlist.imageUrl ? (
+                    <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
+                      <Image src={playlist.imageUrl} alt={playlist.name} fill sizes="112px" className="object-contain bg-white/[0.2]" />
+                    </div>
+                  ) : (
+                    <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] border border-dashed border-white/15 bg-white/[0.04] text-xs uppercase tracking-[0.2em] text-ink/50">
+                      Mix
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <h2 className="font-display text-2xl text-white">{playlist.name}</h2>
+                    {playlist.trackCount ? <p className="mt-2 text-sm text-cyan">{playlist.trackCount} tracks analyzed</p> : null}
+                    <div className="mt-4 space-y-1 text-xs text-ink/60">
+                      <p>Created: {formatDateLabel(playlist.createdAt)}</p>
+                      <p>Last listened: {formatDateLabel(playlist.lastListenedAt)}</p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] border border-dashed border-white/15 bg-white/[0.04] text-xs uppercase tracking-[0.2em] text-ink/50">
-                    Mix
+                </div>
+                <div className="mt-6 space-y-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm text-ink/60">Mood consistency</p>
+                    <p className="mt-2 text-white">{playlist.mood}</p>
                   </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <h2 className="font-display text-2xl text-white">{playlist.name}</h2>
-                  {playlist.trackCount ? <p className="mt-2 text-sm text-cyan">{playlist.trackCount} tracks analyzed</p> : null}
-                  <div className="mt-4 space-y-1 text-xs text-ink/60">
-                    <p>Created: {formatDateLabel(playlist.createdAt)}</p>
-                    <p>Last listened: {formatDateLabel(playlist.lastListenedAt)}</p>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm text-ink/60">Genre diversity</p>
+                    <p className="mt-2 text-white">{playlist.diversity}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm text-ink/60">Redundancy</p>
+                    <p className="mt-2 text-white">{playlist.overlap}</p>
                   </div>
                 </div>
-              </div>
-              <div className="mt-6 space-y-4">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-sm text-ink/60">Mood consistency</p>
-                  <p className="mt-2 text-white">{playlist.mood}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-sm text-ink/60">Genre diversity</p>
-                  <p className="mt-2 text-white">{playlist.diversity}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-sm text-ink/60">Redundancy</p>
-                  <p className="mt-2 text-white">{playlist.overlap}</p>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );
 }
-
