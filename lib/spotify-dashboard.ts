@@ -43,6 +43,11 @@ type RecentTrackMoodMeta = {
   mood?: (typeof moodOrder)[number];
   period: (typeof heatmapPeriods)[number];
 };
+
+function getArtistGenres(artist: Pick<SpotifyArtist, "genres">) {
+  return Array.isArray(artist.genres) ? artist.genres : [];
+}
+
 function formatDuration(hours: number) {
   return `${hours.toFixed(1)}h`;
 }
@@ -103,9 +108,9 @@ function dedupeRecent(items: SpotifyRecentlyPlayedItem[]) {
 
 function pushArtistsWithWeight(map: Map<string, SpotifyArtist & { score: number }>, artists: SpotifyArtist[] | undefined, weight: number) {
   (artists ?? []).forEach((artist, index) => {
-    const existing = map.get(artist.id) ?? { ...artist, score: 0 };
+    const existing = map.get(artist.id) ?? { ...artist, genres: getArtistGenres(artist), score: 0 };
     existing.score += Math.max(1, 18 - index) * weight;
-    existing.genres = [...new Set([...(existing.genres ?? []), ...artist.genres])];
+    existing.genres = [...new Set([...(existing.genres ?? []), ...getArtistGenres(artist)])];
     existing.popularity = Math.max(existing.popularity, artist.popularity);
     if (!existing.images?.length && artist.images?.length) {
       existing.images = artist.images;
@@ -172,7 +177,7 @@ function deriveGenrePulse(topArtists: SpotifyArtist[], recent: SpotifyRecentlyPl
 
   topArtists.forEach((artist, index) => {
     const weight = Math.max(1, 20 - index) * 1.2;
-    artist.genres.forEach((genre) => {
+    getArtistGenres(artist).forEach((genre) => {
       scores.set(genre, (scores.get(genre) ?? 0) + weight);
     });
   });
@@ -181,7 +186,7 @@ function deriveGenrePulse(topArtists: SpotifyArtist[], recent: SpotifyRecentlyPl
     const contribution = Math.max(0.15, hoursFromMs(item.track.duration_ms) * 3.2);
     item.track.artists.forEach((artistRef) => {
       const matchedArtist = (artistRef.id ? byId.get(artistRef.id) : undefined) ?? byName.get(artistRef.name.toLowerCase());
-      matchedArtist?.genres.forEach((genre) => {
+      getArtistGenres(matchedArtist ?? { genres: [] }).forEach((genre) => {
         scores.set(genre, (scores.get(genre) ?? 0) + contribution);
       });
     });
@@ -248,7 +253,7 @@ function deriveMoodDataFromGenres(topArtists: SpotifyArtist[]) {
 
   topArtists.forEach((artist, index) => {
     const weight = Math.max(1, 14 - index);
-    const joinedGenres = artist.genres.join(" ").toLowerCase();
+    const joinedGenres = getArtistGenres(artist).join(" ").toLowerCase();
 
     let matched = false;
     for (const bucket of buckets) {

@@ -22,6 +22,10 @@ type SnapshotListPair = {
   tracks: SpotifyTopTracksResponse["items"];
 };
 
+function getArtistGenres(artist: Pick<SpotifyArtist, "genres">) {
+  return Array.isArray(artist.genres) ? artist.genres : [];
+}
+
 function toIsoDayStart(value: string) {
   return new Date(`${value}T00:00:00.000Z`).toISOString();
 }
@@ -154,7 +158,7 @@ function toArtistList(items: SpotifyArtist[], limit: number): TopListArtist[] {
     id: artist.id,
     rank: index + 1,
     name: artist.name,
-    genres: artist.genres,
+    genres: getArtistGenres(artist),
     imageUrl: artist.images?.[0]?.url,
   }));
 }
@@ -182,13 +186,13 @@ function aggregateArtists(snapshots: SpotifyDashboardSnapshot[], range: TopListR
         id: artist.id,
         rank: 0,
         name: artist.name,
-        genres: artist.genres,
+        genres: getArtistGenres(artist),
         imageUrl: artist.images?.[0]?.url,
         score: 0,
       };
 
       existing.score += Math.max(1, 16 - index);
-      existing.genres = [...new Set([...(existing.genres ?? []), ...artist.genres])];
+      existing.genres = [...new Set([...(existing.genres ?? []), ...getArtistGenres(artist)])];
       if (!existing.imageUrl && artist.images?.[0]?.url) {
         existing.imageUrl = artist.images[0].url;
       }
@@ -204,7 +208,7 @@ function aggregateArtists(snapshots: SpotifyDashboardSnapshot[], range: TopListR
       id: artist.id,
       rank: index + 1,
       name: artist.name,
-      genres: artist.genres,
+      genres: artist.genres ?? [],
       imageUrl: artist.imageUrl,
     }));
 }
