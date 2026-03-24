@@ -55,6 +55,23 @@ type StoredPlaylistLibraryItem = SpotifyPlaylist & {
   updatedAt: string;
 };
 
+function normalizePlaylist(playlist: Partial<SpotifyPlaylist> | null | undefined): SpotifyPlaylist | null {
+  if (!playlist?.id || !playlist.name) {
+    return null;
+  }
+
+  return {
+    id: playlist.id,
+    name: playlist.name,
+    images: Array.isArray(playlist.images) ? playlist.images.filter((image) => Boolean(image?.url)) : undefined,
+    tracks: {
+      total: typeof playlist.tracks?.total === "number" ? playlist.tracks.total : 0,
+      href: playlist.tracks?.href,
+    },
+    owner: playlist.owner?.display_name ? { display_name: playlist.owner.display_name } : undefined,
+  };
+}
+
 async function getStoredPlaylistLibrary(spotifyUserId: string) {
   if (!hasMongoConfig()) {
     return [] as SpotifyPlaylist[];
@@ -66,19 +83,27 @@ async function getStoredPlaylistLibrary(spotifyUserId: string) {
       return [] as SpotifyPlaylist[];
     }
 
-    return db
+    const records = await db
       .collection<StoredPlaylistLibraryItem>(PLAYLIST_LIBRARY_COLLECTION)
       .find({ spotifyUserId })
       .sort({ updatedAt: -1, name: 1 })
       .project({ spotifyUserId: 0, updatedAt: 0 })
-      .toArray() as Promise<SpotifyPlaylist[]>;
+      .toArray();
+
+    return records
+      .map((playlist) => normalizePlaylist(playlist))
+      .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
   } catch {
     return [] as SpotifyPlaylist[];
   }
 }
 
 async function writeStoredPlaylistLibrary(spotifyUserId: string, playlists: SpotifyPlaylist[]) {
-  if (!hasMongoConfig() || playlists.length === 0) {
+  const normalizedPlaylists = playlists
+    .map((playlist) => normalizePlaylist(playlist))
+    .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
+
+  if (!hasMongoConfig() || normalizedPlaylists.length === 0) {
     return;
   }
 
@@ -91,7 +116,7 @@ async function writeStoredPlaylistLibrary(spotifyUserId: string, playlists: Spot
     const updatedAt = new Date().toISOString();
 
     await db.collection<StoredPlaylistLibraryItem>(PLAYLIST_LIBRARY_COLLECTION).bulkWrite(
-      playlists.map((playlist) => ({
+      normalizedPlaylists.map((playlist) => ({
         updateOne: {
           filter: { spotifyUserId, id: playlist.id },
           update: {
@@ -112,7 +137,9 @@ async function writeStoredPlaylistLibrary(spotifyUserId: string, playlists: Spot
 }
 
 async function upsertStoredPlaylist(spotifyUserId: string, playlist: SpotifyPlaylist) {
-  if (!hasMongoConfig()) {
+  const normalizedPlaylist = normalizePlaylist(playlist);
+
+  if (!hasMongoConfig() || !normalizedPlaylist) {
     return;
   }
 
@@ -123,10 +150,10 @@ async function upsertStoredPlaylist(spotifyUserId: string, playlist: SpotifyPlay
     }
 
     await db.collection<StoredPlaylistLibraryItem>(PLAYLIST_LIBRARY_COLLECTION).updateOne(
-      { spotifyUserId, id: playlist.id },
+      { spotifyUserId, id: normalizedPlaylist.id },
       {
         $set: {
-          ...playlist,
+          ...normalizedPlaylist,
           spotifyUserId,
           updatedAt: new Date().toISOString(),
         },
@@ -257,7 +284,7 @@ function toBasicInsight(playlist: SpotifyPlaylist, recentPlays: StoredRecentPlay
     id: playlist.id,
     name: playlist.name,
     imageUrl: playlist.images?.[0]?.url,
-    trackCount: playlist.tracks.total,
+    trackCount: playlist.tracks?.total ?? 0,
     mood: "Analysis pending",
     diversity: "Playlist cached, deeper analysis loading",
     overlap: "Open the playlist after more syncs",
@@ -294,7 +321,10 @@ async function fetchAllPlaylists(accessToken: string) {
 
   while (true) {
     const page = await fetchPlaylistsPage(accessToken, offset);
-    playlists.push(...page.items.filter((playlist) => playlist.tracks.total > 0));
+    playlists.push(...page.items
+      .map((playlist) => normalizePlaylist(playlist))
+      .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist))
+      .filter((playlist) => playlist.tracks.total > 0));
 
     if (!page.next || page.items.length === 0) {
       break;
@@ -926,7 +956,7 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
       return {
         ...toBasicInsight(storedPlaylist, recentPlays),
         id: storedPlaylist.id,
-        trackCount: storedPlaylist.tracks.total,
+        trackCount: storedPlaylist.tracks?.total ?? 0,
         ownerName: storedPlaylist.owner?.display_name,
         uniqueArtistCount: 0,
         uniqueAlbumCount: 0,
