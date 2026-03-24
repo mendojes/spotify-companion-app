@@ -263,6 +263,29 @@ function aggregateTracksFromSnapshots(snapshots: SpotifyDashboardSnapshot[], ran
     }));
 }
 
+function buildArtistMetadataFromSnapshots(snapshots: SpotifyDashboardSnapshot[]) {
+  const metadata = new Map<string, { genres: string[]; imageUrl?: string }>();
+
+  snapshots.forEach((snapshot) => {
+    const artists = [
+      ...snapshot.topArtists,
+      ...(snapshot.mediumTermTopArtists ?? []),
+      ...(snapshot.longTermTopArtists ?? []),
+    ];
+
+    artists.forEach((artist) => {
+      const key = artist.name.toLowerCase();
+      const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
+      existing.genres = [...new Set([...existing.genres, ...getArtistGenres(artist)])];
+      if (!existing.imageUrl && artist.images?.[0]?.url) {
+        existing.imageUrl = artist.images[0].url;
+      }
+      metadata.set(key, existing);
+    });
+  });
+
+  return metadata;
+}
 function splitArtistNames(value: string) {
   return value
     .split(",")
@@ -270,7 +293,7 @@ function splitArtistNames(value: string) {
     .filter(Boolean);
 }
 
-function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number): TopListArtist[] {
+function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, artistMetadata: Map<string, { genres: string[]; imageUrl?: string }>): TopListArtist[] {
   const artistMap = new Map<string, { id: string; name: string; score: number; playCount: number; imageUrl?: string }>();
 
   recentPlays.forEach((play, index) => {
@@ -463,14 +486,14 @@ async function getRecentPlaysForTopLists(spotifyUserId: string, range: TopListRa
   }
 }
 
-async function getRecentPlayTopLists(spotifyUserId: string, range: TopListRange, limit: number, from?: string, to?: string): Promise<RecentPlayTopLists | null> {
+async function getRecentPlayTopLists(spotifyUserId: string, range: TopListRange, limit: number, from?: string, to?: string, snapshots: SpotifyDashboardSnapshot[] = []): Promise<RecentPlayTopLists | null> {
   const recentPlays = await getRecentPlaysForTopLists(spotifyUserId, range, from, to);
 
   if (recentPlays.length < MIN_RECENT_PLAYS_FOR_TOPS) {
     return null;
   }
 
-  const artists = deriveRecentArtists(recentPlays, limit);
+  const artists = deriveRecentArtists(recentPlays, limit, buildArtistMetadataFromSnapshots(snapshots));
   const tracks = deriveRecentTracks(recentPlays, limit);
   const albums = deriveRecentAlbums(recentPlays, limit);
 
@@ -590,3 +613,7 @@ export async function getSpotifyTopListsFromHistory(
     to,
   } satisfies TopListsData;
 }
+
+
+
+
