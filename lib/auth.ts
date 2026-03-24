@@ -2,7 +2,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
-  getSpotifyProfile,
   refreshSpotifyAccessToken,
   type SpotifyProfile,
 } from "@/lib/spotify";
@@ -176,13 +175,12 @@ export async function requireSession() {
 
 export async function refreshSession(session: AuthSession) {
   const token = await refreshSpotifyAccessToken(session.refreshToken);
-  const profile = await getSpotifyProfile(token.access_token);
-  const nextSession = buildSession(
-    profile,
-    token.access_token,
-    token.refresh_token ?? session.refreshToken,
-    token.expires_in,
-  );
+  const nextSession = {
+    ...session,
+    accessToken: token.access_token,
+    refreshToken: token.refresh_token ?? session.refreshToken,
+    expiresAt: Date.now() + token.expires_in * 1000,
+  } satisfies AuthSession;
 
   await setSessionCookie(nextSession);
   return nextSession;

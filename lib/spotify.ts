@@ -1,7 +1,8 @@
-﻿const spotifyApiBase = "https://api.spotify.com/v1";
+const spotifyApiBase = "https://api.spotify.com/v1";
 const spotifyAccountsBase = "https://accounts.spotify.com";
 const spotifyCallbackPath = "/api/auth/callback/spotify";
 const MAX_SPOTIFY_RETRIES = 2;
+const SPOTIFY_FETCH_TIMEOUT_MS = 10_000;
 
 export const spotifyScopes = [
   "user-read-email",
@@ -74,6 +75,7 @@ async function spotifyRequest(pathOrUrl: string, init: RequestInit, allowRetry: 
   for (let attempt = 0; attempt <= MAX_SPOTIFY_RETRIES; attempt += 1) {
     const response = await fetch(url, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(SPOTIFY_FETCH_TIMEOUT_MS),
       cache: "no-store",
     });
 
@@ -155,6 +157,7 @@ export async function exchangeSpotifyCode(code: string, request?: OriginRequestL
       code,
       redirect_uri: getSpotifyRedirectUri(request),
     }),
+    signal: AbortSignal.timeout(SPOTIFY_FETCH_TIMEOUT_MS),
     cache: "no-store",
   });
 
@@ -176,6 +179,7 @@ export async function refreshSpotifyAccessToken(refreshToken: string) {
       grant_type: "refresh_token",
       refresh_token: refreshToken,
     }),
+    signal: AbortSignal.timeout(SPOTIFY_FETCH_TIMEOUT_MS),
     cache: "no-store",
   });
 
@@ -186,12 +190,12 @@ export async function refreshSpotifyAccessToken(refreshToken: string) {
   return (await response.json()) as SpotifyTokenResponse;
 }
 
-export async function spotifyFetch<T>(path: string, accessToken: string): Promise<T> {
+export async function spotifyFetch<T>(path: string, accessToken: string, options?: { allowRetry?: boolean }): Promise<T> {
   const response = await spotifyRequest(path, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
-  }, true);
+  }, options?.allowRetry ?? true);
 
   if (!response.ok) {
     throw new Error(`Spotify request failed: ${response.status}`);
@@ -215,5 +219,7 @@ export async function spotifyFetchOptional<T>(path: string, accessToken: string)
 }
 
 export function getSpotifyProfile(accessToken: string) {
-  return spotifyFetch<SpotifyProfile>("/me", accessToken);
+  return spotifyFetch<SpotifyProfile>("/me", accessToken, { allowRetry: true });
 }
+
+
