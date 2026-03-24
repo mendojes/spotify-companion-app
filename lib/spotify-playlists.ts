@@ -672,6 +672,24 @@ function getRecentPlaylistCandidates(recentPlays: StoredRecentPlay[], currentPla
   return playlistIds;
 }
 
+function playlistFromPlaybackSource(
+  currentPlaybackSource: Awaited<ReturnType<typeof getCurrentPlaybackSource>> | undefined,
+  fallbackTrackCount = 0,
+): SpotifyPlaylist | null {
+  if (!currentPlaybackSource || currentPlaybackSource.type !== "playlist" || !currentPlaybackSource.playlistId) {
+    return null;
+  }
+
+  return {
+    id: currentPlaybackSource.playlistId,
+    name: currentPlaybackSource.label || "Spotify playlist",
+    images: currentPlaybackSource.imageUrl ? [{ url: currentPlaybackSource.imageUrl }] : undefined,
+    tracks: {
+      total: fallbackTrackCount,
+    },
+  };
+}
+
 function buildCachedPlaylistInsights(
   playlists: SpotifyPlaylist[],
   cachedDetails: CachedPlaylistDetail[],
@@ -701,7 +719,16 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
     getCachedPlaylistDetails(spotifyUserId),
   ]);
 
-  const cachedLibraryInsights = buildCachedPlaylistInsights(storedLibrary, cachedDetails, recentPlays).slice(0, DASHBOARD_PLAYLIST_COUNT);
+  const playbackPlaylist = playlistFromPlaybackSource(currentPlaybackSource);
+  const mergedStoredLibrary = playbackPlaylist
+    ? uniqueById([playbackPlaylist, ...storedLibrary])
+    : storedLibrary;
+
+  if (playbackPlaylist) {
+    await upsertStoredPlaylist(spotifyUserId, playbackPlaylist);
+  }
+
+  const cachedLibraryInsights = buildCachedPlaylistInsights(mergedStoredLibrary, cachedDetails, recentPlays).slice(0, DASHBOARD_PLAYLIST_COUNT);
   const lastGood = inMemoryLastGood.length > 0
     ? inMemoryLastGood
     : storedLastGood.length > 0
@@ -722,7 +749,7 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
     return cachedLibraryInsights.length > 0 ? cachedLibraryInsights : lastGood;
   }
 
-  const storedById = new Map(storedLibrary.map((playlist) => [playlist.id, playlist]));
+  const storedById = new Map(mergedStoredLibrary.map((playlist) => [playlist.id, playlist]));
 
   const playlists = await Promise.all(
     candidateIds.map(async (playlistId) => {
@@ -779,15 +806,30 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
 }
 
 export async function syncPlaylistLibrary(accessToken: string, spotifyUserId: string) {
-  const playlists = await getPlaylistLibrary(accessToken, spotifyUserId);
+  const [playlists, currentPlaybackSource, storedPlaylists] = await Promise.all([
+    getPlaylistLibrary(accessToken, spotifyUserId),
+    getCurrentPlaybackSource(accessToken).catch(() => undefined),
+    getStoredPlaylistLibrary(spotifyUserId),
+  ]);
 
-  if (playlists.length === 0) {
-    return [] as PlaylistInsight[];
+  const playbackPlaylist = playlistFromPlaybackSource(currentPlaybackSource);
+  const mergedPlaylists = uniqueById([
+    ...(playbackPlaylist ? [playbackPlaylist] : []),
+    ...playlists,
+    ...storedPlaylists,
+  ]);
+
+  if (playbackPlaylist) {
+    await upsertStoredPlaylist(spotifyUserId, playbackPlaylist);
+  }
+
+  if (mergedPlaylists.length === 0) {
+    return await getStoredPlaylistInsights(spotifyUserId);
   }
 
   const recentPlays = await getRecentHistory(accessToken, spotifyUserId);
-  const cachedDetails = await getCachedPlaylistDetails(spotifyUserId, playlists.map((playlist) => playlist.id));
-  const insights = buildCachedPlaylistInsights(playlists, cachedDetails, recentPlays);
+  const cachedDetails = await getCachedPlaylistDetails(spotifyUserId, mergedPlaylists.map((playlist) => playlist.id));
+  const insights = buildCachedPlaylistInsights(mergedPlaylists, cachedDetails, recentPlays);
 
   if (insights.length > 0) {
     await writeStoredPlaylistInsights(spotifyUserId, insights.slice(0, DASHBOARD_PLAYLIST_COUNT));
