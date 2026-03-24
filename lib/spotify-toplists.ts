@@ -294,23 +294,31 @@ function splitArtistNames(value: string) {
 }
 
 function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, artistMetadata: Map<string, { genres: string[]; imageUrl?: string }>): TopListArtist[] {
-  const artistMap = new Map<string, { id: string; name: string; score: number; playCount: number; imageUrl?: string }>();
+  const artistMap = new Map<string, { id: string; name: string; score: number; playCount: number; imageUrl?: string; genres: string[] }>();
 
   recentPlays.forEach((play, index) => {
     const recencyWeight = Math.max(1, recentPlays.length - index);
 
     splitArtistNames(play.artistName).forEach((artistName) => {
       const key = artistName.toLowerCase();
+      const metadata = artistMetadata.get(key);
       const existing = artistMap.get(key) ?? {
         id: key,
         name: artistName,
         score: 0,
         playCount: 0,
-        imageUrl: undefined,
+        imageUrl: metadata?.imageUrl,
+        genres: metadata?.genres ?? [],
       };
 
       existing.score += 100 + recencyWeight;
       existing.playCount += 1;
+      if (!existing.imageUrl && metadata?.imageUrl) {
+        existing.imageUrl = metadata.imageUrl;
+      }
+      if (existing.genres.length === 0 && metadata?.genres?.length) {
+        existing.genres = metadata.genres;
+      }
       artistMap.set(key, existing);
     });
   });
@@ -322,7 +330,7 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
       id: artist.id,
       rank: index + 1,
       name: artist.name,
-      genres: [],
+      genres: artist.genres,
       imageUrl: artist.imageUrl,
     }));
 }
@@ -542,13 +550,32 @@ export async function getSpotifyTopLists(
   to?: string,
 ): Promise<TopListsData> {
   const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
-  const recentPlayTopLists = await getRecentPlayTopLists(spotifyUserId, range, boundedLimit, from, to);
+  const snapshots = await getHistoricalSnapshots(spotifyUserId, range, from, to);
+  const recentPlayTopLists = await getRecentPlayTopLists(spotifyUserId, range, boundedLimit, from, to, snapshots);
 
   if (recentPlayTopLists) {
+    const needsArtistMetadata = recentPlayTopLists.artists.some((artist) => !artist.imageUrl || artist.genres.length === 0);
+
+    if (needsArtistMetadata) {
+      try {
+        const fallback = await getFallbackSpotifyTopLists(accessToken, range, boundedLimit);
+        const fallbackArtistMap = new Map(fallback.artists.map((artist) => [artist.name.toLowerCase(), artist]));
+
+        recentPlayTopLists.artists = recentPlayTopLists.artists.map((artist) => {
+          const fallbackArtist = fallbackArtistMap.get(artist.name.toLowerCase());
+          return {
+            ...artist,
+            imageUrl: artist.imageUrl ?? fallbackArtist?.imageUrl,
+            genres: artist.genres.length > 0 ? artist.genres : (fallbackArtist?.genres ?? []),
+          };
+        });
+      } catch {
+        // Keep recent-play rankings even if metadata enrichment fails.
+      }
+    }
+
     return recentPlayTopLists;
   }
-
-  const snapshots = await getHistoricalSnapshots(spotifyUserId, range, from, to);
 
   if (snapshots.length > 0 && (range === "all" || range === "custom")) {
     const artists = aggregateArtistsFromSnapshots(snapshots, range, boundedLimit, from, to);
@@ -583,7 +610,8 @@ export async function getSpotifyTopListsFromHistory(
   to?: string,
 ) {
   const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
-  const recentPlayTopLists = await getRecentPlayTopLists(spotifyUserId, range, boundedLimit, from, to);
+  const snapshots = await getHistoricalSnapshots(spotifyUserId, range, from, to);
+  const recentPlayTopLists = await getRecentPlayTopLists(spotifyUserId, range, boundedLimit, from, to, snapshots);
 
   if (recentPlayTopLists) {
     return {
@@ -591,8 +619,6 @@ export async function getSpotifyTopListsFromHistory(
       sourceLabel: "Shared SoundScope listening history",
     } satisfies TopListsData;
   }
-
-  const snapshots = await getHistoricalSnapshots(spotifyUserId, range, from, to);
 
   if (snapshots.length === 0) {
     return null;
