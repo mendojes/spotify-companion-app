@@ -156,11 +156,12 @@ function formatTimestamp(value?: string) {
     return null;
   }
 
-  return `${new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(value))} UTC`;
+    timeZone: "America/Los_Angeles",
+    timeZoneName: "short",
+  }).format(new Date(value));
 }
 
 function Artwork({

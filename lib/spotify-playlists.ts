@@ -778,6 +778,24 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
   return cachedLibraryInsights.length > 0 ? cachedLibraryInsights : lastGood;
 }
 
+export async function syncPlaylistLibrary(accessToken: string, spotifyUserId: string) {
+  const playlists = await getPlaylistLibrary(accessToken, spotifyUserId);
+
+  if (playlists.length === 0) {
+    return [] as PlaylistInsight[];
+  }
+
+  const recentPlays = await getRecentHistory(accessToken, spotifyUserId);
+  const cachedDetails = await getCachedPlaylistDetails(spotifyUserId, playlists.map((playlist) => playlist.id));
+  const insights = buildCachedPlaylistInsights(playlists, cachedDetails, recentPlays);
+
+  if (insights.length > 0) {
+    await writeStoredPlaylistInsights(spotifyUserId, insights.slice(0, DASHBOARD_PLAYLIST_COUNT));
+  }
+
+  return insights;
+}
+
 export async function getAllPlaylistInsights(
   accessToken: string,
   spotifyUserId: string,

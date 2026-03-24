@@ -2,7 +2,7 @@
 import { getSession } from "@/lib/auth";
 import { getAppUrl } from "@/lib/spotify";
 import { refreshDashboardSnapshot } from "@/lib/spotify-dashboard";
-import { invalidatePlaylistInsightsCache } from "@/lib/spotify-playlists";
+import { invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
 
 function normalizeRange(range?: string) {
   if (range === "month" || range === "all") {
@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
 
   try {
     await refreshDashboardSnapshot(session.accessToken, session.spotifyUserId);
+    await syncPlaylistLibrary(session.accessToken, session.spotifyUserId).catch(() => []);
     invalidatePlaylistInsightsCache(session.spotifyUserId);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
   } catch {
