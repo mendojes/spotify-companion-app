@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getSession, isSessionExpired, refreshSession } from "@/lib/auth";
-import { getPlaylistInsights } from "@/lib/spotify-playlists";
+import { getCachedPlaylistInsights } from "@/lib/spotify-playlists";
 
 export async function GET() {
   const session = await getSession();
@@ -12,7 +12,7 @@ export async function GET() {
   const activeSession = isSessionExpired(session) ? await refreshSession(session) : session;
 
   try {
-    const playlistInsights = await getPlaylistInsights(activeSession.accessToken, activeSession.spotifyUserId);
+    const playlistInsights = await getCachedPlaylistInsights(activeSession.accessToken, activeSession.spotifyUserId);
     return NextResponse.json({ playlistInsights });
   } catch {
     return NextResponse.json({ error: "Could not load playlist insights." }, { status: 500 });

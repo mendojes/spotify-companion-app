@@ -360,7 +360,9 @@ export function DashboardView({
   const data = getData(mode, insights);
   const topListData = getTopListData(mode, topLists);
   const heroTopListData = getTopListData(mode, heroTopLists ?? topLists);
-  const [livePlaylistInsights, setLivePlaylistInsights] = useState<PlaylistInsight[] | null>(null);
+  const [livePlaylistInsights, setLivePlaylistInsights] = useState<PlaylistInsight[] | null>(() => (
+    mode === "authenticated" && data.playlistInsights.length > 0 ? data.playlistInsights : null
+  ));
   const playlistCards = livePlaylistInsights ?? data.playlistInsights;
 
   useEffect(() => {
@@ -369,10 +371,28 @@ export function DashboardView({
       return;
     }
 
+    setLivePlaylistInsights((current) => {
+      if (current && current.length > 0) {
+        return current;
+      }
+
+      return data.playlistInsights.length > 0 ? data.playlistInsights : null;
+    });
+  }, [data.playlistInsights, mode]);
+
+  useEffect(() => {
+    if (mode !== "authenticated") {
+      return;
+    }
+
     let cancelled = false;
+    let timer: number | undefined;
+    const hasServerPlaylistInsights = data.playlistInsights.length > 0;
+    const refreshDelayMs = hasServerPlaylistInsights ? 1000 * 60 : 1000 * 15;
 
     async function loadPlaylistInsights() {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        timer = window.setTimeout(loadPlaylistInsights, refreshDelayMs);
         return;
       }
 
@@ -394,17 +414,26 @@ export function DashboardView({
         if (!cancelled) {
           // Keep the last successful live set instead of snapping back to stale server data.
         }
+      } finally {
+        if (!cancelled) {
+          timer = window.setTimeout(loadPlaylistInsights, refreshDelayMs);
+        }
       }
     }
 
-    loadPlaylistInsights();
-    const timer = window.setInterval(loadPlaylistInsights, 15000);
+    if (hasServerPlaylistInsights) {
+      timer = window.setTimeout(loadPlaylistInsights, refreshDelayMs);
+    } else {
+      void loadPlaylistInsights();
+    }
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer) {
+        window.clearTimeout(timer);
+      }
     };
-  }, [mode]);
+  }, [data.playlistInsights, mode]);
   const playlist = buildRediscoveryPlaylist(data.forgottenFavorites);
   const cachedAtLabel = formatTimestamp(data.cachedAt);
   const generatedAtLabel = formatTimestamp(topListData.generatedAt);
@@ -1121,6 +1150,10 @@ export function DashboardView({
     </>
   );
 }
+
+
+
+
 
 
 

@@ -1,6 +1,7 @@
-const spotifyApiBase = "https://api.spotify.com/v1";
+﻿const spotifyApiBase = "https://api.spotify.com/v1";
 const spotifyAccountsBase = "https://accounts.spotify.com";
 const spotifyCallbackPath = "/api/auth/callback/spotify";
+const MAX_SPOTIFY_RETRIES = 2;
 
 export const spotifyScopes = [
   "user-read-email",
@@ -49,6 +50,42 @@ function getOriginFromRequest(request?: OriginRequestLike) {
   }
 
   return new URL(request.url).origin;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getRetryDelayMs(response: Response, attempt: number) {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return seconds * 1000;
+    }
+  }
+
+  return 400 * Math.pow(2, attempt);
+}
+
+async function spotifyRequest(pathOrUrl: string, init: RequestInit, allowRetry: boolean) {
+  const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${spotifyApiBase}${pathOrUrl}`;
+
+  for (let attempt = 0; attempt <= MAX_SPOTIFY_RETRIES; attempt += 1) {
+    const response = await fetch(url, {
+      ...init,
+      cache: "no-store",
+    });
+
+    const shouldRetry = allowRetry && (response.status === 429 || response.status >= 500);
+    if (response.ok || !shouldRetry || attempt === MAX_SPOTIFY_RETRIES) {
+      return response;
+    }
+
+    await wait(getRetryDelayMs(response, attempt));
+  }
+
+  throw new Error("Spotify request retry loop exhausted.");
 }
 
 export function getSpotifyRedirectUri(request?: OriginRequestLike) {
@@ -150,12 +187,11 @@ export async function refreshSpotifyAccessToken(refreshToken: string) {
 }
 
 export async function spotifyFetch<T>(path: string, accessToken: string): Promise<T> {
-  const response = await fetch(`${spotifyApiBase}${path}`, {
+  const response = await spotifyRequest(path, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
-    cache: "no-store",
-  });
+  }, true);
 
   if (!response.ok) {
     throw new Error(`Spotify request failed: ${response.status}`);
@@ -165,12 +201,11 @@ export async function spotifyFetch<T>(path: string, accessToken: string): Promis
 }
 
 export async function spotifyFetchOptional<T>(path: string, accessToken: string): Promise<T | null> {
-  const response = await fetch(`${spotifyApiBase}${path}`, {
+  const response = await spotifyRequest(path, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
-    cache: "no-store",
-  });
+  }, true);
 
   if (!response.ok) {
     return null;

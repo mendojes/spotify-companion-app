@@ -1,9 +1,11 @@
 ﻿import { NextResponse } from "next/server";
 import { getSession, isSessionExpired, refreshSession } from "@/lib/auth";
 import { getNowPlaying, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
+import { getCachedValue } from "@/lib/runtime-cache";
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 50;
+const NOW_PLAYING_TTL_MS = 1000 * 15;
 
 export async function GET(request: Request) {
   const session = await getSession();
@@ -20,23 +22,27 @@ export async function GET(request: Request) {
 
   const activeSession = isSessionExpired(session) ? await refreshSession(session) : session;
 
-  const [nowPlaying, syncedRecent, storedRecent] = await Promise.all([
-    getNowPlaying(activeSession.accessToken).catch(() => ({ isPlaying: false })),
-    syncRecentPlays(activeSession.accessToken, activeSession.spotifyUserId).catch(() => []),
-    getStoredRecentPlays(activeSession.spotifyUserId, limit).catch(() => []),
-  ]);
+  const payload = await getCachedValue(`now-playing:${activeSession.spotifyUserId}:${limit}`, NOW_PLAYING_TTL_MS, async () => {
+    const [nowPlaying, syncedRecent, storedRecent] = await Promise.all([
+      getNowPlaying(activeSession.accessToken).catch(() => ({ isPlaying: false })),
+      syncRecentPlays(activeSession.accessToken, activeSession.spotifyUserId).catch(() => []),
+      getStoredRecentPlays(activeSession.spotifyUserId, limit).catch(() => []),
+    ]);
 
-  return NextResponse.json({
-    ...nowPlaying,
-    recentTracks: storedRecent.map((play) => ({
-      trackId: play.trackId,
-      title: play.trackName,
-      artist: play.artistName,
-      album: play.albumName,
-      imageUrl: play.imageUrl,
-      playedAt: play.playedAt,
-    })),
-    syncedRecentCount: syncedRecent.length,
-    syncedAt: new Date().toISOString(),
+    return {
+      ...nowPlaying,
+      recentTracks: storedRecent.map((play) => ({
+        trackId: play.trackId,
+        title: play.trackName,
+        artist: play.artistName,
+        album: play.albumName,
+        imageUrl: play.imageUrl,
+        playedAt: play.playedAt,
+      })),
+      syncedRecentCount: syncedRecent.length,
+      syncedAt: new Date().toISOString(),
+    };
   });
+
+  return NextResponse.json(payload);
 }

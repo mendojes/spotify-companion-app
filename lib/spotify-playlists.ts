@@ -1,5 +1,6 @@
-import { getCurrentPlaybackSource, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
+﻿import { getCurrentPlaybackSource, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
 import { spotifyFetch } from "@/lib/spotify";
+import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import {
   PlaylistArtistSummary,
   PlaylistDetail,
@@ -22,6 +23,7 @@ const PLAYLIST_PAGE_LIMIT = 20;
 const PLAYLIST_TRACK_LIMIT = 100;
 const DASHBOARD_PLAYLIST_COUNT = 3;
 const PLAYLIST_ANALYSIS_CONCURRENCY = 3;
+const PLAYLIST_INSIGHTS_TTL_MS = 1000 * 60;
 
 type PlaylistTrackWithMeta = {
   addedAt?: string;
@@ -411,7 +413,7 @@ function getRecentPlaylistCandidates(recentPlays: StoredRecentPlay[], currentPla
     seen.add(play.playlistId);
     playlistIds.push(play.playlistId);
 
-    if (playlistIds.length >= DASHBOARD_PLAYLIST_COUNT * 2) {
+    if (playlistIds.length >= DASHBOARD_PLAYLIST_COUNT) {
       break;
     }
   }
@@ -497,3 +499,15 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
     return null;
   }
 }
+
+export function invalidatePlaylistInsightsCache(spotifyUserId: string) {
+  invalidateCachedValue(`playlist-insights:${spotifyUserId}`);
+}
+
+export async function getCachedPlaylistInsights(accessToken: string, spotifyUserId: string): Promise<PlaylistInsight[]> {
+  return getCachedValue(`playlist-insights:${spotifyUserId}`, PLAYLIST_INSIGHTS_TTL_MS, () =>
+    getPlaylistInsights(accessToken, spotifyUserId),
+  );
+}
+
+

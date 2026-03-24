@@ -1,4 +1,4 @@
-import {
+﻿import {
   DashboardInsights,
   DashboardRange,
   FavoriteTrack,
@@ -23,7 +23,7 @@ import {
 } from "@/lib/types";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 
-import { getPlaylistInsights } from "@/lib/spotify-playlists";
+import { getCachedPlaylistInsights } from "@/lib/spotify-playlists";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 
 const genreColors = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
@@ -755,7 +755,7 @@ async function deriveInsights(
       audioFeatureTrackIds.length > 0
         ? spotifyFetchOptional<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${audioFeatureTrackIds.join(",")}`, accessToken)
         : Promise.resolve(null),
-      spotifyUserId ? getPlaylistInsights(accessToken, spotifyUserId).catch(() => null) : Promise.resolve(null),
+      spotifyUserId ? getCachedPlaylistInsights(accessToken, spotifyUserId).catch(() => null) : Promise.resolve(null),
     ]);
 
     const features = audioFeatureResponse?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
@@ -1002,3 +1002,4 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
 
   return deriveInsights(snapshots, range);
 }
+
