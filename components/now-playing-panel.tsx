@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { Disc3, Heart, Play, Pause, Radio, Sparkles, Waves } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Disc3, Heart, Pause, Play, Radio, Sparkles, Waves } from "lucide-react";
 import { NowPlayingState } from "@/lib/types";
 
 function formatPlayedAt(value: string) {
@@ -15,7 +15,17 @@ function formatPlayedAt(value: string) {
   }).format(new Date(value));
 }
 
+function formatClock(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 const COLLAPSED_RECENT_COUNT = 3;
+const NOW_PLAYING_POLL_MS = 1000 * 30;
+const TRACK_END_DELAY_MS = 1000 * 2;
+const PROGRESS_TICK_MS = 1000;
 
 function getAdaptiveHeadingClass(value: string) {
   if (value.length > 28) {
@@ -47,10 +57,34 @@ function getRecentTitleClass(value: string) {
 
 function useNowPlayingState() {
   const [state, setState] = useState<NowPlayingState | null>(null);
+  const [displayProgressMs, setDisplayProgressMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const stateRef = useRef<NowPlayingState | null>(null);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     let cancelled = false;
+    let timer: number | undefined;
+
+    function scheduleNextLoad(nextState: NowPlayingState | null) {
+      if (cancelled) {
+        return;
+      }
+
+      let nextDelayMs = NOW_PLAYING_POLL_MS;
+
+      if (nextState?.isPlaying && nextState.track?.durationMs) {
+        const remainingMs = Math.max(0, nextState.track.durationMs - (nextState.progressMs ?? 0));
+        nextDelayMs = Math.min(NOW_PLAYING_POLL_MS, remainingMs + TRACK_END_DELAY_MS);
+      }
+
+      timer = window.setTimeout(() => {
+        void load();
+      }, nextDelayMs);
+    }
 
     async function load() {
       try {
@@ -60,57 +94,83 @@ function useNowPlayingState() {
         }
 
         const nextState = (await response.json()) as NowPlayingState;
-        if (!cancelled) {
-          setState((previous) => {
-            if (nextState.track) {
-              return nextState;
-            }
-
-            if (previous?.track) {
-              return {
+        const previous = stateRef.current;
+        const resolvedState = nextState.track
+          ? nextState
+          : previous?.track
+            ? {
                 ...previous,
                 isPlaying: false,
                 progressMs: previous.progressMs,
                 recentTracks: nextState.recentTracks ?? previous.recentTracks,
                 syncedRecentCount: nextState.syncedRecentCount ?? previous.syncedRecentCount,
                 syncedAt: nextState.syncedAt ?? previous.syncedAt,
-              };
-            }
+              }
+            : nextState;
 
-            return nextState;
-          });
+        if (!cancelled) {
+          stateRef.current = resolvedState;
+          setState(resolvedState);
           setError(null);
+          scheduleNextLoad(resolvedState);
         }
       } catch {
         if (!cancelled) {
           setError("Live playback could not be loaded right now.");
+          scheduleNextLoad(stateRef.current);
         }
       }
     }
 
-    load();
-    const timer = window.setInterval(load, 60000);
+    void load();
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer) {
+        window.clearTimeout(timer);
+      }
     };
   }, []);
 
-  return { state, error };
+  useEffect(() => {
+    if (!state?.track?.durationMs) {
+      setDisplayProgressMs(0);
+      return;
+    }
+
+    setDisplayProgressMs(Math.max(0, Math.min(state.track.durationMs, state.progressMs ?? 0)));
+
+    if (!state.isPlaying) {
+      return;
+    }
+
+    const durationMs = state.track.durationMs;
+    const tick = window.setInterval(() => {
+      setDisplayProgressMs((previous) => Math.min(durationMs, previous + PROGRESS_TICK_MS));
+    }, PROGRESS_TICK_MS);
+
+    return () => {
+      window.clearInterval(tick);
+    };
+  }, [state?.isPlaying, state?.progressMs, state?.track?.durationMs, state?.track?.id]);
+
+  return { state, displayProgressMs, error };
 }
 
 export function NowPlayingPanel() {
-  const { state, error } = useNowPlayingState();
+  const { state, displayProgressMs, error } = useNowPlayingState();
   const recentTracks = state?.recentTracks ?? [];
   const visibleRecentTracks = recentTracks.slice(0, COLLAPSED_RECENT_COUNT);
   const progress = useMemo(() => {
-    if (!state?.track?.durationMs || !state.progressMs) {
+    if (!state?.track?.durationMs) {
       return 0;
     }
 
-    return Math.max(0, Math.min(100, (state.progressMs / state.track.durationMs) * 100));
-  }, [state?.progressMs, state?.track?.durationMs]);
+    return Math.max(0, Math.min(100, (displayProgressMs / state.track.durationMs) * 100));
+  }, [displayProgressMs, state?.track?.durationMs]);
+  const remainingMs = state?.track?.durationMs
+    ? Math.max(0, state.track.durationMs - displayProgressMs)
+    : 0;
 
   return (
     <div className="w-full 2xl:sticky 2xl:top-24">
@@ -137,6 +197,11 @@ export function NowPlayingPanel() {
           {state?.syncedRecentCount ? (
             <div className="sticker-badge px-3 py-1 font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-badge)]">
               {state.syncedRecentCount} recent plays
+            </div>
+          ) : null}
+          {state?.track?.durationMs ? (
+            <div className="sticker-badge px-3 py-1 font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-badge)]">
+              {formatClock(remainingMs)} left
             </div>
           ) : null}
         </div>
@@ -170,6 +235,10 @@ export function NowPlayingPanel() {
                 </div>
                 <div className="mt-4 h-4 rounded-full border-2 border-[rgba(57,18,98,0.18)] bg-white/45 p-1">
                   <div className="h-full rounded-full bg-[linear-gradient(90deg,#ff91e7,var(--theme-accent)_45%,var(--theme-highlight))]" style={{ width: `${progress}%` }} />
+                </div>
+                <div className="mt-3 flex items-center justify-between font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">
+                  <span>{formatClock(displayProgressMs)}</span>
+                  <span>-{formatClock(remainingMs)}</span>
                 </div>
               </div>
 
@@ -247,5 +316,3 @@ export function NowPlayingPanel() {
     </div>
   );
 }
-
-
