@@ -226,6 +226,55 @@ async function writeStoredPlaylistInsights(spotifyUserId: string, playlistInsigh
   }
 }
 
+function reorderPlaylistInsightsFromRecentPlay(
+  playlistInsights: PlaylistInsight[],
+  recentPlays: StoredRecentPlay[],
+) {
+  if (playlistInsights.length === 0 || recentPlays.length === 0) {
+    return { playlistInsights, changed: false };
+  }
+
+  const latestPlaylistPlay = recentPlays.find((play) => Boolean(play.playlistId));
+  if (!latestPlaylistPlay?.playlistId) {
+    return { playlistInsights, changed: false };
+  }
+
+  const currentTopPlaylistId = playlistInsights[0]?.id;
+  if (currentTopPlaylistId === latestPlaylistPlay.playlistId) {
+    return { playlistInsights, changed: false };
+  }
+
+  const matchingInsight = playlistInsights.find((playlist) => playlist.id === latestPlaylistPlay.playlistId);
+  if (!matchingInsight) {
+    return { playlistInsights, changed: false };
+  }
+
+  const reordered = [
+    {
+      ...matchingInsight,
+      lastListenedAt: latestPlaylistPlay.playedAt,
+    },
+    ...playlistInsights.filter((playlist) => playlist.id !== latestPlaylistPlay.playlistId),
+  ];
+
+  return { playlistInsights: reordered, changed: true };
+}
+
+export async function getDashboardPlaylistInsights(spotifyUserId: string): Promise<PlaylistInsight[]> {
+  const [storedInsights, recentPlays] = await Promise.all([
+    getStoredPlaylistInsights(spotifyUserId),
+    getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
+  ]);
+
+  const { playlistInsights, changed } = reorderPlaylistInsightsFromRecentPlay(storedInsights, recentPlays);
+
+  if (changed && playlistInsights.length > 0) {
+    await writeStoredPlaylistInsights(spotifyUserId, playlistInsights);
+  }
+
+  return playlistInsights;
+}
+
 async function getCachedPlaylistDetails(spotifyUserId: string, playlistIds?: string[]) {
   if (!hasMongoConfig()) {
     return [] as CachedPlaylistDetail[];
@@ -981,6 +1030,7 @@ export async function getCachedPlaylistInsights(accessToken: string, spotifyUser
     getPlaylistInsights(accessToken, spotifyUserId),
   );
 }
+
 
 
 
