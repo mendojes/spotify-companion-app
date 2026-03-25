@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clearSessionCookie, getSession, refreshSession } from "@/lib/auth";
+import { touchConnectedUser } from "@/lib/connected-users";
 import { getAppUrl } from "@/lib/spotify";
 
 export async function GET(request: NextRequest) {
@@ -13,6 +14,7 @@ export async function GET(request: NextRequest) {
 
   try {
     await refreshSession(session);
+    await touchConnectedUser(session.spotifyUserId);
     return NextResponse.redirect(getAppUrl(returnTo));
   } catch {
     await clearSessionCookie();

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildSession, consumeAuthStateCookie, setSessionCookie } from "@/lib/auth";
+import { upsertConnectedUser } from "@/lib/connected-users";
 import { exchangeSpotifyCode, getAppUrl, getSpotifyProfile } from "@/lib/spotify";
 
 export async function GET(request: NextRequest) {
@@ -44,6 +45,14 @@ export async function GET(request: NextRequest) {
     console.log("[spotify-callback] profile fetch complete", { spotifyUserId: profile.id, ms: Date.now() - startedAt });
 
     const session = buildSession(profile, tokens.access_token, tokens.refresh_token, tokens.expires_in);
+    await upsertConnectedUser({
+      spotifyUserId: session.spotifyUserId,
+      displayName: session.displayName,
+      email: session.email,
+      imageUrl: session.imageUrl,
+      refreshToken: session.refreshToken,
+    });
+
     console.log("[spotify-callback] setting session cookie");
     await setSessionCookie(session);
 
@@ -56,4 +65,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(getAppUrl("/login?error=" + errorCode, request));
   }
 }
-

@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { getSession } from "@/lib/auth";
 
 export default async function PrivacyPage() {
@@ -13,12 +13,17 @@ export default async function PrivacyPage() {
             Data use and account controls
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-            SoundScope only requests the Spotify permissions it uses for your dashboard: profile basics, recent listening, current playback, top content, saved tracks, and private playlists. Cached Spotify data is used only to build your personal dashboard views.
+            SoundScope only requests the Spotify permissions it uses for your dashboard: profile basics, recent listening, current playback, top content, saved tracks, and private playlists. Cached Spotify data is used to build your personal dashboard views, and any social sharing now runs from explicit opt-in settings only.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href={session ? "/dashboard" : "/login"} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
               {session ? "Back to dashboard" : "Back to login"}
             </Link>
+            {session ? (
+              <Link href="/settings" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                Sharing settings
+              </Link>
+            ) : null}
             <a href="https://developer.spotify.com/terms" target="_blank" rel="noreferrer" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
               Spotify terms
             </a>
@@ -31,7 +36,14 @@ export default async function PrivacyPage() {
         <section className="desktop-card p-6 md:p-8">
           <h2 className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">What SoundScope accesses</h2>
           <p className="mt-4 text-sm leading-7 text-[var(--theme-body)]">
-            Spotify account ID, display name, profile image, email, recent plays, current playback context, top artists and tracks, saved tracks, and playlists. The app does not keep public community profiles enabled right now, and background refreshes that depended on stored refresh tokens have been disabled.
+            Spotify account ID, display name, profile image, email, recent plays, current playback context, top artists and tracks, saved tracks, and playlists. Public social pages only use SoundScope&apos;s own cached history and only when a user explicitly enables profile sharing in settings.
+          </p>
+        </section>
+
+        <section className="desktop-card p-6 md:p-8">
+          <h2 className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">How sharing works</h2>
+          <p className="mt-4 text-sm leading-7 text-[var(--theme-body)]">
+            The social directory reads cached SoundScope data from MongoDB instead of requesting Spotify data for other users on demand. You can independently choose whether to show your profile, your top lists, and your listening-pattern summaries.
           </p>
         </section>
 
@@ -56,4 +68,3 @@ export default async function PrivacyPage() {
     </main>
   );
 }
-

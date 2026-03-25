@@ -64,7 +64,7 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
                   Turn your listening history into a <span className="gradient-text">pink little internet bedroom</span>.
                 </h1>
                 <p className="max-w-2xl text-lg leading-8 text-[var(--theme-body)] md:text-xl">
-                  SoundScope now leans into floating browser windows, giant cover art, playful controls, and collectible widgets so the whole app feels more like a saved Tumblr desktop than a stats report.
+                  Connect Spotify to see your recent plays, top lists, playlists, and rediscovery picks in one place.
                 </p>
               </div>
 
@@ -90,7 +90,7 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
                     <div className="rounded-[24px] border-2 border-[rgba(57,18,98,0.22)] bg-white/50 p-4">
                       <p className="font-mono text-base uppercase tracking-[0.16em] text-[var(--theme-muted)]">currently glowing</p>
                       <p className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">city pop / dreamwave</p>
-                      <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">big art, soft chrome, dreamy listening notes, and a little fake-operating-system drama.</p>
+                      <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">Recent listening, top lists, and saved favorites.</p>
                     </div>
                     <div className="sticker-badge inline-flex items-center gap-2 px-4 py-3 font-mono text-sm uppercase tracking-[0.18em] text-[var(--theme-badge)]">
                       <Zap className="h-4 w-4 text-[var(--theme-highlight)]" />

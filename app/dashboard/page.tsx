@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Disc3, LogOut, RefreshCcw, Sparkles } from "lucide-react";
+import { Disc3, LogOut, RefreshCcw, Settings2, Sparkles, Users } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
@@ -127,6 +127,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
             <ThemeToggle />
+            <Link href="/social" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+              <Users className="h-4 w-4" /> Social
+            </Link>
+            <Link href="/settings" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+              <Settings2 className="h-4 w-4" /> Settings
+            </Link>
             <Link href="/privacy" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
               <Sparkles className="h-4 w-4" /> Privacy
             </Link>
@@ -185,6 +191,3 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
-
-
-

@@ -149,7 +149,7 @@ export function NowPlayingPanel() {
               <div className="desktop-card overflow-hidden p-3">
                 <div className="media-frame relative h-64 w-full p-2">
                   {state.track.imageUrl ? (
-                    <Image src={state.track.imageUrl} alt={state.track.title} fill sizes="(max-width: 1280px) 320px, 380px" className="rounded-[18px] object-contain bg-white/[0.2] p-1.5" />
+                    <Image src={state.track.imageUrl} alt={state.track.title} fill sizes="(max-width: 1280px) 320px, 380px" className="rounded-[18px] object-cover" />
                   ) : null}
                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.08)_36%,rgba(72,24,110,0.22))]" />
                 </div>
@@ -212,7 +212,7 @@ export function NowPlayingPanel() {
                       <div className="flex items-start gap-3">
                         {track.imageUrl ? (
                           <div className="media-frame relative h-16 w-16 shrink-0 p-1">
-                            <Image src={track.imageUrl} alt={track.title} fill sizes="64px" className="rounded-[12px] object-contain bg-white/[0.2] p-1" />
+                            <Image src={track.imageUrl} alt={track.title} fill sizes="64px" className="rounded-[12px] object-cover" />
                           </div>
                         ) : null}
                         <div className="min-w-0 flex-1">

@@ -39,10 +39,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                   Plug your Spotify into the pastel pop desktop.
                 </h1>
                 <p className="mt-5 max-w-lg text-base leading-8 text-[var(--theme-body)]">
-                  Connect your account to unlock recent plays, top rotations, playlist breakdowns, and a dashboard built like a cute browser full of album covers, stickers, and little player windows.
-                </p>
-                <p className="mt-4 max-w-lg text-sm leading-7 text-[var(--theme-muted)]">
-                  Before OAuth starts, SoundScope explains which Spotify scopes it uses and gives you a self-serve page to disconnect and delete cached local data later.
+                  Connect your account to load your dashboard.
                 </p>
               </div>
 
@@ -55,7 +52,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                     </div>
                   </div>
                   <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
-                    Profile, top tracks, saved library, playlists, and recent listening history all become visual widgets instead of plain text tables.
+                    Profile, top tracks, saved tracks, playlists, and recent listening history.
                   </p>
                 </div>
                 <div className="desktop-card p-5 text-[var(--theme-text)]">
@@ -83,7 +80,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               <p className="section-kicker">Spotify login</p>
               <h2 className="font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">Start the session.</h2>
               <p className="max-w-xl text-base leading-7 text-[var(--theme-body)]">
-                OAuth gives SoundScope the context it needs to build your listening scrapbook with artwork-first sections, playful widgets, and way more personality.
+                Sign in with Spotify to continue.
               </p>
             </div>
 

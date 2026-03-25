@@ -181,7 +181,7 @@ function Artwork({
   if (imageUrl) {
     return (
       <div className={`media-frame relative shrink-0 ${dimensions} p-1.5`}>
-        <Image src={imageUrl} alt={label} fill sizes="128px" className="rounded-[18px] object-contain bg-white/[0.2] p-1.5" />
+        <Image src={imageUrl} alt={label} fill sizes="128px" className="rounded-[18px] object-cover" />
       </div>
     );
   }
@@ -253,7 +253,7 @@ function MetricWindow({
     <div className="window-panel relative flex h-full min-h-[18rem] flex-col overflow-hidden p-5 pt-14 text-[var(--theme-text)]">
       {backgroundImage ? (
         <div className="absolute inset-x-0 bottom-0 top-[44px] overflow-hidden">
-          <Image src={backgroundImage} alt={label} fill sizes="(max-width: 1280px) 100vw, 420px" className="object-contain bg-white/[0.2] opacity-60" />
+          <Image src={backgroundImage} alt={label} fill sizes="(max-width: 1280px) 100vw, 420px" className="object-cover opacity-60" />
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,245,255,0.18)_18%,rgba(70,24,108,0.74))]" />
         </div>
       ) : null}
@@ -293,7 +293,7 @@ function DesktopMiniWindow({
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-[92px_1fr] sm:items-center">
         <div className="media-frame relative h-24 w-full p-1.5 sm:h-24 sm:w-24">
-          {imageUrl ? <Image src={imageUrl} alt={title} fill sizes="96px" className="rounded-[14px] object-contain bg-white/[0.2] p-1" /> : null}
+          {imageUrl ? <Image src={imageUrl} alt={title} fill sizes="96px" className="rounded-[14px] object-cover" /> : null}
         </div>
         <div>
           <p className="font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)]">{title}</p>
@@ -586,8 +586,8 @@ export function DashboardView({
                         title="A scrapbook dashboard for your listening life"
                         copy={
                           isPreview
-                            ? "The preview now behaves like a pastel browser desktop full of art, shortcut windows, and collectible listening widgets instead of a plain analytics canvas."
-                            : "Your Spotify history now lives inside a pastel collage of browser windows, cover-art shelves, and playful controls that feel saved from a cute 2000s homepage."
+                            ? "Preview your top lists, trends, playlists, and rediscovery picks."
+                            : "Your Spotify history, top lists, trends, and rediscovery picks."
                         }
                         meta={
                           <>
@@ -873,7 +873,7 @@ export function DashboardView({
           <SectionHeader
             kicker="Top lists"
             title="Album-art walls and rotating favorites"
-            copy="Each ranking is now built like a collectible media shelf, with art-forward cards instead of plain list rows."
+            copy="Top artists, tracks, and albums."
             meta={
               <>
                 <p className="text-[var(--theme-badge)]">{topListData.sourceLabel}</p>
@@ -1015,7 +1015,7 @@ export function DashboardView({
           <SectionHeader
             kicker="Rediscovery"
             title="Bring buried favorites back with a little drama"
-            copy="The rediscovery area now behaves like a memory wall, with spotlight artwork and supporting widgets for why each track deserves a return."
+            copy="Older favorites and quiet saved tracks worth replaying."
           />
           <div className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
             <div className="glass-panel rounded-[36px] p-6 md:p-7 text-[var(--theme-text)]">
@@ -1038,7 +1038,7 @@ export function DashboardView({
                       alt={data.forgottenFavorites[0].title}
                       fill
                       sizes="(max-width: 1280px) 100vw, 500px"
-                      className="rounded-[22px] object-contain bg-white/[0.2] p-1.5"
+                      className="rounded-[22px] object-cover"
                     />
                   ) : null}
                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
@@ -1075,12 +1075,6 @@ export function DashboardView({
                   <TrackShelfCard key={`${track.title}-${track.artist}`} track={track} accent="gold" />
                 ))}
               </div>
-              <div className="mt-6 desktop-card p-5">
-                <p className="font-mono text-lg uppercase tracking-[0.18em] text-[var(--theme-highlight)]">Current logic</p>
-                <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
-                  Favorites still use affinity and historical importance, while saved deep cuts widen the net to older library songs that have gone quiet even without favorite-level history.
-                </p>
-              </div>
               {playlist.length > 0 ? (
                 <div className="mt-4 space-y-3">
                   {playlist.slice(0, 3).map((item, index) => (
@@ -1116,11 +1110,11 @@ export function DashboardView({
           <SectionHeader
             kicker="Playlist lab"
             title="Playlist intelligence as a glossy media wall"
-            copy="Playlist cards now feel like mini magazine covers, so the mood and overlap data sits on top of artwork instead of beside it."
+            copy="Playlist mood, diversity, and overlap."
           />
 
           <div className="flex items-center justify-between gap-4">
-            <p className="font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-muted)]">Open any playlist to inspect its structure in more detail.</p>
+            <p className="font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-muted)]">Open a playlist for details.</p>
             {!isPreview && playlistsPagePath ? (
               <Link href={playlistsPagePath} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 View all playlists
@@ -1134,7 +1128,7 @@ export function DashboardView({
                 <>
                   {playlistCard.imageUrl ? (
                     <div className="media-frame relative mb-5 h-60 p-2">
-                      <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-contain bg-white/[0.2] p-1.5" />
+                      <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-cover" />
                       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
                       <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-3">
                         <div>

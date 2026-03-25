@@ -1,4 +1,10 @@
-import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+﻿import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+
+export type ConnectedUserPrivacySettings = {
+  shareProfile: boolean;
+  shareTopLists: boolean;
+  shareListeningActivity: boolean;
+};
 
 export type ConnectedUser = {
   spotifyUserId: string;
@@ -6,6 +12,7 @@ export type ConnectedUser = {
   email?: string;
   imageUrl?: string;
   refreshToken: string;
+  privacy?: ConnectedUserPrivacySettings;
   lastSeenAt: string;
   updatedAt: string;
   lastSnapshotAt?: string;
@@ -20,10 +27,28 @@ export type CommunityUserProfile = {
   lastSeenAt: string;
   lastSnapshotAt?: string;
   lastSnapshotStatus?: "success" | "error";
+  privacy: ConnectedUserPrivacySettings;
 };
 
 const CONNECTED_USERS_COLLECTION = "connected_users";
 const ACTIVE_WINDOW_MS = 1000 * 60 * 60 * 24 * 30;
+
+export function getDefaultPrivacySettings(): ConnectedUserPrivacySettings {
+  return {
+    shareProfile: true,
+    shareTopLists: true,
+    shareListeningActivity: true,
+  };
+}
+
+function normalizePrivacySettings(settings?: Partial<ConnectedUserPrivacySettings> | null): ConnectedUserPrivacySettings {
+  const defaults = getDefaultPrivacySettings();
+  return {
+    shareProfile: settings?.shareProfile ?? defaults.shareProfile,
+    shareTopLists: settings?.shareTopLists ?? defaults.shareTopLists,
+    shareListeningActivity: settings?.shareListeningActivity ?? defaults.shareListeningActivity,
+  };
+}
 
 function toCommunityUserProfile(user: ConnectedUser): CommunityUserProfile {
   return {
@@ -33,6 +58,7 @@ function toCommunityUserProfile(user: ConnectedUser): CommunityUserProfile {
     lastSeenAt: user.lastSeenAt,
     lastSnapshotAt: user.lastSnapshotAt,
     lastSnapshotStatus: user.lastSnapshotStatus,
+    privacy: normalizePrivacySettings(user.privacy),
   };
 }
 
@@ -78,6 +104,9 @@ export async function upsertConnectedUser(user: {
         refreshToken: user.refreshToken,
         lastSeenAt: now,
         updatedAt: now,
+      },
+      $setOnInsert: {
+        privacy: getDefaultPrivacySettings(),
       },
     },
     { upsert: true },
@@ -150,7 +179,9 @@ export async function listActiveConnectedUsers(limit = 25) {
 
 export async function listCommunityUsers(limit = 24) {
   const users = await listActiveConnectedUsers(limit);
-  return users.map(toCommunityUserProfile);
+  return users
+    .filter((user) => normalizePrivacySettings(user.privacy).shareProfile)
+    .map(toCommunityUserProfile);
 }
 
 export async function getCommunityUserProfile(spotifyUserId: string) {
@@ -164,5 +195,69 @@ export async function getCommunityUserProfile(spotifyUserId: string) {
   }
 
   const user = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne({ spotifyUserId });
-  return user ? toCommunityUserProfile(user) : null;
+
+  if (!user) {
+    return null;
+  }
+
+  const privacy = normalizePrivacySettings(user.privacy);
+  if (!privacy.shareProfile) {
+    return null;
+  }
+
+  return toCommunityUserProfile(user);
+}
+
+export async function getConnectedUser(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return null;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return null;
+  }
+
+  const user = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne({ spotifyUserId });
+  return user ? { ...user, privacy: normalizePrivacySettings(user.privacy) } : null;
+}
+
+export async function updateConnectedUserPrivacySettings(
+  spotifyUserId: string,
+  settings: Partial<ConnectedUserPrivacySettings>,
+) {
+  if (!hasMongoConfig()) {
+    return getDefaultPrivacySettings();
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return getDefaultPrivacySettings();
+  }
+
+  const existing = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne({ spotifyUserId });
+  const nextPrivacy = normalizePrivacySettings({
+    ...normalizePrivacySettings(existing?.privacy),
+    ...settings,
+  });
+
+  const now = new Date().toISOString();
+  await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
+    { spotifyUserId },
+    {
+      $set: {
+        privacy: nextPrivacy,
+        updatedAt: now,
+      },
+      $setOnInsert: {
+        spotifyUserId,
+        displayName: "Spotify Listener",
+        refreshToken: "",
+        lastSeenAt: now,
+      },
+    },
+    { upsert: true },
+  );
+
+  return nextPrivacy;
 }

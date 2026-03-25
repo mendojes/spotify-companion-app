@@ -1,4 +1,5 @@
-﻿import { Disc3, LayoutGrid, Sparkles, Stars } from "lucide-react";
+﻿import Link from "next/link";
+import { Disc3, LayoutGrid, Settings2, Sparkles, Stars, Users } from "lucide-react";
 import { DashboardView } from "@/components/dashboard-view";
 import { Hero } from "@/components/hero";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
@@ -32,20 +33,25 @@ export default async function Home({ searchParams }: HomeProps) {
               <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="#dashboard">
                 <LayoutGrid className="h-4 w-4" /> Preview
               </a>
-              <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="#roadmap">
-                <Stars className="h-4 w-4" /> Roadmap
-              </a>
-              <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href={session ? "/dashboard" : "/login"}>
+              <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href={session ? "/dashboard" : "/login"}>
                 <Sparkles className="h-4 w-4" /> {session ? "Open dashboard" : "Connect Spotify"}
-              </a>
+              </Link>
               {session ? (
-                <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/api/auth/logout">
-                  <Disc3 className="h-4 w-4" /> Log out
-                </a>
+                <>
+                  <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/social">
+                    <Users className="h-4 w-4" /> Social
+                  </Link>
+                  <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/settings">
+                    <Settings2 className="h-4 w-4" /> Settings
+                  </Link>
+                  <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/api/auth/logout">
+                    <Disc3 className="h-4 w-4" /> Log out
+                  </Link>
+                </>
               ) : null}
-              <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/privacy">
+              <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/privacy">
                 <Disc3 className="h-4 w-4" /> Privacy
-              </a>
+              </Link>
             </div>
           </div>
         </div>
@@ -69,4 +75,3 @@ export default async function Home({ searchParams }: HomeProps) {
     </main>
   );
 }
-

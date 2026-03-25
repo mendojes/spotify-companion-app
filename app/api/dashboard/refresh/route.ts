@@ -1,5 +1,6 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { markConnectedUserSnapshotStatus, touchConnectedUser } from "@/lib/connected-users";
 import { getAppUrl } from "@/lib/spotify";
 import { refreshDashboardSnapshot } from "@/lib/spotify-dashboard";
 import { invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
@@ -22,11 +23,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await touchConnectedUser(session.spotifyUserId);
     await refreshDashboardSnapshot(session.accessToken, session.spotifyUserId);
+    await markConnectedUserSnapshotStatus(session.spotifyUserId, "success");
     await syncPlaylistLibrary(session.accessToken, session.spotifyUserId).catch(() => []);
     invalidatePlaylistInsightsCache(session.spotifyUserId);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Snapshot refresh failed.";
+    await markConnectedUserSnapshotStatus(session.spotifyUserId, "error", message);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refresh_error=1`));
   }
 }

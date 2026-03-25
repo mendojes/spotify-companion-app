@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { touchConnectedUser } from "@/lib/connected-users";
 import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
@@ -55,6 +56,8 @@ export async function GET(request: NextRequest) {
   const selectedHeroRange = dashboardRangeToTopListRange(selectedRange);
 
   try {
+    await touchConnectedUser(session.spotifyUserId);
+
     const [insights, topLists, heroTopLists] = await Promise.all([
       getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange),
       getSpotifyTopListsFromHistory(session.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
