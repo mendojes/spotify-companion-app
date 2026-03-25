@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isSessionExpired, refreshSession } from "@/lib/auth";
-import { getDashboardInsights } from "@/lib/spotify-dashboard";
-import { getSpotifyTopLists } from "@/lib/spotify-toplists";
+import { getSession } from "@/lib/auth";
+import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
+import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 function normalizeRange(range?: string): DashboardRange {
@@ -47,7 +47,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const activeSession = isSessionExpired(session) ? await refreshSession(session) : session;
   const { searchParams } = new URL(request.url);
   const selectedRange = normalizeRange(searchParams.get("range") ?? undefined);
   const selectedTopRange = normalizeTopRange(searchParams.get("topRange") ?? undefined);
@@ -57,9 +56,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const [insights, topLists, heroTopLists] = await Promise.all([
-      getDashboardInsights(activeSession.accessToken, activeSession.spotifyUserId, selectedRange),
-      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange),
+      getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange),
+      getSpotifyTopListsFromHistory(session.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+      getSpotifyTopListsFromHistory(session.spotifyUserId, selectedHeroRange),
     ]);
 
     return NextResponse.json({ insights, topLists, heroTopLists });

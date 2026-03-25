@@ -5,7 +5,7 @@ import { getCachedValue } from "@/lib/runtime-cache";
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 50;
-const NOW_PLAYING_TTL_MS = 1000 * 15;
+const NOW_PLAYING_TTL_MS = 1000 * 60;
 
 export async function GET(request: Request) {
   const session = await getSession();

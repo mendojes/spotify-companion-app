@@ -89,7 +89,7 @@ function useNowPlayingState() {
     }
 
     load();
-    const timer = window.setInterval(load, 15000);
+    const timer = window.setInterval(load, 60000);
 
     return () => {
       cancelled = true;
