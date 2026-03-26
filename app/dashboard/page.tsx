@@ -5,9 +5,9 @@ import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { requireSession } from "@/lib/auth";
-import { getDashboardInsights, getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
-import { getSpotifyTopLists, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
+import { getSession, isSessionExpired, refreshSession, requireSession } from "@/lib/auth";
+import { getDashboardInsightsFromHistory, getDashboardInsightsLive } from "@/lib/spotify-dashboard";
+import { getSpotifyTopListsFromHistory, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
@@ -58,6 +58,11 @@ function getErrorMessage(error: unknown) {
   return "Unknown Spotify error";
 }
 
+function isSpotifyUnauthorized(error: unknown) {
+  const message = getErrorMessage(error);
+  return message.includes("Spotify request failed: 401") || message.includes("Spotify token refresh failed: 401");
+}
+
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
   const styles = {
     cyan: "bg-[rgba(229,255,255,0.78)] text-[#3a1a58]",
@@ -75,7 +80,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect("/login");
   }
 
-  const activeSession = session;
+  let activeSession = isSessionExpired(session) ? await refreshSession(session) : session;
 
   const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag } = await searchParams;
   const selectedRange = normalizeRange(range);
@@ -90,6 +95,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let dashboardError: string | null = null;
   let topListsError: string | null = null;
 
+  async function loadLiveDashboardData() {
+    return Promise.all([
+      getDashboardInsightsLive(activeSession.accessToken, activeSession.spotifyUserId, selectedRange),
+      getSpotifyTopListsLive(activeSession.accessToken, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+      getSpotifyTopListsLive(activeSession.accessToken, selectedHeroRange),
+    ]);
+  }
+
   try {
     [insights, topLists, heroTopLists] = await Promise.all([
       getDashboardInsightsFromHistory(activeSession.spotifyUserId, selectedRange),
@@ -100,13 +113,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     dashboardError = `Cached dashboard data could not be loaded, so SoundScope fell back to live Spotify data for this page load. (${getErrorMessage(error)})`;
 
     try {
-      [insights, topLists, heroTopLists] = await Promise.all([
-        getDashboardInsights(activeSession.accessToken, activeSession.spotifyUserId, selectedRange),
-        getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-        getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange),
-      ]);
+      [insights, topLists, heroTopLists] = await loadLiveDashboardData();
     } catch (liveError) {
-      dashboardError = `Cached dashboard data could not be loaded right now, and the live Spotify fallback also failed, so the dashboard is showing preview fallback sections. (${getErrorMessage(liveError)})`;
+      if (isSpotifyUnauthorized(liveError)) {
+        try {
+          activeSession = await refreshSession(activeSession);
+          [insights, topLists, heroTopLists] = await loadLiveDashboardData();
+          dashboardError = `Cached dashboard data could not be loaded, and Spotify required a token refresh before the live fallback could load. (${getErrorMessage(error)})`;
+        } catch (refreshRetryError) {
+          dashboardError = `Cached dashboard data could not be loaded right now, and the live Spotify fallback also failed after retrying your session token, so the dashboard is showing preview fallback sections. (${getErrorMessage(refreshRetryError)})`;
+        }
+      } else {
+        dashboardError = `Cached dashboard data could not be loaded right now, and the live Spotify fallback also failed, so the dashboard is showing preview fallback sections. (${getErrorMessage(liveError)})`;
+      }
     }
   }
 

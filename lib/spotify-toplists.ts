@@ -1,4 +1,4 @@
-import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+﻿import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { spotifyFetch } from "@/lib/spotify";
 import {
   SpotifyArtist,
@@ -541,6 +541,22 @@ async function getFallbackSpotifyTopLists(accessToken: string, range: TopListRan
   };
 }
 
+export async function getSpotifyTopListsLive(
+  accessToken: string,
+  range: TopListRange,
+  limit = DASHBOARD_TOP_LIST_LIMIT,
+  from?: string,
+  to?: string,
+): Promise<TopListsData> {
+  const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
+  const fallback = await getFallbackSpotifyTopLists(accessToken, range, boundedLimit);
+  return {
+    ...fallback,
+    from,
+    to,
+  };
+}
+
 export async function getSpotifyTopLists(
   accessToken: string,
   spotifyUserId: string,
@@ -639,6 +655,7 @@ export async function getSpotifyTopListsFromHistory(
     to,
   } satisfies TopListsData;
 }
+
 
 
 

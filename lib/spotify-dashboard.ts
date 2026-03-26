@@ -924,6 +924,11 @@ export async function getDashboardInsights(accessToken: string, spotifyUserId: s
   return deriveInsights(snapshots, range, accessToken, spotifyUserId);
 }
 
+export async function getDashboardInsightsLive(accessToken: string, spotifyUserId: string, range: DashboardRange): Promise<DashboardInsights> {
+  const snapshot = await fetchSnapshot(accessToken, spotifyUserId);
+  return deriveInsights([snapshot], range, accessToken);
+}
+
 export async function getDashboardAnalysisDetail(
   accessToken: string,
   spotifyUserId: string,
@@ -1003,6 +1008,7 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
 
   return deriveInsights(snapshots, range);
 }
+
 
 
 
