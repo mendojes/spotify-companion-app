@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { buildSession, consumeAuthStateCookie, setSessionCookie } from "@/lib/auth";
 import { upsertConnectedUser } from "@/lib/connected-users";
 import { exchangeSpotifyCode, getAppUrl, getSpotifyProfile } from "@/lib/spotify";
@@ -45,16 +45,22 @@ export async function GET(request: NextRequest) {
     console.log("[spotify-callback] profile fetch complete", { spotifyUserId: profile.id, ms: Date.now() - startedAt });
 
     const session = buildSession(profile, tokens.access_token, tokens.refresh_token, tokens.expires_in);
-    await upsertConnectedUser({
-      spotifyUserId: session.spotifyUserId,
-      displayName: session.displayName,
-      email: session.email,
-      imageUrl: session.imageUrl,
-      refreshToken: session.refreshToken,
-    });
 
     console.log("[spotify-callback] setting session cookie");
     await setSessionCookie(session);
+
+    try {
+      await upsertConnectedUser({
+        spotifyUserId: session.spotifyUserId,
+        displayName: session.displayName,
+        email: session.email,
+        imageUrl: session.imageUrl,
+        refreshToken: session.refreshToken,
+      });
+    } catch (persistenceError) {
+      const message = persistenceError instanceof Error ? persistenceError.message : String(persistenceError);
+      console.log("[spotify-callback] connected user persistence failed", { message, ms: Date.now() - startedAt });
+    }
 
     console.log("[spotify-callback] redirecting to dashboard", { ms: Date.now() - startedAt });
     return NextResponse.redirect(getAppUrl("/dashboard", request));

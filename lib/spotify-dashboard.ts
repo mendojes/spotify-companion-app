@@ -30,6 +30,7 @@ const genreColors = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
 const moodOrder = ["Energetic", "Chill", "Moody", "Joyful", "Focus"] as const;
 const heatmapPeriods = ["Morning", "Afternoon", "Evening", "Late Night"] as const;
 const SNAPSHOT_REFRESH_TTL_MS = 1000 * 60 * 15;
+const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = false;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 
 type MoodAnalyticsResult = {
@@ -694,7 +695,7 @@ async function ensureSnapshotsForRange(accessToken: string, spotifyUserId: strin
 
   const latestSnapshot = await getLatestSnapshot(spotifyUserId);
 
-  if (!latestSnapshot || !isFresh(latestSnapshot.fetchedAt)) {
+  if (AUTO_REFRESH_DASHBOARD_SNAPSHOTS && (!latestSnapshot || !isFresh(latestSnapshot.fetchedAt))) {
     await refreshDashboardSnapshot(accessToken, spotifyUserId);
   }
 
@@ -707,7 +708,7 @@ async function ensureSnapshotsForRange(accessToken: string, spotifyUserId: strin
     }
   }
 
-  if (snapshots.length === 0) {
+  if (snapshots.length === 0 && AUTO_REFRESH_DASHBOARD_SNAPSHOTS) {
     const snapshot = await refreshDashboardSnapshot(accessToken, spotifyUserId);
     snapshots = [snapshot];
   }
@@ -1002,4 +1003,6 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
 
   return deriveInsights(snapshots, range);
 }
+
+
 

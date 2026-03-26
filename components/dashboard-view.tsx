@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Clock3, Flame, Heart, ImageIcon, LibraryBig, PlaySquare, Search, SmilePlus, Sparkles, Star, Waves } from "lucide-react";
@@ -44,12 +44,6 @@ import {
   TrendPoint,
 } from "@/lib/types";
 
-const timeframeTabs: Array<{ key: DashboardRange; label: string }> = [
-  { key: "week", label: "This Week" },
-  { key: "month", label: "This Month" },
-  { key: "all", label: "All Time" },
-];
-
 const topRangeTabs: Array<{ key: TopListRange; label: string }> = [
   { key: "week", label: "1 Week" },
   { key: "month", label: "1 Month" },
@@ -57,19 +51,11 @@ const topRangeTabs: Array<{ key: TopListRange; label: string }> = [
   { key: "all", label: "All Time" },
   { key: "custom", label: "Custom" },
 ];
-const roadmap = [
-  {
-    phase: "MVP foundation",
-    detail: "Spotify OAuth, top tracks and artists, basic mood analysis, forgotten favorites, and the MongoDB cache layer.",
-  },
-  {
-    phase: "Insight expansion",
-    detail: "Playlist analysis, richer trend visualizations, session heuristics, and a sharper rediscovery engine.",
-  },
-  {
-    phase: "Portfolio polish",
-    detail: "Animated transitions, AI playlist generation, social sharing, and compare-with-friends mechanics.",
-  },
+
+const timeframeTabs: Array<{ key: DashboardRange; label: string }> = [
+  { key: "week", label: "This Week" },
+  { key: "month", label: "This Month" },
+  { key: "all", label: "All Time" },
 ];
 
 type DashboardViewProps = {
@@ -105,12 +91,6 @@ type DashboardData = {
   cachedAt?: string;
   snapshotCount?: number;
   range: DashboardRange;
-};
-
-type DashboardHydrationPayload = {
-  insights: DashboardInsights;
-  topLists: TopListsData;
-  heroTopLists: TopListsData;
 };
 
 const moodColors = ["#7AF7FF", "#6E82FF", "#FF5EC9", "#FFD37B", "#8EFFD1"];
@@ -350,6 +330,41 @@ function TrendMarquee({ tracks }: { tracks: TopListsData["tracks"] }) {
   );
 }
 
+function LazySection({ children, placeholderHeight = "min-h-[36rem]" }: { children: ReactNode; placeholderHeight?: string }) {
+  const [isVisible, setIsVisible] = useState(false);
+  const sectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isVisible) {
+      return;
+    }
+
+    const node = sectionRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "400px 0px" },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isVisible]);
+
+  return (
+    <div ref={sectionRef}>
+      {isVisible ? children : <div className={`mx-auto max-w-7xl rounded-[34px] border-2 border-[rgba(57,18,98,0.14)] bg-white/[0.28] ${placeholderHeight}`} />}
+    </div>
+  );
+}
 export function DashboardView({
   mode = "preview",
   insights,
@@ -402,48 +417,6 @@ export function DashboardView({
     });
   }, [data.playlistInsights, mode]);
 
-  useEffect(() => {
-    if (mode !== "authenticated") {
-      return;
-    }
-
-    let cancelled = false;
-    const params = new URLSearchParams({
-      range: selectedRange,
-      topRange: selectedTopRange,
-    });
-
-    if (selectedTopRange === "custom" && selectedTopFrom && selectedTopTo) {
-      params.set("topFrom", selectedTopFrom);
-      params.set("topTo", selectedTopTo);
-    }
-
-    async function hydrateDashboard() {
-      try {
-        const response = await fetch("/api/dashboard/data?" + params.toString(), { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error("Could not hydrate dashboard data.");
-        }
-
-        const payload = (await response.json()) as DashboardHydrationPayload;
-        if (!cancelled) {
-          setHydratedInsights(payload.insights);
-          setHydratedTopLists(payload.topLists);
-          setHydratedHeroTopLists(payload.heroTopLists);
-        }
-      } catch {
-        if (!cancelled) {
-          // Keep the lightweight server-rendered data if live hydration fails.
-        }
-      }
-    }
-
-    void hydrateDashboard();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mode, selectedRange, selectedTopFrom, selectedTopRange, selectedTopTo]);
 
   useEffect(() => {
     if (mode !== "authenticated") {
@@ -868,6 +841,7 @@ export function DashboardView({
         </div>
       </section>
 
+      <LazySection placeholderHeight="min-h-[52rem]">
       <section className="px-6 py-20 md:px-10">
         <div className="mx-auto max-w-7xl space-y-10">
           <SectionHeader
@@ -1009,7 +983,9 @@ export function DashboardView({
           </div>
         </div>
       </section>
+      </LazySection>
 
+      <LazySection placeholderHeight="min-h-[44rem]">
       <section className="px-6 py-20 md:px-10">
         <div className="mx-auto max-w-7xl space-y-10">
           <SectionHeader
@@ -1104,7 +1080,9 @@ export function DashboardView({
           ) : null}
         </div>
       </section>
+      </LazySection>
 
+      <LazySection placeholderHeight="min-h-[38rem]">
       <section className="px-6 py-20 md:px-10">
         <div className="mx-auto max-w-7xl space-y-10">
           <SectionHeader
@@ -1175,40 +1153,20 @@ export function DashboardView({
           </div>
         </div>
       </section>
-
-      <section id="roadmap" className="px-6 py-20 pb-28 md:px-10">
-        <div className="mx-auto max-w-7xl window-panel p-8 pt-16 md:p-10 md:pt-16 text-[var(--theme-text)]">
-          <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
-            <div>
-              <p className="section-kicker">Build path</p>
-              <h2 className="mt-4 max-w-md font-display text-5xl font-bold uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-6xl">
-                Stronger MVP now, louder music intelligence next.
-              </h2>
-              <p className="mt-5 max-w-lg text-base leading-8 text-[var(--theme-body)]">
-                The new shell is designed so richer live data can keep slotting into a distinct visual identity without drifting back into generic analytics tiles.
-              </p>
-            </div>
-            <div className="space-y-5">
-              {roadmap.map((item, index) => (
-                <div key={item.phase} className="desktop-card p-5">
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] font-display text-[#170718]">
-                      0{index + 1}
-                    </div>
-                    <div>
-                      <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{item.phase}</p>
-                      <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">{item.detail}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+      </LazySection>
     </>
   );
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

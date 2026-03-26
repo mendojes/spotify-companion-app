@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { Disc3, LogOut, RefreshCcw, Settings2, Sparkles, Users } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
@@ -6,8 +6,8 @@ import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { requireSession } from "@/lib/auth";
-import { getDashboardInsights } from "@/lib/spotify-dashboard";
-import { getSpotifyTopLists } from "@/lib/spotify-toplists";
+import { getDashboardInsights, getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
+import { getSpotifyTopLists, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
@@ -92,23 +92,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   try {
     [insights, topLists, heroTopLists] = await Promise.all([
-      getDashboardInsights(activeSession.accessToken, activeSession.spotifyUserId, selectedRange),
-      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-      getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange),
+      getDashboardInsightsFromHistory(activeSession.spotifyUserId, selectedRange),
+      getSpotifyTopListsFromHistory(activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+      getSpotifyTopListsFromHistory(activeSession.spotifyUserId, selectedHeroRange),
     ]);
   } catch (error) {
-    dashboardError = `Spotify data could not be loaded right now, so the dashboard is showing preview fallback sections. (${getErrorMessage(error)})`;
+    dashboardError = `Cached dashboard data could not be loaded, so SoundScope fell back to live Spotify data for this page load. (${getErrorMessage(error)})`;
 
     try {
-      heroTopLists = await getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange);
-    } catch (topError) {
-      topListsError = `Top artist, track, and album lists could not be loaded right now, so preview rankings are showing instead. (${getErrorMessage(topError)})`;
-    }
-
-    try {
-      topLists = await getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo);
-    } catch (topError) {
-      topListsError = `Top artist, track, and album lists could not be loaded right now, so preview rankings are showing instead. (${getErrorMessage(topError)})`;
+      [insights, topLists, heroTopLists] = await Promise.all([
+        getDashboardInsights(activeSession.accessToken, activeSession.spotifyUserId, selectedRange),
+        getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+        getSpotifyTopLists(activeSession.accessToken, activeSession.spotifyUserId, selectedHeroRange),
+      ]);
+    } catch (liveError) {
+      dashboardError = `Cached dashboard data could not be loaded right now, and the live Spotify fallback also failed, so the dashboard is showing preview fallback sections. (${getErrorMessage(liveError)})`;
     }
   }
 
@@ -169,10 +167,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       <DashboardView
         mode="authenticated"
-        insights={insights}
+        insights={insights ?? undefined}
         selectedRange={selectedRange}
-        topLists={topLists}
-        heroTopLists={heroTopLists}
+        topLists={topLists ?? undefined}
+        heroTopLists={heroTopLists ?? undefined}
         selectedTopRange={selectedTopRange}
         selectedTopFrom={selectedTopFrom}
         selectedTopTo={selectedTopTo}
