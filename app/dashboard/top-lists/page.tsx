@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
-import { FULL_TOP_LIST_LIMIT, getSpotifyTopLists } from "@/lib/spotify-toplists";
+import { FULL_TOP_LIST_LIMIT, getSpotifyTopLists, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
 import { TopListAlbum, TopListArtist, TopListRange, TopListTrack } from "@/lib/types";
 
 type TopListsPageProps = {
@@ -148,7 +148,16 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   const selectedFrom = normalizeDate(from);
   const selectedTo = normalizeDate(to);
   const pageSize = FULL_TOP_LIST_LIMIT;
-  const data = await getSpotifyTopLists(session.accessToken, session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+  let data;
+  let rankingsNotice: string | null = null;
+
+  try {
+    data = await getSpotifyTopLists(session.accessToken, session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    data = await getSpotifyTopListsLive(session.accessToken, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+    rankingsNotice = `Cached rankings could not be loaded, so this page is showing live Spotify rankings instead. (${message})`;
+  }
 
   const artists = data.artists;
   const tracks = data.tracks;
@@ -219,6 +228,10 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
           })}
         </div>
 
+        {rankingsNotice ? (
+          <div className="rounded-[28px] border border-gold/25 bg-gold/10 px-5 py-4 text-sm text-ink/90">{rankingsNotice}</div>
+        ) : null}
+
         <div className="glass-panel rounded-[34px] p-6 md:p-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -250,5 +263,6 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
     </main>
   );
 }
+
 
 

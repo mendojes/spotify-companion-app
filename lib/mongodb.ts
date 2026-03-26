@@ -6,9 +6,9 @@ declare global {
 
 const uri = process.env.spotify_app_MONGODB_URI || process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB_NAME || "spotify-app-db";
-const SERVER_SELECTION_TIMEOUT_MS = 8_000;
-const CONNECT_TIMEOUT_MS = 8_000;
-const SOCKET_TIMEOUT_MS = 10_000;
+const SERVER_SELECTION_TIMEOUT_MS = 15_000;
+const CONNECT_TIMEOUT_MS = 15_000;
+const SOCKET_TIMEOUT_MS = 15_000;
 const RETRY_BACKOFF_MS = 10_000;
 
 let mongoClientPromise: Promise<MongoClient> | null = null;
@@ -157,4 +157,5 @@ export async function getDatabase(options?: { forceRetry?: boolean }): Promise<D
     return null;
   }
 }
+
 

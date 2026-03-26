@@ -69,13 +69,27 @@ function isSpotifyUnauthorized(error: unknown) {
   return message.includes("Spotify request failed: 401") || message.includes("Spotify token refresh failed: 401");
 }
 
-async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>): Promise<CacheLoadResult<T>> {
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetriableMongoError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes("27017") || message.includes("timed out") || message.includes("server selection");
+}
+
+async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>, retries = 1): Promise<CacheLoadResult<T>> {
   try {
     return {
       value: await loader(),
       error: null,
     };
   } catch (error) {
+    if (retries > 0 && isRetriableMongoError(error)) {
+      await wait(300);
+      return settleCacheLoad(label, loader, retries - 1);
+    }
+
     return {
       value: null,
       error: `${label}: ${getErrorMessage(error)}`,
@@ -261,6 +275,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
+
 
 
 

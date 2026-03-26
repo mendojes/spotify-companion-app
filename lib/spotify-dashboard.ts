@@ -102,6 +102,11 @@ function filterSnapshotsForDashboardRange(snapshots: SpotifyDashboardSnapshot[],
   return snapshots.filter((snapshot) => new Date(snapshot.fetchedAt).getTime() >= windowStart.getTime());
 }
 
+function dashboardCacheError(step: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`[${step}] ${message}`);
+}
+
 function dedupeRecent(items: SpotifyRecentlyPlayedItem[]) {
   const seen = new Set<string>();
   const result: SpotifyRecentlyPlayedItem[] = [];
@@ -809,7 +814,7 @@ async function ensureIndexes() {
   }
 
   try {
-    const db = await getDatabase();
+    const db = await getDatabase({ forceRetry: true });
     if (!db) {
       return;
     }
@@ -826,15 +831,20 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: DashboardRan
   }
 
   try {
-    const db = await getDatabase();
+    const db = await getDatabase({ forceRetry: true });
     if (!db) {
       return [] as SpotifyDashboardSnapshot[];
     }
 
-    const windowStart = getRangeWindow(range);
-    const query = windowStart ? { spotifyUserId, fetchedAt: { $gte: windowStart.toISOString() } } : { spotifyUserId };
+    const snapshots = await db
+      .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
+      .find({ spotifyUserId })
+      .sort({ fetchedAt: -1 })
+      .limit(range === "all" ? 180 : 90)
+      .toArray();
 
-    return db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).find(query).sort({ fetchedAt: -1 }).limit(range === "all" ? 180 : 60).toArray();
+    const filteredSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
+    return filteredSnapshots.length > 0 ? filteredSnapshots : snapshots.slice(0, 1);
   } catch {
     return [] as SpotifyDashboardSnapshot[];
   }
@@ -846,7 +856,7 @@ async function getLatestSnapshot(spotifyUserId: string) {
   }
 
   try {
-    const db = await getDatabase();
+    const db = await getDatabase({ forceRetry: true });
     if (!db) {
       return null;
     }
@@ -863,7 +873,7 @@ async function writeSnapshot(snapshot: SpotifyDashboardSnapshot) {
   }
 
   try {
-    const db = await getDatabase();
+    const db = await getDatabase({ forceRetry: true });
     if (!db) {
       return;
     }
@@ -1001,26 +1011,52 @@ export async function getDashboardAnalysisDetail(
 
 
 export async function getSharedDashboardCacheSnapshots(spotifyUserId: string, accessToken?: string) {
-  await ensureIndexes();
-
-  const latestSnapshot = await getLatestSnapshot(spotifyUserId);
-
-  if (accessToken && AUTO_REFRESH_DASHBOARD_SNAPSHOTS && (!latestSnapshot || !isFresh(latestSnapshot.fetchedAt))) {
-    await refreshDashboardSnapshot(accessToken, spotifyUserId);
+  try {
+    await ensureIndexes();
+  } catch (error) {
+    throw dashboardCacheError("ensureIndexes", error);
   }
 
-  let snapshots = await getHistoricalSnapshots(spotifyUserId, "all");
+  let latestSnapshot;
+  try {
+    latestSnapshot = await getLatestSnapshot(spotifyUserId);
+  } catch (error) {
+    throw dashboardCacheError("getLatestSnapshot", error);
+  }
+
+  if (accessToken && AUTO_REFRESH_DASHBOARD_SNAPSHOTS && (!latestSnapshot || !isFresh(latestSnapshot.fetchedAt))) {
+    try {
+      await refreshDashboardSnapshot(accessToken, spotifyUserId);
+    } catch (error) {
+      throw dashboardCacheError("refreshDashboardSnapshot", error);
+    }
+  }
+
+  let snapshots;
+  try {
+    snapshots = await getHistoricalSnapshots(spotifyUserId, "all");
+  } catch (error) {
+    throw dashboardCacheError("getHistoricalSnapshots", error);
+  }
 
   if (snapshots.length === 0) {
-    const fallbackLatest = await getLatestSnapshot(spotifyUserId);
-    if (fallbackLatest) {
-      snapshots = [fallbackLatest];
+    try {
+      const fallbackLatest = await getLatestSnapshot(spotifyUserId);
+      if (fallbackLatest) {
+        snapshots = [fallbackLatest];
+      }
+    } catch (error) {
+      throw dashboardCacheError("fallbackLatestSnapshot", error);
     }
   }
 
   if (snapshots.length === 0 && accessToken && AUTO_REFRESH_DASHBOARD_SNAPSHOTS) {
-    const snapshot = await refreshDashboardSnapshot(accessToken, spotifyUserId);
-    snapshots = [snapshot];
+    try {
+      const snapshot = await refreshDashboardSnapshot(accessToken, spotifyUserId);
+      snapshots = [snapshot];
+    } catch (error) {
+      throw dashboardCacheError("refreshDashboardSnapshotFallback", error);
+    }
   }
 
   return snapshots;
@@ -1041,6 +1077,9 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
   return getDashboardInsightsFromSnapshots(snapshots, range);
 }
+
+
+
 
 
 

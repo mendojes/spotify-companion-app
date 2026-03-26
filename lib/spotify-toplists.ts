@@ -446,30 +446,20 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: TopListRange
   }
 
   try {
-    const db = await getDatabase();
+    const db = await getDatabase({ forceRetry: true });
     if (!db) {
       return [] as SpotifyDashboardSnapshot[];
     }
 
-    const window = getWindow(range, from, to);
-    const fetchedAt: { $gte?: string; $lte?: string } = {};
-
-    if (window.from) {
-      fetchedAt.$gte = window.from;
-    }
-
-    if (window.to) {
-      fetchedAt.$lte = window.to;
-    }
-
-    const query = Object.keys(fetchedAt).length > 0 ? { spotifyUserId, fetchedAt } : { spotifyUserId };
-
-    return db
+    const snapshots = await db
       .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
-      .find(query)
+      .find({ spotifyUserId })
       .sort({ fetchedAt: -1 })
       .limit(range === "all" || range === "year" ? 365 : 180)
       .toArray();
+
+    const filteredSnapshots = filterSnapshotsForTopRange(snapshots, range, from, to);
+    return filteredSnapshots.length > 0 ? filteredSnapshots : snapshots.slice(0, 1);
   } catch {
     return [] as SpotifyDashboardSnapshot[];
   }
@@ -481,7 +471,7 @@ async function getRecentPlaysForTopLists(spotifyUserId: string, range: TopListRa
   }
 
   try {
-    const db = await getDatabase();
+    const db = await getDatabase({ forceRetry: true });
     if (!db) {
       return [] as StoredRecentPlay[];
     }
@@ -685,6 +675,7 @@ export async function getSpotifyTopListsFromHistory(
 
   return getSpotifyTopListsFromSnapshots(snapshots, range, boundedLimit, from, to);
 }
+
 
 
 
