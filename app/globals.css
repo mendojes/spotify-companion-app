@@ -24,8 +24,12 @@
   --theme-muted: #6a3e94;
   --theme-faint: #7c62a0;
   --theme-badge: #4c1d73;
-  --theme-accent: #ff4fd8;
-  --theme-highlight: #6af4ff;
+  --theme-accent: #b5348d;
+  --theme-highlight: #1188a8;
+  --chart-axis: #2b0d46;
+  --chart-grid: rgba(57, 18, 98, 0.34);
+  --chart-tooltip-bg: rgba(255, 245, 255, 0.96);
+  --chart-tooltip-border: rgba(57, 18, 98, 0.32);
 }
 
 * {
@@ -280,12 +284,13 @@ body::-webkit-scrollbar-thumb {
   overflow: hidden;
   white-space: nowrap;
   border: 3px solid rgba(42, 10, 68, 0.86);
-  background: rgba(255, 246, 255, 0.76);
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.32) inset;
+  background: linear-gradient(180deg, rgba(255, 248, 255, 0.94), rgba(244, 220, 255, 0.9));
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.38) inset, 0 10px 24px rgba(91, 34, 128, 0.18);
   mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
 }
 
 .marquee-strip > div {
+  color: var(--theme-title);
   display: inline-flex;
   gap: 1.5rem;
   min-width: 100%;

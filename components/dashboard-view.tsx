@@ -340,7 +340,7 @@ function TrendMarquee({ tracks }: { tracks: TopListsData["tracks"] }) {
   const items = [...tracks, ...tracks];
 
   return (
-    <div className="marquee-strip rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 font-mono text-lg uppercase tracking-[0.18em] text-ink/80">
+    <div className="marquee-strip rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.18em] text-[var(--theme-title)]">
       <div>
         {items.map((track, index) => (
           <span key={`${track.id}-${index}`}>{track.title} / {track.artist}</span>
@@ -707,12 +707,12 @@ export function DashboardView({
                             <stop offset="100%" stopColor="#7AF7FF" stopOpacity={0} />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-                        <XAxis dataKey="label" stroke="var(--theme-text)" tickLine={false} axisLine={false} />
-                        <YAxis stroke="var(--theme-text)" tickLine={false} axisLine={false} />
-                        <Tooltip contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }} />
+                        <CartesianGrid vertical={false} stroke="var(--chart-grid)" strokeDasharray="4 6" />
+                        <XAxis dataKey="label" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} />
+                        <YAxis stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} />
+                        <Tooltip contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }} labelStyle={{ color: "var(--theme-title)", fontWeight: 600 }} itemStyle={{ color: "var(--theme-title)" }} />
                         <Area type="monotone" dataKey="minutes" stroke="#7AF7FF" strokeWidth={3} fill="url(#minutesFill)" />
-                        <Bar dataKey="rediscovered" fill="#FF5EC9" radius={[10, 10, 0, 0]} barSize={20} />
+                        <Bar dataKey="rediscovered" fill="#c7338f" radius={[10, 10, 0, 0]} barSize={20} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -745,13 +745,13 @@ export function DashboardView({
                     <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">genre shelf</p>
                     <p className="mt-1 text-sm text-[var(--theme-body)]">your biggest styles get stacked like icons pinned to a pastel corkboard.</p>
                   </div>
-                  <div className="mt-6 h-[300px] rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45] p-3">
+                  <div className="mt-6 h-[300px] rounded-[24px] border-2 border-[rgba(57,18,98,0.22)] bg-white/[0.62] p-3">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={data.genrePulse} layout="vertical" margin={{ left: 8 }}>
-                        <CartesianGrid horizontal={false} stroke="rgba(255,255,255,0.06)" />
+                        <CartesianGrid horizontal={false} stroke="var(--chart-grid)" strokeDasharray="4 6" />
                         <XAxis type="number" hide />
-                        <YAxis type="category" dataKey="genre" stroke="var(--theme-text)" tickLine={false} axisLine={false} width={96} />
-                        <Tooltip contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }} />
+                        <YAxis type="category" dataKey="genre" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} width={96} />
+                        <Tooltip contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }} labelStyle={{ color: "var(--theme-title)", fontWeight: 600 }} itemStyle={{ color: "var(--theme-title)" }} />
                         <Bar dataKey="hours" radius={[0, 14, 14, 0]} barSize={18}>
                           {data.genrePulse.map((entry) => (
                             <Cell key={entry.genre} fill={entry.color} />
@@ -1127,10 +1127,10 @@ export function DashboardView({
               const content = (
                 <>
                   {playlistCard.imageUrl ? (
-                    <div className="media-frame relative mb-5 h-60 p-2">
+                    <div className="media-frame relative mb-5 aspect-square p-2">
                       <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-cover" />
                       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
-                      <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-3">
+                      <div className="absolute bottom-5 left-5 right-5 flex items-center gap-3 rounded-[20px] border border-white/30 bg-[rgba(255,245,255,0.82)] px-4 py-3 pr-5 backdrop-blur-sm">
                         <div>
                           <p className="section-kicker">Playlist insight</p>
                           <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlistCard.name}</h3>

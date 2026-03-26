@@ -3,8 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Disc3, Heart, Pause, Play, Radio, Sparkles, Waves } from "lucide-react";
-import { NowPlayingState } from "@/lib/types";
+import { Heart, Pause, Play, Radio, Sparkles, Waves } from "lucide-react";
+import { NowPlayingState, RecentTrackSummary } from "@/lib/types";
 
 function formatPlayedAt(value: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -24,8 +24,9 @@ function formatClock(ms: number) {
 
 const COLLAPSED_RECENT_COUNT = 3;
 const NOW_PLAYING_POLL_MS = 1000 * 30;
-const TRACK_END_DELAY_MS = 1000 * 2;
+const TRACK_END_DELAY_MS = 750;
 const PROGRESS_TICK_MS = 1000;
+const HANDOFF_GRACE_MS = PROGRESS_TICK_MS + TRACK_END_DELAY_MS;
 
 function getAdaptiveHeadingClass(value: string) {
   if (value.length > 28) {
@@ -55,35 +56,112 @@ function getRecentTitleClass(value: string) {
   return "text-base leading-tight";
 }
 
+function prependRecentTrack(recentTracks: RecentTrackSummary[], track: NonNullable<NowPlayingState["track"]>) {
+  const playedAt = new Date().toISOString();
+  const handedOffTrack: RecentTrackSummary = {
+    trackId: track.id,
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    imageUrl: track.imageUrl,
+    playedAt,
+  };
+
+  return [handedOffTrack, ...recentTracks.filter((item) => item.trackId !== track.id)].slice(0, 12);
+}
+
+function mergeRecentTracks(primary: RecentTrackSummary[] = [], fallback: RecentTrackSummary[] = []) {
+  const merged: RecentTrackSummary[] = [];
+  const seen = new Set<string>();
+
+  for (const track of [...primary, ...fallback]) {
+    const key = `${track.trackId}:${track.playedAt}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    merged.push(track);
+  }
+
+  return merged.slice(0, 12);
+}
+
+function serverHasMatchingRecentTrack(recentTracks: RecentTrackSummary[], pendingTrack: RecentTrackSummary | null) {
+  if (!pendingTrack) {
+    return false;
+  }
+
+  const pendingPlayedAt = new Date(pendingTrack.playedAt).getTime();
+  return recentTracks.some((track) => {
+    if (track.trackId !== pendingTrack.trackId) {
+      return false;
+    }
+
+    const playedAt = new Date(track.playedAt).getTime();
+    return Number.isFinite(playedAt) && Math.abs(playedAt - pendingPlayedAt) <= 15000;
+  });
+}
+
+function handOffCurrentTrack(previous: NowPlayingState) {
+  if (!previous.track) {
+    return { nextState: previous, recentTrack: null as RecentTrackSummary | null };
+  }
+
+  const nextRecentTracks = prependRecentTrack(previous.recentTracks ?? [], previous.track);
+  const recentTrack = nextRecentTracks[0] ?? null;
+
+  return {
+    nextState: {
+      ...previous,
+      isPlaying: false,
+      progressMs: previous.track.durationMs,
+      recentTracks: nextRecentTracks,
+      syncedRecentCount: (previous.syncedRecentCount ?? 0) + 1,
+      syncedAt: new Date().toISOString(),
+    },
+    recentTrack,
+  };
+}
+
 function useNowPlayingState() {
   const [state, setState] = useState<NowPlayingState | null>(null);
   const [displayProgressMs, setDisplayProgressMs] = useState(0);
+  const [handoffPending, setHandoffPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const stateRef = useRef<NowPlayingState | null>(null);
+  const displayProgressRef = useRef(0);
+  const pendingRecentTrackRef = useRef<RecentTrackSummary | null>(null);
+  const pollTimerRef = useRef<number | undefined>(undefined);
+  const handoffTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
 
   useEffect(() => {
-    let cancelled = false;
-    let timer: number | undefined;
+    displayProgressRef.current = displayProgressMs;
+  }, [displayProgressMs]);
 
-    function scheduleNextLoad(nextState: NowPlayingState | null) {
+  useEffect(() => {
+    let cancelled = false;
+
+    function clearPollTimer() {
+      if (pollTimerRef.current) {
+        window.clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = undefined;
+      }
+    }
+
+    function scheduleNextPoll() {
       if (cancelled) {
         return;
       }
 
-      let nextDelayMs = NOW_PLAYING_POLL_MS;
-
-      if (nextState?.isPlaying && nextState.track?.durationMs) {
-        const remainingMs = Math.max(0, nextState.track.durationMs - (nextState.progressMs ?? 0));
-        nextDelayMs = Math.min(NOW_PLAYING_POLL_MS, remainingMs + TRACK_END_DELAY_MS);
-      }
-
-      timer = window.setTimeout(() => {
+      clearPollTimer();
+      pollTimerRef.current = window.setTimeout(() => {
         void load();
-      }, nextDelayMs);
+      }, NOW_PLAYING_POLL_MS);
     }
 
     async function load() {
@@ -95,29 +173,73 @@ function useNowPlayingState() {
 
         const nextState = (await response.json()) as NowPlayingState;
         const previous = stateRef.current;
+        const serverRecentTracks = nextState.recentTracks ?? [];
+        const pendingRecentTrack = pendingRecentTrackRef.current;
+        const serverContainsPending = serverHasMatchingRecentTrack(serverRecentTracks, pendingRecentTrack);
+
+        if (serverContainsPending) {
+          pendingRecentTrackRef.current = null;
+        }
+
+        const mergedRecentTracks = mergeRecentTracks(
+          serverRecentTracks,
+          pendingRecentTrack && !serverContainsPending
+            ? [pendingRecentTrack, ...(previous?.recentTracks ?? [])]
+            : previous?.recentTracks ?? [],
+        );
+
+        const remainingPreviousMs = previous?.track?.durationMs
+          ? Math.max(0, previous.track.durationMs - displayProgressRef.current)
+          : Number.POSITIVE_INFINITY;
+        const shouldHandOffPrevious =
+          !nextState.track &&
+          Boolean(previous?.track) &&
+          Boolean(previous?.isPlaying) &&
+          !pendingRecentTrackRef.current &&
+          remainingPreviousMs <= HANDOFF_GRACE_MS;
+
         const resolvedState = nextState.track
-          ? nextState
-          : previous?.track
-            ? {
-                ...previous,
-                isPlaying: false,
-                progressMs: previous.progressMs,
-                recentTracks: nextState.recentTracks ?? previous.recentTracks,
-                syncedRecentCount: nextState.syncedRecentCount ?? previous.syncedRecentCount,
-                syncedAt: nextState.syncedAt ?? previous.syncedAt,
-              }
-            : nextState;
+          ? {
+              ...nextState,
+              recentTracks: mergedRecentTracks,
+            }
+          : shouldHandOffPrevious && previous?.track
+            ? (() => {
+                const { nextState: handedOffState, recentTrack } = handOffCurrentTrack(previous);
+                pendingRecentTrackRef.current = recentTrack;
+
+                return {
+                  ...handedOffState,
+                  recentTracks: mergeRecentTracks(handedOffState.recentTracks ?? [], mergedRecentTracks),
+                  syncedRecentCount: nextState.syncedRecentCount ?? handedOffState.syncedRecentCount,
+                  syncedAt: nextState.syncedAt ?? handedOffState.syncedAt,
+                };
+              })()
+            : previous?.track
+              ? {
+                  ...previous,
+                  isPlaying: false,
+                  progressMs: previous.progressMs,
+                  recentTracks: mergedRecentTracks,
+                  syncedRecentCount: nextState.syncedRecentCount ?? previous.syncedRecentCount,
+                  syncedAt: nextState.syncedAt ?? previous.syncedAt,
+                }
+              : {
+                  ...nextState,
+                  recentTracks: mergedRecentTracks,
+                };
 
         if (!cancelled) {
           stateRef.current = resolvedState;
           setState(resolvedState);
+          setHandoffPending(!nextState.track && Boolean(pendingRecentTrackRef.current));
           setError(null);
-          scheduleNextLoad(resolvedState);
+          scheduleNextPoll();
         }
       } catch {
         if (!cancelled) {
           setError("Live playback could not be loaded right now.");
-          scheduleNextLoad(stateRef.current);
+          scheduleNextPoll();
         }
       }
     }
@@ -126,9 +248,7 @@ function useNowPlayingState() {
 
     return () => {
       cancelled = true;
-      if (timer) {
-        window.clearTimeout(timer);
-      }
+      clearPollTimer();
     };
   }, []);
 
@@ -154,11 +274,43 @@ function useNowPlayingState() {
     };
   }, [state?.isPlaying, state?.progressMs, state?.track?.durationMs, state?.track?.id]);
 
-  return { state, displayProgressMs, error };
+  useEffect(() => {
+    if (handoffTimerRef.current) {
+      window.clearTimeout(handoffTimerRef.current);
+      handoffTimerRef.current = undefined;
+    }
+
+    if (!state?.isPlaying || !state.track?.durationMs) {
+      return;
+    }
+
+    const remainingMs = Math.max(0, state.track.durationMs - displayProgressMs);
+    handoffTimerRef.current = window.setTimeout(() => {
+      setState((previous) => {
+        if (!previous?.track || previous.track.id !== state.track?.id) {
+          return previous;
+        }
+
+        const { nextState, recentTrack } = handOffCurrentTrack(previous);
+        pendingRecentTrackRef.current = recentTrack;
+        return nextState;
+      });
+      setHandoffPending(true);
+    }, remainingMs + TRACK_END_DELAY_MS);
+
+    return () => {
+      if (handoffTimerRef.current) {
+        window.clearTimeout(handoffTimerRef.current);
+        handoffTimerRef.current = undefined;
+      }
+    };
+  }, [displayProgressMs, state?.isPlaying, state?.track?.durationMs, state?.track?.id]);
+
+  return { state, displayProgressMs, handoffPending, error };
 }
 
 export function NowPlayingPanel() {
-  const { state, displayProgressMs, error } = useNowPlayingState();
+  const { state, displayProgressMs, handoffPending, error } = useNowPlayingState();
   const recentTracks = state?.recentTracks ?? [];
   const visibleRecentTracks = recentTracks.slice(0, COLLAPSED_RECENT_COUNT);
   const progress = useMemo(() => {
@@ -201,7 +353,7 @@ export function NowPlayingPanel() {
           ) : null}
           {state?.track?.durationMs ? (
             <div className="sticker-badge px-3 py-1 font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-badge)]">
-              {formatClock(remainingMs)} left
+              {handoffPending ? "checking next song" : `${formatClock(remainingMs)} left`}
             </div>
           ) : null}
         </div>
@@ -212,7 +364,7 @@ export function NowPlayingPanel() {
           <div className="mt-6 space-y-4">
             <div className="space-y-4">
               <div className="desktop-card overflow-hidden p-3">
-                <div className="media-frame relative h-64 w-full p-2">
+                <div className="media-frame relative mx-auto aspect-square w-full max-w-[320px] p-2">
                   {state.track.imageUrl ? (
                     <Image src={state.track.imageUrl} alt={state.track.title} fill sizes="(max-width: 1280px) 320px, 380px" className="rounded-[18px] object-cover" />
                   ) : null}
@@ -221,10 +373,13 @@ export function NowPlayingPanel() {
               </div>
 
               <div className="desktop-card p-4">
-                <p className="section-kicker">Playing now</p>
+                <p className="section-kicker">{handoffPending ? "Just finished" : "Playing now"}</p>
                 <p className={`mt-2 font-display uppercase tracking-[0.08em] text-[var(--theme-title)] ${getAdaptiveHeadingClass(state.track.title)}`}>{state.track.title}</p>
                 <p className={`mt-2 uppercase text-[var(--theme-muted)] ${getAdaptiveSubheadingClass(state.track.artist)}`}>{state.track.artist}</p>
                 <p className="mt-1 break-words font-mono text-sm uppercase tracking-[0.14em] text-[var(--theme-body)]">{state.track.album}</p>
+                {handoffPending ? (
+                  <p className="mt-3 text-sm text-[var(--theme-muted)]">Waiting for the next Spotify playback update.</p>
+                ) : null}
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
@@ -316,3 +471,4 @@ export function NowPlayingPanel() {
     </div>
   );
 }
+
