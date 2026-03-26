@@ -5,7 +5,8 @@ import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { getSession, isSessionExpired, refreshSession, requireSession } from "@/lib/auth";
+import { isSessionExpired, refreshSession, requireSession } from "@/lib/auth";
+import { syncConnectedUserSession } from "@/lib/connected-users";
 import { getDashboardInsightsFromHistory, getDashboardInsightsLive } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromHistory, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
@@ -82,6 +83,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   let activeSession = isSessionExpired(session) ? await refreshSession(session) : session;
 
+  try {
+    await syncConnectedUserSession(activeSession);
+  } catch {
+    // Keep dashboard access working even if connected-user persistence is temporarily unavailable.
+  }
+
   const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag } = await searchParams;
   const selectedRange = normalizeRange(range);
   const selectedTopRange = normalizeTopRange(topRange);
@@ -118,6 +125,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       if (isSpotifyUnauthorized(liveError)) {
         try {
           activeSession = await refreshSession(activeSession);
+          try {
+            await syncConnectedUserSession(activeSession);
+          } catch {
+            // Ignore persistence failure during retry refresh as well.
+          }
           [insights, topLists, heroTopLists] = await loadLiveDashboardData();
           dashboardError = `Cached dashboard data could not be loaded, and Spotify required a token refresh before the live fallback could load. (${getErrorMessage(error)})`;
         } catch (refreshRetryError) {
