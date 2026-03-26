@@ -7,12 +7,17 @@ import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { isSessionExpired, refreshSession, requireSession } from "@/lib/auth";
 import { syncConnectedUserSession } from "@/lib/connected-users";
-import { getDashboardInsightsFromHistory, getDashboardInsightsLive } from "@/lib/spotify-dashboard";
-import { getSpotifyTopListsFromHistory, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
+import { getDashboardInsightsFromSnapshots, getDashboardInsightsLive, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
+import { getSpotifyTopListsFromSnapshots, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
   searchParams: Promise<{ range?: string; topRange?: string; topFrom?: string; topTo?: string; refreshed?: string; refresh_error?: string }>;
+};
+
+type CacheLoadResult<T> = {
+  value: T | null;
+  error: string | null;
 };
 
 function normalizeRange(range?: string): DashboardRange {
@@ -64,6 +69,20 @@ function isSpotifyUnauthorized(error: unknown) {
   return message.includes("Spotify request failed: 401") || message.includes("Spotify token refresh failed: 401");
 }
 
+async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>): Promise<CacheLoadResult<T>> {
+  try {
+    return {
+      value: await loader(),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      value: null,
+      error: `${label}: ${getErrorMessage(error)}`,
+    };
+  }
+}
+
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
   const styles = {
     cyan: "bg-[rgba(229,255,255,0.78)] text-[#3a1a58]",
@@ -110,17 +129,32 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     ]);
   }
 
-  try {
-    [insights, topLists, heroTopLists] = await Promise.all([
-      getDashboardInsightsFromHistory(activeSession.spotifyUserId, selectedRange),
-      getSpotifyTopListsFromHistory(activeSession.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-      getSpotifyTopListsFromHistory(activeSession.spotifyUserId, selectedHeroRange),
-    ]);
-  } catch (error) {
-    dashboardError = `Cached dashboard data could not be loaded, so SoundScope fell back to live Spotify data for this page load. (${getErrorMessage(error)})`;
+  const cachedSnapshots = await settleCacheLoad("dashboard cache", () => getSharedDashboardCacheSnapshots(activeSession.spotifyUserId, activeSession.accessToken));
 
+  if (cachedSnapshots.value && cachedSnapshots.value.length > 0) {
+    insights = (await getDashboardInsightsFromSnapshots(cachedSnapshots.value, selectedRange)) ?? undefined;
+    topLists = (await getSpotifyTopListsFromSnapshots(cachedSnapshots.value, selectedTopRange, undefined, selectedTopFrom, selectedTopTo)) ?? undefined;
+    heroTopLists = (await getSpotifyTopListsFromSnapshots(cachedSnapshots.value, selectedHeroRange)) ?? undefined;
+  }
+
+  const cacheErrors = [cachedSnapshots.error].filter((value): value is string => Boolean(value));
+  const missingCachedSections = [!insights ? "insights" : null, !topLists ? "top lists" : null, !heroTopLists ? "hero top lists" : null].filter(
+    (value): value is string => Boolean(value),
+  );
+  const neededLiveFallback = missingCachedSections.length > 0;
+
+  if (neededLiveFallback) {
     try {
-      [insights, topLists, heroTopLists] = await loadLiveDashboardData();
+      const [liveInsights, liveTopLists, liveHeroTopLists] = await loadLiveDashboardData();
+      insights ??= liveInsights;
+      topLists ??= liveTopLists;
+      heroTopLists ??= liveHeroTopLists;
+
+      if (cacheErrors.length > 0) {
+        dashboardError = `Some cached dashboard data could not be loaded, so SoundScope is filling the gaps from live Spotify data for this page load. (${cacheErrors.join("; ")})`;
+      } else {
+        dashboardError = `Cached dashboard data is incomplete for ${missingCachedSections.join(", ")}, so SoundScope is filling those sections from live Spotify data for this page load.`;
+      }
     } catch (liveError) {
       if (isSpotifyUnauthorized(liveError)) {
         try {
@@ -130,8 +164,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           } catch {
             // Ignore persistence failure during retry refresh as well.
           }
-          [insights, topLists, heroTopLists] = await loadLiveDashboardData();
-          dashboardError = `Cached dashboard data could not be loaded, and Spotify required a token refresh before the live fallback could load. (${getErrorMessage(error)})`;
+
+          const [liveInsights, liveTopLists, liveHeroTopLists] = await loadLiveDashboardData();
+          insights ??= liveInsights;
+          topLists ??= liveTopLists;
+          heroTopLists ??= liveHeroTopLists;
+
+          dashboardError = cacheErrors.length > 0 || missingCachedSections.length > 0
+            ? `Cached dashboard data could not fully load, and Spotify required a token refresh before the live fallback could fill the remaining sections. (${cacheErrors.join("; ") || missingCachedSections.join(", ")})`
+            : "Spotify required a token refresh before the dashboard could finish loading.";
         } catch (refreshRetryError) {
           dashboardError = `Cached dashboard data could not be loaded right now, and the live Spotify fallback also failed after retrying your session token, so the dashboard is showing preview fallback sections. (${getErrorMessage(refreshRetryError)})`;
         }
@@ -220,3 +261,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
+
+
+
+

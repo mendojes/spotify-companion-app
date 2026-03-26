@@ -30,7 +30,7 @@ const genreColors = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
 const moodOrder = ["Energetic", "Chill", "Moody", "Joyful", "Focus"] as const;
 const heatmapPeriods = ["Morning", "Afternoon", "Evening", "Late Night"] as const;
 const SNAPSHOT_REFRESH_TTL_MS = 1000 * 60 * 15;
-const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = false;
+const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = true;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 
 type MoodAnalyticsResult = {
@@ -90,6 +90,16 @@ function getRangeWindow(range: DashboardRange) {
   }
 
   return null;
+}
+
+function filterSnapshotsForDashboardRange(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange) {
+  const windowStart = getRangeWindow(range);
+
+  if (!windowStart) {
+    return snapshots;
+  }
+
+  return snapshots.filter((snapshot) => new Date(snapshot.fetchedAt).getTime() >= windowStart.getTime());
 }
 
 function dedupeRecent(items: SpotifyRecentlyPlayedItem[]) {
@@ -695,7 +705,7 @@ async function ensureSnapshotsForRange(accessToken: string, spotifyUserId: strin
 
   const latestSnapshot = await getLatestSnapshot(spotifyUserId);
 
-  if (AUTO_REFRESH_DASHBOARD_SNAPSHOTS && (!latestSnapshot || !isFresh(latestSnapshot.fetchedAt))) {
+  if (accessToken && AUTO_REFRESH_DASHBOARD_SNAPSHOTS && (!latestSnapshot || !isFresh(latestSnapshot.fetchedAt))) {
     await refreshDashboardSnapshot(accessToken, spotifyUserId);
   }
 
@@ -708,7 +718,7 @@ async function ensureSnapshotsForRange(accessToken: string, spotifyUserId: strin
     }
   }
 
-  if (snapshots.length === 0 && AUTO_REFRESH_DASHBOARD_SNAPSHOTS) {
+  if (snapshots.length === 0 && accessToken && AUTO_REFRESH_DASHBOARD_SNAPSHOTS) {
     const snapshot = await refreshDashboardSnapshot(accessToken, spotifyUserId);
     snapshots = [snapshot];
   }
@@ -990,10 +1000,16 @@ export async function getDashboardAnalysisDetail(
 }
 
 
-export async function getDashboardInsightsFromHistory(spotifyUserId: string, range: DashboardRange) {
+export async function getSharedDashboardCacheSnapshots(spotifyUserId: string, accessToken?: string) {
   await ensureIndexes();
 
-  let snapshots = await getHistoricalSnapshots(spotifyUserId, range);
+  const latestSnapshot = await getLatestSnapshot(spotifyUserId);
+
+  if (accessToken && AUTO_REFRESH_DASHBOARD_SNAPSHOTS && (!latestSnapshot || !isFresh(latestSnapshot.fetchedAt))) {
+    await refreshDashboardSnapshot(accessToken, spotifyUserId);
+  }
+
+  let snapshots = await getHistoricalSnapshots(spotifyUserId, "all");
 
   if (snapshots.length === 0) {
     const fallbackLatest = await getLatestSnapshot(spotifyUserId);
@@ -1002,12 +1018,32 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
     }
   }
 
-  if (snapshots.length === 0) {
+  if (snapshots.length === 0 && accessToken && AUTO_REFRESH_DASHBOARD_SNAPSHOTS) {
+    const snapshot = await refreshDashboardSnapshot(accessToken, spotifyUserId);
+    snapshots = [snapshot];
+  }
+
+  return snapshots;
+}
+
+export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange) {
+  const scopedSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
+  const fallbackSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
+
+  if (fallbackSnapshots.length === 0) {
     return null;
   }
 
-  return deriveInsights(snapshots, range);
+  return deriveInsights(fallbackSnapshots, range);
 }
+
+export async function getDashboardInsightsFromHistory(spotifyUserId: string, range: DashboardRange) {
+  const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
+  return getDashboardInsightsFromSnapshots(snapshots, range);
+}
+
+
+
 
 
 

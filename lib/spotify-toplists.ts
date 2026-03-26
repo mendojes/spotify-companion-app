@@ -64,6 +64,22 @@ function getWindow(range: TopListRange, from?: string, to?: string) {
   return {};
 }
 
+function filterSnapshotsForTopRange(snapshots: SpotifyDashboardSnapshot[], range: TopListRange, from?: string, to?: string) {
+  const window = getWindow(range, from, to);
+
+  return snapshots.filter((snapshot) => {
+    if (window.from && snapshot.fetchedAt < window.from) {
+      return false;
+    }
+
+    if (window.to && snapshot.fetchedAt > window.to) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 function getFallbackSpotifyRange(range: TopListRange): SpotifyTimeRange {
   if (range === "week") {
     return "short_term";
@@ -618,6 +634,37 @@ export async function getSpotifyTopLists(
   };
 }
 
+export async function getSpotifyTopListsFromSnapshots(
+  snapshots: SpotifyDashboardSnapshot[],
+  range: TopListRange,
+  limit = DASHBOARD_TOP_LIST_LIMIT,
+  from?: string,
+  to?: string,
+) {
+  const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
+  const scopedSnapshots = filterSnapshotsForTopRange(snapshots, range, from, to);
+  const fallbackSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots;
+
+  if (fallbackSnapshots.length === 0) {
+    return null;
+  }
+
+  const artists = aggregateArtistsFromSnapshots(fallbackSnapshots, range, boundedLimit, from, to);
+  const tracks = aggregateTracksFromSnapshots(fallbackSnapshots, range, boundedLimit, from, to);
+  const albums = deriveAlbumsFromTracks(tracks, boundedLimit);
+
+  return {
+    range,
+    artists,
+    tracks,
+    albums,
+    sourceLabel: fallbackSnapshots.length > 1 ? "Shared SoundScope history" : "Latest public SoundScope snapshot",
+    generatedAt: fallbackSnapshots[0]?.fetchedAt ?? new Date().toISOString(),
+    from,
+    to,
+  } satisfies TopListsData;
+}
+
 export async function getSpotifyTopListsFromHistory(
   spotifyUserId: string,
   range: TopListRange,
@@ -636,25 +683,9 @@ export async function getSpotifyTopListsFromHistory(
     } satisfies TopListsData;
   }
 
-  if (snapshots.length === 0) {
-    return null;
-  }
-
-  const artists = aggregateArtistsFromSnapshots(snapshots, range, boundedLimit, from, to);
-  const tracks = aggregateTracksFromSnapshots(snapshots, range, boundedLimit, from, to);
-  const albums = deriveAlbumsFromTracks(tracks, boundedLimit);
-
-  return {
-    range,
-    artists,
-    tracks,
-    albums,
-    sourceLabel: snapshots.length > 1 ? "Shared SoundScope history" : "Latest public SoundScope snapshot",
-    generatedAt: snapshots[0]?.fetchedAt ?? new Date().toISOString(),
-    from,
-    to,
-  } satisfies TopListsData;
+  return getSpotifyTopListsFromSnapshots(snapshots, range, boundedLimit, from, to);
 }
+
 
 
 
