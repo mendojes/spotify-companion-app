@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { buildSession, consumeAuthStateCookie, setSessionCookie } from "@/lib/auth";
+import { applySessionCookie, buildSession, consumeAuthStateCookie } from "@/lib/auth";
 import { upsertConnectedUser } from "@/lib/connected-users";
 import { exchangeSpotifyCode, getAppUrl, getSpotifyProfile } from "@/lib/spotify";
 
@@ -46,8 +46,9 @@ export async function GET(request: NextRequest) {
 
     const session = buildSession(profile, tokens.access_token, tokens.refresh_token, tokens.expires_in);
 
-    console.log("[spotify-callback] setting session cookie");
-    await setSessionCookie(session);
+    console.log("[spotify-callback] preparing redirect with session cookie");
+    const response = NextResponse.redirect(getAppUrl("/dashboard", request));
+    applySessionCookie(response, session);
 
     try {
       await upsertConnectedUser({
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log("[spotify-callback] redirecting to dashboard", { ms: Date.now() - startedAt });
-    return NextResponse.redirect(getAppUrl("/dashboard", request));
+    return response;
   } catch (caughtError) {
     const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
     const errorCode = message.includes("429") ? "spotify_rate_limited" : "spotify_exchange_failed";
@@ -71,3 +72,4 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(getAppUrl("/login?error=" + errorCode, request));
   }
 }
+

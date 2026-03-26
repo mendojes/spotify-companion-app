@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { clearSessionCookie, getSession } from "@/lib/auth";
+import { applyClearedSessionCookies, clearSessionCookie, getSession } from "@/lib/auth";
 import { deleteSpotifyUserData } from "@/lib/account-data";
 import { getAppUrl } from "@/lib/spotify";
 
@@ -12,6 +12,9 @@ export async function POST(request: NextRequest) {
 
   await clearSessionCookie();
 
-  return NextResponse.redirect(getAppUrl("/login?deleted=1", request));
+  const response = NextResponse.redirect(getAppUrl("/login?deleted=1", request));
+  applyClearedSessionCookies(response);
+  return response;
 }
+
 

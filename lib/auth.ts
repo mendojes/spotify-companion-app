@@ -11,6 +11,11 @@ const STATE_COOKIE = "soundscope_oauth_state";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const STATE_TTL_MS = 1000 * 60 * 10;
 
+type CookieTarget = {
+  set: (name: string, value: string, options: Record<string, unknown>) => void;
+  delete: (name: string) => void;
+};
+
 export type AuthSession = {
   spotifyUserId: string;
   displayName: string;
@@ -78,6 +83,30 @@ function decodeSignedValue<T>(value: string | undefined): T | null {
   return JSON.parse(fromBase64Url(encodedPayload)) as T;
 }
 
+function getStateCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: STATE_TTL_MS / 1000,
+  };
+}
+
+function getSessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: SESSION_TTL_MS / 1000,
+  };
+}
+
+function setSignedCookie(target: CookieTarget, name: string, value: string, options: Record<string, unknown>) {
+  target.set(name, value, options);
+}
+
 export function buildSession(
   profile: SpotifyProfile,
   accessToken: string,
@@ -97,16 +126,11 @@ export function buildSession(
 
 export async function setAuthStateCookie(state: string) {
   const cookieStore = await cookies();
-  cookieStore.set(
+  setSignedCookie(
+    cookieStore,
     STATE_COOKIE,
     encodeSignedValue({ state, expiresAt: Date.now() + STATE_TTL_MS, nonce: crypto.randomUUID() }),
-    {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: STATE_TTL_MS / 1000,
-    },
+    getStateCookieOptions(),
   );
 }
 
@@ -125,22 +149,25 @@ export async function consumeAuthStateCookie(expectedState: string) {
   return stateCookie.state === expectedState && stateCookie.expiresAt > Date.now();
 }
 
+function buildSessionCookieValue(session: AuthSession) {
+  return encodeSignedValue<SignedEnvelope<AuthSession>>({
+    payload: session,
+    nonce: crypto.randomUUID(),
+  });
+}
+
 export async function setSessionCookie(session: AuthSession) {
   const cookieStore = await cookies();
-  cookieStore.set(
-    SESSION_COOKIE,
-    encodeSignedValue<SignedEnvelope<AuthSession>>({
-      payload: session,
-      nonce: crypto.randomUUID(),
-    }),
-    {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: SESSION_TTL_MS / 1000,
-    },
-  );
+  setSignedCookie(cookieStore, SESSION_COOKIE, buildSessionCookieValue(session), getSessionCookieOptions());
+}
+
+export function applySessionCookie(target: { cookies: CookieTarget }, session: AuthSession) {
+  setSignedCookie(target.cookies, SESSION_COOKIE, buildSessionCookieValue(session), getSessionCookieOptions());
+}
+
+export function applyClearedSessionCookies(target: { cookies: CookieTarget }) {
+  target.cookies.delete(SESSION_COOKIE);
+  target.cookies.delete(STATE_COOKIE);
 }
 
 export async function clearSessionCookie() {
@@ -189,5 +216,6 @@ export async function refreshSession(session: AuthSession) {
 export function createOauthState() {
   return crypto.randomBytes(24).toString("base64url");
 }
+
 
 

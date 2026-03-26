@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { clearSessionCookie, getSession, refreshSession } from "@/lib/auth";
+import { applyClearedSessionCookies, applySessionCookie, clearSessionCookie, getSession, refreshSession } from "@/lib/auth";
 import { touchConnectedUser } from "@/lib/connected-users";
 import { getAppUrl } from "@/lib/spotify";
 
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await refreshSession(session);
+    const nextSession = await refreshSession(session);
 
     try {
       await touchConnectedUser(session.spotifyUserId);
@@ -21,9 +21,14 @@ export async function GET(request: NextRequest) {
       // A Mongo hiccup should not log the user out after a successful token refresh.
     }
 
-    return NextResponse.redirect(getAppUrl(returnTo));
+    const response = NextResponse.redirect(getAppUrl(returnTo, request));
+    applySessionCookie(response, nextSession);
+    return response;
   } catch {
     await clearSessionCookie();
-    return NextResponse.redirect(getAppUrl("/login?error=session_refresh_failed"));
+    const response = NextResponse.redirect(getAppUrl("/login?error=session_refresh_failed", request));
+    applyClearedSessionCookies(response);
+    return response;
   }
 }
+
