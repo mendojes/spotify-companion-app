@@ -68,7 +68,7 @@ export async function ensureConnectedUserIndexes() {
     return;
   }
 
-  const db = await getDatabase();
+  const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return;
   }
@@ -88,7 +88,7 @@ export async function upsertConnectedUser(user: {
     return;
   }
 
-  const db = await getDatabase();
+  const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return;
   }
@@ -129,7 +129,7 @@ export async function touchConnectedUser(spotifyUserId: string) {
     return;
   }
 
-  const db = await getDatabase();
+  const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return;
   }
@@ -150,7 +150,7 @@ export async function markConnectedUserSnapshotStatus(
     return;
   }
 
-  const db = await getDatabase();
+  const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return;
   }
@@ -174,7 +174,7 @@ export async function listActiveConnectedUsers(limit = 25) {
     return [] as ConnectedUser[];
   }
 
-  const db = await getDatabase();
+  const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return [] as ConnectedUser[];
   }
@@ -200,7 +200,7 @@ export async function getCommunityUserProfile(spotifyUserId: string) {
     return null;
   }
 
-  const db = await getDatabase();
+  const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return null;
   }
@@ -224,7 +224,7 @@ export async function getConnectedUser(spotifyUserId: string) {
     return null;
   }
 
-  const db = await getDatabase();
+  const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return null;
   }
@@ -241,7 +241,7 @@ export async function updateConnectedUserPrivacySettings(
     return getDefaultPrivacySettings();
   }
 
-  const db = await getDatabase();
+  const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return getDefaultPrivacySettings();
   }
@@ -272,3 +272,4 @@ export async function updateConnectedUserPrivacySettings(
 
   return nextPrivacy;
 }
+

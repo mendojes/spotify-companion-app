@@ -65,7 +65,7 @@ function createClientPromise() {
   return connectionPromise;
 }
 
-function getClientPromise() {
+function getClientPromise(options?: { forceRetry?: boolean }) {
   if (!uri) {
     return null;
   }
@@ -74,7 +74,7 @@ function getClientPromise() {
     return mongoClientPromise;
   }
 
-  if (lastConnectionFailureAt && Date.now() - lastConnectionFailureAt < RETRY_BACKOFF_MS) {
+  if (!options?.forceRetry && lastConnectionFailureAt && Date.now() - lastConnectionFailureAt < RETRY_BACKOFF_MS) {
     return null;
   }
 
@@ -132,8 +132,8 @@ export async function testMongoConnection() {
   }
 }
 
-export async function getDatabase(): Promise<Db | null> {
-  const clientPromise = getClientPromise();
+export async function getDatabase(options?: { forceRetry?: boolean }): Promise<Db | null> {
+  const clientPromise = getClientPromise(options);
   if (!clientPromise) {
     return null;
   }
@@ -157,3 +157,4 @@ export async function getDatabase(): Promise<Db | null> {
     return null;
   }
 }
+
