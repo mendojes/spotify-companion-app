@@ -5,7 +5,7 @@ import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { isSessionExpired, refreshSession, requireSession } from "@/lib/auth";
+import { refreshSession, requireSession } from "@/lib/auth";
 import { syncConnectedUserSession } from "@/lib/connected-users";
 import { getDashboardInsightsFromSnapshots, getDashboardInsightsLive, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromSnapshots, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
@@ -114,7 +114,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect("/login");
   }
 
-  let activeSession = isSessionExpired(session) ? await refreshSession(session) : session;
+  let activeSession = session;
 
   try {
     await syncConnectedUserSession(activeSession);
@@ -275,6 +275,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
+
 
 
 

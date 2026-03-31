@@ -1,5 +1,5 @@
-﻿import { NextResponse } from "next/server";
-import { getSession, isSessionExpired, refreshSession } from "@/lib/auth";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { applySessionCookie, getSession, isSessionExpired, refreshSession } from "@/lib/auth";
 import { getNowPlaying, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
 import { getCachedValue } from "@/lib/runtime-cache";
 
@@ -7,7 +7,7 @@ const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 50;
 const NOW_PLAYING_TTL_MS = 1000 * 2;
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const session = await getSession();
 
   if (!session) {
@@ -20,7 +20,13 @@ export async function GET(request: Request) {
     ? Math.max(1, Math.min(MAX_LIMIT, Math.floor(limitParam)))
     : DEFAULT_LIMIT;
 
-  const activeSession = isSessionExpired(session) ? await refreshSession(session) : session;
+  let activeSession = session;
+  let sessionWasRefreshed = false;
+
+  if (isSessionExpired(session)) {
+    activeSession = await refreshSession(session);
+    sessionWasRefreshed = true;
+  }
 
   const payload = await getCachedValue(`now-playing:${activeSession.spotifyUserId}:${limit}`, NOW_PLAYING_TTL_MS, async () => {
     const [nowPlaying, syncedRecent, storedRecent] = await Promise.all([
@@ -44,5 +50,12 @@ export async function GET(request: Request) {
     };
   });
 
-  return NextResponse.json(payload);
+  const response = NextResponse.json(payload);
+
+  if (sessionWasRefreshed) {
+    applySessionCookie(response, activeSession);
+  }
+
+  return response;
 }
+
