@@ -80,6 +80,35 @@ function filterSnapshotsForTopRange(snapshots: SpotifyDashboardSnapshot[], range
   });
 }
 
+function getTopListSnapshotBucketKey(snapshot: SpotifyDashboardSnapshot, range: TopListRange) {
+  const date = new Date(snapshot.fetchedAt);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+
+  if (range === "all" || range === "year") {
+    return `${year}-${month}-${day}`;
+  }
+
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  return `${year}-${month}-${day}-${hour}`;
+}
+
+function downsampleSnapshotsForTopRange(snapshots: SpotifyDashboardSnapshot[], range: TopListRange) {
+  const buckets = new Map<string, SpotifyDashboardSnapshot>();
+
+  snapshots.forEach((snapshot) => {
+    const bucketKey = getTopListSnapshotBucketKey(snapshot, range);
+    const existing = buckets.get(bucketKey);
+
+    if (!existing || new Date(snapshot.fetchedAt).getTime() > new Date(existing.fetchedAt).getTime()) {
+      buckets.set(bucketKey, snapshot);
+    }
+  });
+
+  return [...buckets.values()].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
+}
+
 function getFallbackSpotifyRange(range: TopListRange): SpotifyTimeRange {
   if (range === "week") {
     return "short_term";
@@ -633,14 +662,15 @@ export async function getSpotifyTopListsFromSnapshots(
 ) {
   const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
   const scopedSnapshots = filterSnapshotsForTopRange(snapshots, range, from, to);
-  const fallbackSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots;
+  const relevantSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots;
+  const historicalSnapshots = downsampleSnapshotsForTopRange(relevantSnapshots, range);
 
-  if (fallbackSnapshots.length === 0) {
+  if (historicalSnapshots.length === 0) {
     return null;
   }
 
-  const artists = aggregateArtistsFromSnapshots(fallbackSnapshots, range, boundedLimit, from, to);
-  const tracks = aggregateTracksFromSnapshots(fallbackSnapshots, range, boundedLimit, from, to);
+  const artists = aggregateArtistsFromSnapshots(historicalSnapshots, range, boundedLimit, from, to);
+  const tracks = aggregateTracksFromSnapshots(historicalSnapshots, range, boundedLimit, from, to);
   const albums = deriveAlbumsFromTracks(tracks, boundedLimit);
 
   return {
@@ -648,8 +678,8 @@ export async function getSpotifyTopListsFromSnapshots(
     artists,
     tracks,
     albums,
-    sourceLabel: fallbackSnapshots.length > 1 ? "Shared SoundScope history" : "Latest public SoundScope snapshot",
-    generatedAt: fallbackSnapshots[0]?.fetchedAt ?? new Date().toISOString(),
+    sourceLabel: historicalSnapshots.length > 1 ? "Historical Spotify snapshots" : "Latest Spotify snapshot",
+    generatedAt: historicalSnapshots[0]?.fetchedAt ?? new Date().toISOString(),
     from,
     to,
   } satisfies TopListsData;
@@ -675,6 +705,7 @@ export async function getSpotifyTopListsFromHistory(
 
   return getSpotifyTopListsFromSnapshots(snapshots, range, boundedLimit, from, to);
 }
+
 
 
 

@@ -102,6 +102,35 @@ function filterSnapshotsForDashboardRange(snapshots: SpotifyDashboardSnapshot[],
   return snapshots.filter((snapshot) => new Date(snapshot.fetchedAt).getTime() >= windowStart.getTime());
 }
 
+function getDashboardSnapshotBucketKey(snapshot: SpotifyDashboardSnapshot, range: DashboardRange) {
+  const date = new Date(snapshot.fetchedAt);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+
+  if (range === "all") {
+    return `${year}-${month}-${day}`;
+  }
+
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  return `${year}-${month}-${day}-${hour}`;
+}
+
+function downsampleSnapshotsForDashboardRange(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange) {
+  const buckets = new Map<string, SpotifyDashboardSnapshot>();
+
+  snapshots.forEach((snapshot) => {
+    const bucketKey = getDashboardSnapshotBucketKey(snapshot, range);
+    const existing = buckets.get(bucketKey);
+
+    if (!existing || new Date(snapshot.fetchedAt).getTime() > new Date(existing.fetchedAt).getTime()) {
+      buckets.set(bucketKey, snapshot);
+    }
+  });
+
+  return [...buckets.values()].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
+}
+
 function dashboardCacheError(step: string, error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return new Error(`[${step}] ${message}`);
@@ -801,7 +830,7 @@ async function deriveInsights(
     forgottenFavorites,
     quietSavedTracks,
     playlistInsights,
-    sourceLabel: hasMongoConfig() ? (sortedSnapshots.length > 1 ? "Historical Spotify cache with library depth" : "Live Spotify data with Mongo cache") : "Live Spotify data",
+    sourceLabel: sortedSnapshots.length > 1 ? "Historical Spotify snapshots" : "Latest Spotify snapshot",
     cachedAt: latestFetchedAt,
     snapshotCount: sortedSnapshots.length,
     range,
@@ -1064,19 +1093,21 @@ export async function getSharedDashboardCacheSnapshots(spotifyUserId: string, ac
 
 export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange) {
   const scopedSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
-  const fallbackSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
+  const relevantSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
+  const historicalSnapshots = downsampleSnapshotsForDashboardRange(relevantSnapshots, range);
 
-  if (fallbackSnapshots.length === 0) {
+  if (historicalSnapshots.length === 0) {
     return null;
   }
 
-  return deriveInsights(fallbackSnapshots, range);
+  return deriveInsights(historicalSnapshots, range);
 }
 
 export async function getDashboardInsightsFromHistory(spotifyUserId: string, range: DashboardRange) {
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
   return getDashboardInsightsFromSnapshots(snapshots, range);
 }
+
 
 
 

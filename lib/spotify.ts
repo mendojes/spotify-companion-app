@@ -1,4 +1,4 @@
-const spotifyApiBase = "https://api.spotify.com/v1";
+﻿const spotifyApiBase = "https://api.spotify.com/v1";
 const spotifyAccountsBase = "https://accounts.spotify.com";
 const spotifyCallbackPath = "/api/auth/callback/spotify";
 const MAX_SPOTIFY_RETRIES = 2;
@@ -107,6 +107,12 @@ export function getSpotifyRedirectUri(request?: OriginRequestLike) {
 }
 
 export function getAppOrigin(request?: OriginRequestLike) {
+  const requestOrigin = getOriginFromRequest(request);
+
+  if (requestOrigin) {
+    return normalizeOrigin(requestOrigin);
+  }
+
   const redirectUri = getSpotifyRedirectUri(request);
 
   if (!redirectUri) {
@@ -221,6 +227,7 @@ export async function spotifyFetchOptional<T>(path: string, accessToken: string)
 export function getSpotifyProfile(accessToken: string) {
   return spotifyFetch<SpotifyProfile>("/me", accessToken, { allowRetry: true });
 }
+
 
 
 
