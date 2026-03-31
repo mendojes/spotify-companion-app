@@ -202,20 +202,18 @@ export async function requireSession() {
 
 export async function refreshSession(session: AuthSession) {
   const token = await refreshSpotifyAccessToken(session.refreshToken);
-  const nextSession = {
+  return {
     ...session,
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? session.refreshToken,
     expiresAt: Date.now() + token.expires_in * 1000,
   } satisfies AuthSession;
-
-  await setSessionCookie(nextSession);
-  return nextSession;
 }
 
 export function createOauthState() {
   return crypto.randomBytes(24).toString("base64url");
 }
+
 
 
 
