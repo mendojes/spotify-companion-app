@@ -97,6 +97,14 @@ async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>
   }
 }
 
+function topListsNeedEnrichment(topLists?: { artists: Array<{ genres: string[] }>; albums: Array<unknown> }) {
+  if (!topLists) {
+    return true;
+  }
+
+  return topLists.artists.some((artist) => artist.genres.length === 0) || topLists.albums.length < 5;
+}
+
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
   const styles = {
     cyan: "bg-[rgba(229,255,255,0.78)] text-[#3a1a58]",
@@ -152,22 +160,33 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
 
   const cacheErrors = [cachedSnapshots.error].filter((value): value is string => Boolean(value));
+  const incompleteTopLists = topListsNeedEnrichment(topLists);
+  const incompleteHeroTopLists = topListsNeedEnrichment(heroTopLists);
   const missingCachedSections = [!insights ? "insights" : null, !topLists ? "top lists" : null, !heroTopLists ? "hero top lists" : null].filter(
     (value): value is string => Boolean(value),
   );
-  const neededLiveFallback = missingCachedSections.length > 0;
+  const neededLiveFallback = missingCachedSections.length > 0 || incompleteTopLists || incompleteHeroTopLists;
 
   if (neededLiveFallback) {
     try {
       const [liveInsights, liveTopLists, liveHeroTopLists] = await loadLiveDashboardData();
       insights ??= liveInsights;
-      topLists ??= liveTopLists;
-      heroTopLists ??= liveHeroTopLists;
+      if (!topLists || incompleteTopLists) {
+        topLists = liveTopLists;
+      }
+      if (!heroTopLists || incompleteHeroTopLists) {
+        heroTopLists = liveHeroTopLists;
+      }
 
       if (cacheErrors.length > 0) {
         dashboardError = `Some cached dashboard data could not be loaded, so SoundScope is filling the gaps from live Spotify data for this page load. (${cacheErrors.join("; ")})`;
       } else {
-        dashboardError = `Cached dashboard data is incomplete for ${missingCachedSections.join(", ")}, so SoundScope is filling those sections from live Spotify data for this page load.`;
+        const reasons = [
+          ...missingCachedSections,
+          incompleteTopLists ? "top-list metadata" : null,
+          incompleteHeroTopLists ? "hero top-list metadata" : null,
+        ].filter((value): value is string => Boolean(value));
+        dashboardError = `Cached dashboard data is incomplete for ${reasons.join(", ")}, so SoundScope is filling those sections from live Spotify data for this page load.`;
       }
     } catch (liveError) {
       if (isSpotifyUnauthorized(liveError)) {
@@ -181,8 +200,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
           const [liveInsights, liveTopLists, liveHeroTopLists] = await loadLiveDashboardData();
           insights ??= liveInsights;
-          topLists ??= liveTopLists;
-          heroTopLists ??= liveHeroTopLists;
+          if (!topLists || incompleteTopLists) {
+            topLists = liveTopLists;
+          }
+          if (!heroTopLists || incompleteHeroTopLists) {
+            heroTopLists = liveHeroTopLists;
+          }
 
           dashboardError = cacheErrors.length > 0 || missingCachedSections.length > 0
             ? `Cached dashboard data could not fully load, and Spotify required a token refresh before the live fallback could fill the remaining sections. (${cacheErrors.join("; ") || missingCachedSections.join(", ")})`

@@ -202,6 +202,27 @@ function TabPill({ active, children, href }: { active: boolean; children: ReactN
   );
 }
 
+function buildGenreFallback(artists: TopListsData["artists"]) {
+  const scores = new Map<string, number>();
+
+  artists.forEach((artist, index) => {
+    artist.genres.forEach((genre) => {
+      scores.set(genre, (scores.get(genre) ?? 0) + Math.max(1, 6 - index));
+    });
+  });
+
+  const palette = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
+
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([genre, score], index) => ({
+      genre,
+      hours: Number((score * 0.4).toFixed(1)),
+      color: palette[index % palette.length],
+    }));
+}
+
 function getAdaptiveValueClass(value: string) {
   if (value.length > 22) {
     return "text-2xl md:text-3xl leading-[0.92] break-words";
@@ -406,6 +427,7 @@ export function DashboardView({
     mode === "authenticated" && data.playlistInsights.length > 0 ? data.playlistInsights : null
   ));
   const playlistCards = livePlaylistInsights ?? data.playlistInsights;
+  const genrePulseItems = data.genrePulse.length > 0 ? data.genrePulse : buildGenreFallback(topListData.artists);
 
   useEffect(() => {
     setHydratedInsights(insights);
@@ -687,16 +709,16 @@ export function DashboardView({
                       <AreaChart data={data.trendData}>
                         <defs>
                           <linearGradient id="minutesFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#7AF7FF" stopOpacity={0.52} />
+                            <stop offset="0%" stopColor="#7AF7FF" stopOpacity={0.72} />
                             <stop offset="100%" stopColor="#7AF7FF" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid vertical={false} stroke="var(--chart-grid)" strokeDasharray="4 6" />
-                        <XAxis dataKey="label" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} />
+                        <XAxis dataKey="label" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 15 }} tickLine={false} axisLine={false} />
                         <YAxis stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} />
                         <Tooltip contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }} labelStyle={{ color: "var(--theme-title)", fontWeight: 600 }} itemStyle={{ color: "var(--theme-title)" }} />
-                        <Area type="monotone" dataKey="minutes" stroke="#7AF7FF" strokeWidth={3} fill="url(#minutesFill)" />
-                        <Bar dataKey="rediscovered" fill="#c7338f" radius={[10, 10, 0, 0]} barSize={20} />
+                        <Area type="monotone" dataKey="minutes" stroke="#7AF7FF" strokeWidth={4} fill="url(#minutesFill)" />
+                        <Bar dataKey="rediscovered" fill="#a81f7f" radius={[10, 10, 0, 0]} barSize={20} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -731,13 +753,13 @@ export function DashboardView({
                   </div>
                   <div className="mt-6 h-[300px] rounded-[24px] border-2 border-[rgba(57,18,98,0.22)] bg-white/[0.62] p-3">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={data.genrePulse} layout="vertical" margin={{ left: 8 }}>
+                      <BarChart data={genrePulseItems} layout="vertical" margin={{ left: 8 }}>
                         <CartesianGrid horizontal={false} stroke="var(--chart-grid)" strokeDasharray="4 6" />
                         <XAxis type="number" hide />
                         <YAxis type="category" dataKey="genre" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} width={96} />
                         <Tooltip contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }} labelStyle={{ color: "var(--theme-title)", fontWeight: 600 }} itemStyle={{ color: "var(--theme-title)" }} />
                         <Bar dataKey="hours" radius={[0, 14, 14, 0]} barSize={18}>
-                          {data.genrePulse.map((entry) => (
+                          {genrePulseItems.map((entry) => (
                             <Cell key={entry.genre} fill={entry.color} />
                           ))}
                         </Bar>
@@ -745,7 +767,7 @@ export function DashboardView({
                     </ResponsiveContainer>
                   </div>
                   <div className="mt-5 grid gap-3">
-                    {data.genrePulse.slice(0, 3).map((genre) => (
+                    {genrePulseItems.slice(0, 3).map((genre) => (
                       <div key={genre.genre} className="desktop-card px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{genre.genre}</span>
