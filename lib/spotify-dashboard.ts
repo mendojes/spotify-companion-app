@@ -26,6 +26,7 @@ import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 import { getCachedPlaylistInsights } from "@/lib/spotify-playlists";
 import { getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-activity";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+import { buildCachedTopListsForSnapshot, SNAPSHOT_TOP_LISTS_SCHEMA_VERSION } from "@/lib/spotify-toplists";
 
 const genreColors = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
 const moodOrder = ["Energetic", "Chill", "Moody", "Joyful", "Focus"] as const;
@@ -982,8 +983,9 @@ async function fetchSnapshot(accessToken: string, spotifyUserId: string): Promis
     fetchSavedTracks(accessToken, 100),
   ]);
 
-  return {
+  const snapshot = {
     spotifyUserId,
+    schemaVersion: SNAPSHOT_TOP_LISTS_SCHEMA_VERSION,
     topArtists: topArtists.items,
     topTracks: topTracks.items,
     mediumTermTopArtists: mediumTermTopArtists.items,
@@ -993,6 +995,11 @@ async function fetchSnapshot(accessToken: string, spotifyUserId: string): Promis
     savedTracks,
     recent: recent.items,
     fetchedAt: new Date().toISOString(),
+  } satisfies SpotifyDashboardSnapshot;
+
+  return {
+    ...snapshot,
+    cachedTopLists: buildCachedTopListsForSnapshot(snapshot),
   };
 }
 

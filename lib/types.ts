@@ -152,6 +152,10 @@ export type TopListsData = {
   to?: string;
 };
 
+export type SnapshotTopListRange = "week" | "month" | "year" | "all";
+
+export type SnapshotTopListsCache = Partial<Record<SnapshotTopListRange, TopListsData>>;
+
 export type DashboardAnalysisEntry = {
   trackId: string;
   title: string;
@@ -339,6 +343,8 @@ export type SpotifyPlaylistTracksResponse = {
 
 export type SpotifyDashboardSnapshot = {
   spotifyUserId: string;
+  schemaVersion?: number;
+  cachedTopLists?: SnapshotTopListsCache;
   topArtists: SpotifyTopArtistsResponse["items"];
   topTracks: SpotifyTopTracksResponse["items"];
   mediumTermTopArtists?: SpotifyTopArtistsResponse["items"];

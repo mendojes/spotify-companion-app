@@ -7,6 +7,8 @@ import {
   SpotifyTopArtistsResponse,
   SpotifyTopTracksResponse,
   StoredRecentPlay,
+  SnapshotTopListRange,
+  SnapshotTopListsCache,
   TopListAlbum,
   TopListArtist,
   TopListRange,
@@ -16,6 +18,7 @@ import {
 
 export const DASHBOARD_TOP_LIST_LIMIT = 5;
 export const FULL_TOP_LIST_LIMIT = 50;
+export const SNAPSHOT_TOP_LISTS_SCHEMA_VERSION = 2;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const MIN_RECENT_PLAYS_FOR_TOPS = 5;
@@ -177,6 +180,58 @@ function getSnapshotListsForRange(snapshot: SpotifyDashboardSnapshot, range: Top
   };
 }
 
+function trimTopListsData(topLists: TopListsData, limit: number, from?: string, to?: string): TopListsData {
+  return {
+    ...topLists,
+    artists: topLists.artists.slice(0, limit),
+    tracks: topLists.tracks.slice(0, limit),
+    albums: topLists.albums.slice(0, limit),
+    from: from ?? topLists.from,
+    to: to ?? topLists.to,
+  };
+}
+
+function getSnapshotCachedTopLists(snapshot: SpotifyDashboardSnapshot, range: TopListRange, limit: number, from?: string, to?: string) {
+  if (range === "custom") {
+    return null;
+  }
+
+  if ((snapshot.schemaVersion ?? 0) < SNAPSHOT_TOP_LISTS_SCHEMA_VERSION || !snapshot.cachedTopLists) {
+    return null;
+  }
+
+  const cacheKey: SnapshotTopListRange = range === "all" ? "all" : range;
+  const cached = snapshot.cachedTopLists[cacheKey];
+  if (!cached) {
+    return null;
+  }
+
+  return trimTopListsData(cached, limit, from, to);
+}
+
+export function buildCachedTopListsForSnapshot(snapshot: Pick<SpotifyDashboardSnapshot, "topArtists" | "topTracks" | "mediumTermTopArtists" | "mediumTermTopTracks" | "longTermTopArtists" | "longTermTopTracks" | "fetchedAt">): SnapshotTopListsCache {
+  const buildRange = (range: SnapshotTopListRange, artistsSource: SpotifyArtist[] | undefined, tracksSource: SpotifyTopTracksResponse["items"] | undefined): TopListsData => {
+    const artists = toArtistList(artistsSource ?? [], Math.min(FULL_TOP_LIST_LIMIT, artistsSource?.length ?? 0));
+    const tracks = toTrackList(tracksSource ?? [], Math.min(FULL_TOP_LIST_LIMIT, tracksSource?.length ?? 0));
+
+    return {
+      range,
+      artists,
+      tracks,
+      albums: deriveAlbumsFromTracks(tracks, FULL_TOP_LIST_LIMIT),
+      sourceLabel: "Cached Spotify snapshot",
+      generatedAt: snapshot.fetchedAt,
+    };
+  };
+
+  return {
+    week: buildRange("week", snapshot.topArtists, snapshot.topTracks),
+    month: buildRange("month", snapshot.mediumTermTopArtists ?? snapshot.topArtists, snapshot.mediumTermTopTracks ?? snapshot.topTracks),
+    year: buildRange("year", snapshot.longTermTopArtists ?? snapshot.mediumTermTopArtists ?? snapshot.topArtists, snapshot.longTermTopTracks ?? snapshot.mediumTermTopTracks ?? snapshot.topTracks),
+    all: buildRange("all", snapshot.longTermTopArtists ?? snapshot.mediumTermTopArtists ?? snapshot.topArtists, snapshot.longTermTopTracks ?? snapshot.mediumTermTopTracks ?? snapshot.topTracks),
+  };
+}
+
 function deriveAlbumsFromTracks(tracks: TopListTrack[], limit: number): TopListAlbum[] {
   const albumMap = new Map<string, Omit<TopListAlbum, "rank">>();
 
@@ -330,6 +385,18 @@ function buildArtistMetadataFromSnapshots(snapshots: SpotifyDashboardSnapshot[])
         existing.imageUrl = artist.images[0].url;
       }
       metadata.set(key, existing);
+    });
+
+    Object.values(snapshot.cachedTopLists ?? {}).forEach((cachedList) => {
+      cachedList.artists.forEach((artist) => {
+        const key = artist.name.toLowerCase();
+        const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
+        existing.genres = [...new Set([...existing.genres, ...(artist.genres ?? [])])];
+        if (!existing.imageUrl && artist.imageUrl) {
+          existing.imageUrl = artist.imageUrl;
+        }
+        metadata.set(key, existing);
+      });
     });
   });
 
@@ -635,6 +702,12 @@ export async function getSpotifyTopLists(
     return recentPlayTopLists;
   }
 
+  const cachedTopLists = snapshots.length === 1 ? getSnapshotCachedTopLists(snapshots[0], range, boundedLimit, from, to) : null;
+
+  if (cachedTopLists) {
+    return cachedTopLists;
+  }
+
   if (snapshots.length > 0 && (range === "all" || range === "custom")) {
     const sourceLimit = getTopListSourceLimit(boundedLimit);
     const artists = aggregateArtistsFromSnapshots(snapshots, range, boundedLimit, from, to);
@@ -676,6 +749,12 @@ export async function getSpotifyTopListsFromSnapshots(
 
   if (historicalSnapshots.length === 0) {
     return null;
+  }
+
+  const directCachedTopLists = historicalSnapshots.length === 1 ? getSnapshotCachedTopLists(historicalSnapshots[0], range, boundedLimit, from, to) : null;
+
+  if (directCachedTopLists) {
+    return directCachedTopLists;
   }
 
   const sourceLimit = getTopListSourceLimit(boundedLimit);

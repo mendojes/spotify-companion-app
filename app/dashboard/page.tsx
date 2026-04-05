@@ -180,13 +180,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       if (cacheErrors.length > 0) {
         dashboardError = `Some cached dashboard data could not be loaded, so SoundScope is filling the gaps from live Spotify data for this page load. (${cacheErrors.join("; ")})`;
-      } else {
-        const reasons = [
-          ...missingCachedSections,
-          incompleteTopLists ? "top-list metadata" : null,
-          incompleteHeroTopLists ? "hero top-list metadata" : null,
-        ].filter((value): value is string => Boolean(value));
-        dashboardError = `Cached dashboard data is incomplete for ${reasons.join(", ")}, so SoundScope is filling those sections from live Spotify data for this page load.`;
+      } else if (missingCachedSections.length > 0) {
+        dashboardError = `Cached dashboard data is incomplete for ${missingCachedSections.join(", ")}, so SoundScope is filling those sections from live Spotify data for this page load.`;
       }
     } catch (liveError) {
       if (isSpotifyUnauthorized(liveError)) {
@@ -209,7 +204,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
           dashboardError = cacheErrors.length > 0 || missingCachedSections.length > 0
             ? `Cached dashboard data could not fully load, and Spotify required a token refresh before the live fallback could fill the remaining sections. (${cacheErrors.join("; ") || missingCachedSections.join(", ")})`
-            : "Spotify required a token refresh before the dashboard could finish loading.";
+            : null;
         } catch (refreshRetryError) {
           dashboardError = `Cached dashboard data could not be loaded right now, and the live Spotify fallback also failed after retrying your session token, so the dashboard is showing preview fallback sections. (${getErrorMessage(refreshRetryError)})`;
         }
