@@ -98,6 +98,7 @@ function toStoredRecentPlay(spotifyUserId: string, item: SpotifyRecentlyPlayedIt
     playedAt: item.played_at,
     trackName: item.track.name,
     artistName: item.track.artists.map((artist) => artist.name).join(", "),
+    artistIds: item.track.artists.map((artist) => artist.id).filter((id): id is string => Boolean(id)),
     albumName: item.track.album.name,
     durationMs: item.track.duration_ms,
     imageUrl: item.track.album.images?.[0]?.url,

@@ -286,6 +286,7 @@ export type StoredRecentPlay = {
   playedAt: string;
   trackName: string;
   artistName: string;
+  artistIds?: string[];
   albumName: string;
   durationMs?: number;
   imageUrl?: string;

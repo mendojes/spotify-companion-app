@@ -13,6 +13,7 @@
   SpotifyRecentlyPlayedItem,
   SpotifyRecentlyPlayedResponse,
   SpotifySavedTrackItem,
+  StoredRecentPlay,
   SpotifySavedTracksResponse,
   SpotifyTopArtistsResponse,
   SpotifyTopTracksResponse,
@@ -233,6 +234,89 @@ function aggregateTracks(snapshots: SpotifyDashboardSnapshot[]) {
   });
 
   return [...trackMap.values()].sort((a, b) => b.score - a.score || b.track.popularity - a.track.popularity).map((entry) => entry.track);
+}
+
+async function fetchArtistsByIds(accessToken: string, artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 50);
+
+  if (uniqueArtistIds.length === 0) {
+    return [] as SpotifyArtist[];
+  }
+
+  try {
+    const response = await spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${uniqueArtistIds.join(",")}`, accessToken);
+    return response.artists ?? [];
+  } catch {
+    return [] as SpotifyArtist[];
+  }
+}
+
+function buildArtistMetadataMap(topArtists: SpotifyArtist[], snapshots: SpotifyDashboardSnapshot[]) {
+  const metadata = new Map<string, { genres: string[]; imageUrl?: string }>();
+
+  topArtists.forEach((artist) => {
+    const keys = [artist.name.toLowerCase(), artist.id].filter(Boolean);
+    keys.forEach((key) => {
+      const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
+      existing.genres = [...new Set([...(existing.genres ?? []), ...getArtistGenres(artist)])];
+      if (!existing.imageUrl && artist.images?.[0]?.url) {
+        existing.imageUrl = artist.images[0].url;
+      }
+      metadata.set(key, existing);
+    });
+  });
+
+  snapshots.forEach((snapshot) => {
+    Object.values(snapshot.cachedTopLists ?? {}).forEach((cachedList) => {
+      cachedList.artists.forEach((artist) => {
+        const keys = [artist.name.toLowerCase(), artist.id].filter(Boolean);
+        keys.forEach((key) => {
+          const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
+          existing.genres = [...new Set([...(existing.genres ?? []), ...(artist.genres ?? [])])];
+          if (!existing.imageUrl && artist.imageUrl) {
+            existing.imageUrl = artist.imageUrl;
+          }
+          metadata.set(key, existing);
+        });
+      });
+    });
+  });
+
+  return metadata;
+}
+
+function deriveGenrePulseFromStoredRecent(recentPlays: StoredRecentPlay[], artistMetadata: Map<string, { genres: string[]; imageUrl?: string }>) {
+  const scores = new Map<string, number>();
+  const recentListeningHours = hoursFromMs(recentPlays.reduce((sum, play) => sum + (play.durationMs ?? 0), 0));
+
+  recentPlays.forEach((play, index) => {
+    const contribution = Math.max(0.15, hoursFromMs(play.durationMs ?? 0) * 3.2 || 0.15);
+    const artistKeys = [
+      ...(play.artistIds ?? []),
+      ...play.artistName.split(/,\s*/).map((name) => name.toLowerCase()).filter(Boolean),
+    ];
+    const genres = new Set<string>();
+
+    artistKeys.forEach((key) => {
+      (artistMetadata.get(key)?.genres ?? []).forEach((genre) => genres.add(genre));
+    });
+
+    genres.forEach((genre) => {
+      scores.set(genre, (scores.get(genre) ?? 0) + contribution + Math.max(0, 0.02 * (recentPlays.length - index)));
+    });
+  });
+
+  const total = [...scores.values()].reduce((sum, value) => sum + value, 0) || 1;
+  const scaledHours = Math.max(recentListeningHours, 1);
+
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([genre, score], index) => ({
+      genre,
+      hours: Number(((score / total) * scaledHours).toFixed(1)),
+      color: genreColors[index % genreColors.length],
+    }));
 }
 
 function getArtistLookup(topArtists: SpotifyArtist[]) {
@@ -821,6 +905,7 @@ async function deriveInsights(
   const savedTracks = sortedSnapshots.flatMap((snapshot) => snapshot.savedTracks ?? []);
   const latestFetchedAt = sortedSnapshots[0]?.fetchedAt;
 
+  let genrePulse = deriveGenrePulse(topArtists, recent);
   let moodResult: MoodAnalyticsResult = {
     ...deriveMoodDataFromGenres(topArtists),
     moodHeatmap: deriveMoodHeatmapFallback(deriveMoodDataFromGenres(topArtists).moodData),
@@ -828,6 +913,14 @@ async function deriveInsights(
   let playlistInsights: PlaylistInsight[] = [];
 
   if (accessToken) {
+    const recentArtistIds = storedRecent.flatMap((play) => play.artistIds ?? []);
+    const recentArtists = await fetchArtistsByIds(accessToken, recentArtistIds);
+    const artistMetadata = buildArtistMetadataMap([...topArtists, ...recentArtists], sortedSnapshots);
+    const recentGenrePulse = deriveGenrePulseFromStoredRecent(storedRecent, artistMetadata);
+    if (recentGenrePulse.length > 0) {
+      genrePulse = recentGenrePulse;
+    }
+
     const audioFeatureTrackIds = [
       ...new Set([...topTracks, ...longTermTopTracks, ...recent.map((item) => item.track)].map((track) => track.id)),
     ].slice(0, 100);
@@ -859,7 +952,7 @@ async function deriveInsights(
     trendData: deriveTrendData(recent, range),
     trendHeading: getTrendHeading(range),
     trendBadge: getTrendBadge(range, sortedSnapshots.length),
-    genrePulse: deriveGenrePulse(topArtists, recent),
+    genrePulse,
     moodData: moodResult.moodData,
     moodHeatmap: moodResult.moodHeatmap,
     moodSource: moodResult.moodSource,
@@ -1160,7 +1253,7 @@ export async function getSharedDashboardCacheSnapshots(spotifyUserId: string, ac
   return snapshots;
 }
 
-export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange) {
+export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange, accessToken?: string, spotifyUserId?: string) {
   const scopedSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
   const relevantSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
   const historicalSnapshots = downsampleSnapshotsForDashboardRange(relevantSnapshots, range);
@@ -1169,12 +1262,12 @@ export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashbo
     return null;
   }
 
-  return deriveInsights(historicalSnapshots, range);
+  return deriveInsights(historicalSnapshots, range, accessToken, spotifyUserId);
 }
 
-export async function getDashboardInsightsFromHistory(spotifyUserId: string, range: DashboardRange) {
+export async function getDashboardInsightsFromHistory(spotifyUserId: string, range: DashboardRange, accessToken?: string) {
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
-  return getDashboardInsightsFromSnapshots(snapshots, range);
+  return getDashboardInsightsFromSnapshots(snapshots, range, accessToken, spotifyUserId);
 }
 
 

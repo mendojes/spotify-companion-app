@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getAuthorizedSession, getSession } from "@/lib/auth";
 import { touchConnectedUser } from "@/lib/connected-users";
 import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
@@ -48,6 +48,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const authorizedSession = await getAuthorizedSession(session);
+
   const { searchParams } = new URL(request.url);
   const selectedRange = normalizeRange(searchParams.get("range") ?? undefined);
   const selectedTopRange = normalizeTopRange(searchParams.get("topRange") ?? undefined);
@@ -59,7 +61,7 @@ export async function GET(request: NextRequest) {
     await touchConnectedUser(session.spotifyUserId);
 
     const [insights, topLists, heroTopLists] = await Promise.all([
-      getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange),
+      getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange, authorizedSession.accessToken),
       getSpotifyTopListsFromHistory(session.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
       getSpotifyTopListsFromHistory(session.spotifyUserId, selectedHeroRange),
     ]);

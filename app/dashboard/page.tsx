@@ -154,7 +154,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const cachedSnapshots = await settleCacheLoad("dashboard cache", () => getSharedDashboardCacheSnapshots(activeSession.spotifyUserId, activeSession.accessToken));
 
   if (cachedSnapshots.value && cachedSnapshots.value.length > 0) {
-    insights = (await getDashboardInsightsFromSnapshots(cachedSnapshots.value, selectedRange)) ?? undefined;
+    insights = (await getDashboardInsightsFromSnapshots(cachedSnapshots.value, selectedRange, activeSession.accessToken, activeSession.spotifyUserId)) ?? undefined;
     topLists = (await getSpotifyTopListsFromSnapshots(cachedSnapshots.value, selectedTopRange, undefined, selectedTopFrom, selectedTopTo)) ?? undefined;
     heroTopLists = (await getSpotifyTopListsFromSnapshots(cachedSnapshots.value, selectedHeroRange)) ?? undefined;
   }
