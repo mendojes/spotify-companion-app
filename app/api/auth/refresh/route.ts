@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { applyAuthEventCookie, applyClearedSessionCookies, applySessionCookie, clearSessionCookie, getSession, refreshSession } from "@/lib/auth";
+import { applyAuthEventCookie, applyClearedSessionCookies, applySessionCookie, getSession, refreshSession } from "@/lib/auth";
 import { touchConnectedUser } from "@/lib/connected-users";
 import { getAppUrl } from "@/lib/spotify";
 
@@ -28,7 +28,6 @@ export async function GET(request: NextRequest) {
     applyAuthEventCookie(response, "refresh_success", `user:${session.spotifyUserId}`);
     return response;
   } catch (error) {
-    await clearSessionCookie();
     const message = error instanceof Error ? error.message : String(error);
     const response = NextResponse.redirect(getAppUrl("/login?error=session_refresh_failed", request));
     applyClearedSessionCookies(response);
@@ -36,5 +35,3 @@ export async function GET(request: NextRequest) {
     return response;
   }
 }
-
-
