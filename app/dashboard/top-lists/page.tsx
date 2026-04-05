@@ -1,7 +1,7 @@
 ﻿import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { FULL_TOP_LIST_LIMIT, getSpotifyTopLists, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
 import { TopListAlbum, TopListArtist, TopListRange, TopListTrack } from "@/lib/types";
 
@@ -147,15 +147,16 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   const selectedPage = normalizePage(page);
   const selectedFrom = normalizeDate(from);
   const selectedTo = normalizeDate(to);
+  const authorizedSession = await getAuthorizedSession(session);
   const pageSize = FULL_TOP_LIST_LIMIT;
   let data;
   let rankingsNotice: string | null = null;
 
   try {
-    data = await getSpotifyTopLists(session.accessToken, session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+    data = await getSpotifyTopLists(authorizedSession.accessToken, authorizedSession.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    data = await getSpotifyTopListsLive(session.accessToken, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+    data = await getSpotifyTopListsLive(authorizedSession.accessToken, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
     rankingsNotice = `Cached rankings could not be loaded, so this page is showing live Spotify rankings instead. (${message})`;
   }
 
@@ -263,6 +264,8 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
     </main>
   );
 }
+
+
 
 
 

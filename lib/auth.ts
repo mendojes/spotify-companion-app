@@ -1,6 +1,7 @@
 ﻿import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { getCachedValue } from "@/lib/runtime-cache";
 import {
   refreshSpotifyAccessToken,
   type SpotifyProfile,
@@ -12,6 +13,7 @@ const AUTH_DEBUG_COOKIE = "soundscope_auth_event";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const STATE_TTL_MS = 1000 * 60 * 10;
 const AUTH_DEBUG_TTL_MS = 1000 * 60 * 10;
+const ACCESS_TOKEN_CACHE_TTL_MS = 1000 * 60 * 45;
 
 type CookieTarget = {
   set: (name: string, value: string, options: Record<string, unknown>) => void;
@@ -23,10 +25,16 @@ export type AuthSession = {
   displayName: string;
   email?: string;
   imageUrl?: string;
-  accessToken: string;
+  accessToken?: string;
   refreshToken: string;
   expiresAt: number;
 };
+
+export type AuthorizedSession = AuthSession & {
+  accessToken: string;
+};
+
+type PersistedAuthSession = Pick<AuthSession, "spotifyUserId" | "displayName" | "refreshToken" | "expiresAt">;
 
 type SignedEnvelope<T> = {
   payload: T;
@@ -119,6 +127,19 @@ function setSignedCookie(target: CookieTarget, name: string, value: string, opti
   target.set(name, value, options);
 }
 
+function toPersistedSession(session: AuthSession): PersistedAuthSession {
+  return {
+    spotifyUserId: session.spotifyUserId,
+    displayName: session.displayName,
+    refreshToken: session.refreshToken,
+    expiresAt: session.expiresAt,
+  };
+}
+
+function getAccessTokenCacheKey(refreshToken: string) {
+  return `spotify-access:${crypto.createHash("sha256").update(refreshToken).digest("hex")}`;
+}
+
 export function buildSession(
   profile: SpotifyProfile,
   accessToken: string,
@@ -133,7 +154,7 @@ export function buildSession(
     accessToken,
     refreshToken,
     expiresAt: Date.now() + expiresIn * 1000,
-  } satisfies AuthSession;
+  } satisfies AuthorizedSession;
 }
 
 export async function setAuthStateCookie(state: string) {
@@ -162,8 +183,8 @@ export async function consumeAuthStateCookie(expectedState: string) {
 }
 
 function buildSessionCookieValue(session: AuthSession) {
-  return encodeSignedValue<SignedEnvelope<AuthSession>>({
-    payload: session,
+  return encodeSignedValue<SignedEnvelope<PersistedAuthSession>>({
+    payload: toPersistedSession(session),
     nonce: crypto.randomUUID(),
   });
 }
@@ -211,11 +232,11 @@ export async function clearSessionCookie() {
 
 export async function getSession() {
   const cookieStore = await cookies();
-  const parsed = decodeSignedValue<SignedEnvelope<AuthSession>>(cookieStore.get(SESSION_COOKIE)?.value);
+  const parsed = decodeSignedValue<SignedEnvelope<PersistedAuthSession>>(cookieStore.get(SESSION_COOKIE)?.value);
   return parsed?.payload ?? null;
 }
 
-export function isSessionExpired(session: AuthSession) {
+export function isSessionExpired(session: Pick<AuthSession, "expiresAt">) {
   return session.expiresAt <= Date.now() + 15_000;
 }
 
@@ -240,14 +261,17 @@ export async function refreshSession(session: AuthSession) {
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? session.refreshToken,
     expiresAt: Date.now() + token.expires_in * 1000,
-  } satisfies AuthSession;
+  } satisfies AuthorizedSession;
+}
+
+export async function getAuthorizedSession(session: AuthSession): Promise<AuthorizedSession> {
+  if (session.accessToken && !isSessionExpired(session)) {
+    return session as AuthorizedSession;
+  }
+
+  return getCachedValue(getAccessTokenCacheKey(session.refreshToken), ACCESS_TOKEN_CACHE_TTL_MS, async () => refreshSession(session));
 }
 
 export function createOauthState() {
   return crypto.randomBytes(24).toString("base64url");
 }
-
-
-
-
-

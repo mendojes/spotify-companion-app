@@ -1,7 +1,7 @@
 ﻿import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getPlaylistDetail } from "@/lib/spotify-playlists";
 
 type PlaylistDetailPageProps = {
@@ -27,8 +27,10 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     redirect("/login");
   }
 
+  const authorizedSession = await getAuthorizedSession(session);
+
   const { playlistId } = await params;
-  const detail = await getPlaylistDetail(session.accessToken, session.spotifyUserId, playlistId);
+  const detail = await getPlaylistDetail(authorizedSession.accessToken, authorizedSession.spotifyUserId, playlistId);
 
   if (!detail) {
     notFound();
@@ -159,4 +161,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     </main>
   );
 }
+
+
 

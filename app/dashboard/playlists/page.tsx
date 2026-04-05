@@ -1,7 +1,7 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
 
@@ -55,6 +55,8 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
     redirect("/login");
   }
 
+  const authorizedSession = await getAuthorizedSession(session);
+
   const { sort } = await searchParams;
   const selectedSort = normalizeSort(sort);
 
@@ -62,7 +64,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
   let error: string | null = null;
 
   try {
-    playlists = await getAllPlaylistInsights(session.accessToken, session.spotifyUserId, selectedSort);
+    playlists = await getAllPlaylistInsights(authorizedSession.accessToken, authorizedSession.spotifyUserId, selectedSort);
   } catch (caughtError) {
     error = `Playlist analysis could not be fully refreshed right now. Showing stored playlist data when available. (${getErrorMessage(caughtError)})`;
   }
@@ -165,3 +167,5 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
     </main>
   );
 }
+
+

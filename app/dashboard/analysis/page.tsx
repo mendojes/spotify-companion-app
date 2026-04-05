@@ -1,7 +1,7 @@
 ﻿import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getDashboardAnalysisDetail } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
 
@@ -24,11 +24,13 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
     redirect("/login");
   }
 
+  const authorizedSession = await getAuthorizedSession(session);
+
   const { section, range, label, mood, period } = await searchParams;
   const selectedRange = normalizeRange(range);
   const selectedSection = section === "heatmap" ? "heatmap" : "trend";
 
-  const detail = await getDashboardAnalysisDetail(session.accessToken, session.spotifyUserId, selectedRange, {
+  const detail = await getDashboardAnalysisDetail(authorizedSession.accessToken, authorizedSession.spotifyUserId, selectedRange, {
     section: selectedSection,
     label,
     mood,
@@ -101,6 +103,8 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
     </main>
   );
 }
+
+
 
 
 

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getDashboardInsights } from "@/lib/spotify-dashboard";
 import { DashboardRange, FavoriteTrack } from "@/lib/types";
 
@@ -75,9 +75,11 @@ export default async function RediscoveryPage({
     redirect("/login");
   }
 
+  const authorizedSession = await getAuthorizedSession(session);
+
   const { range } = await searchParams;
   const selectedRange = normalizeRange(range);
-  const insights = await getDashboardInsights(session.accessToken, session.spotifyUserId, selectedRange);
+  const insights = await getDashboardInsights(authorizedSession.accessToken, authorizedSession.spotifyUserId, selectedRange);
 
   return (
     <main className="relative overflow-hidden px-6 py-10 md:px-10">
@@ -154,5 +156,7 @@ export default async function RediscoveryPage({
     </main>
   );
 }
+
+
 
 

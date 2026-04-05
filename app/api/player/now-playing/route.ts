@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { applySessionCookie, getSession, isSessionExpired, refreshSession } from "@/lib/auth";
+import { getAuthorizedSession, getSession } from "@/lib/auth";
 import { getNowPlaying, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
 import { getCachedValue } from "@/lib/runtime-cache";
 
@@ -20,13 +20,7 @@ export async function GET(request: NextRequest) {
     ? Math.max(1, Math.min(MAX_LIMIT, Math.floor(limitParam)))
     : DEFAULT_LIMIT;
 
-  let activeSession = session;
-  let sessionWasRefreshed = false;
-
-  if (isSessionExpired(session)) {
-    activeSession = await refreshSession(session);
-    sessionWasRefreshed = true;
-  }
+  const activeSession = await getAuthorizedSession(session);
 
   const payload = await getCachedValue(`now-playing:${activeSession.spotifyUserId}:${limit}`, NOW_PLAYING_TTL_MS, async () => {
     const [nowPlaying, syncedRecent, storedRecent] = await Promise.all([
@@ -50,12 +44,7 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  const response = NextResponse.json(payload);
-
-  if (sessionWasRefreshed) {
-    applySessionCookie(response, activeSession);
-  }
-
-  return response;
+  return NextResponse.json(payload);
 }
+
 
