@@ -44,9 +44,9 @@ export default async function Home({ searchParams }: HomeProps) {
                   <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/settings">
                     <Settings2 className="h-4 w-4" /> Settings
                   </Link>
-                  <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/api/auth/logout">
+                  <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/api/auth/logout">
                     <Disc3 className="h-4 w-4" /> Log out
-                  </Link>
+                  </a>
                 </>
               ) : null}
               <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/privacy">
@@ -75,3 +75,4 @@ export default async function Home({ searchParams }: HomeProps) {
     </main>
   );
 }
+
