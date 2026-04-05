@@ -8,8 +8,10 @@ import {
 
 const SESSION_COOKIE = "soundscope_session";
 const STATE_COOKIE = "soundscope_oauth_state";
+const AUTH_DEBUG_COOKIE = "soundscope_auth_event";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const STATE_TTL_MS = 1000 * 60 * 10;
+const AUTH_DEBUG_TTL_MS = 1000 * 60 * 10;
 
 type CookieTarget = {
   set: (name: string, value: string, options: Record<string, unknown>) => void;
@@ -103,6 +105,16 @@ function getSessionCookieOptions() {
   };
 }
 
+function getAuthDebugCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: AUTH_DEBUG_TTL_MS / 1000,
+  };
+}
+
 function setSignedCookie(target: CookieTarget, name: string, value: string, options: Record<string, unknown>) {
   target.set(name, value, options);
 }
@@ -165,6 +177,27 @@ export function applySessionCookie(target: { cookies: CookieTarget }, session: A
   setSignedCookie(target.cookies, SESSION_COOKIE, buildSessionCookieValue(session), getSessionCookieOptions());
 }
 
+export function applyAuthEventCookie(target: { cookies: CookieTarget }, event: string, details?: string) {
+  const payload = JSON.stringify({ event, details: details ?? null, at: new Date().toISOString() });
+  setSignedCookie(target.cookies, AUTH_DEBUG_COOKIE, encodeSignedValue(payload), getAuthDebugCookieOptions());
+}
+
+export async function getAuthEventCookie() {
+  const cookieStore = await cookies();
+  const rawValue = cookieStore.get(AUTH_DEBUG_COOKIE)?.value;
+  const payload = decodeSignedValue<string>(rawValue);
+
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(payload) as { event: string; details?: string | null; at: string };
+  } catch {
+    return null;
+  }
+}
+
 export function applyClearedSessionCookies(target: { cookies: CookieTarget }) {
   target.cookies.delete(SESSION_COOKIE);
   target.cookies.delete(STATE_COOKIE);
@@ -213,6 +246,7 @@ export async function refreshSession(session: AuthSession) {
 export function createOauthState() {
   return crypto.randomBytes(24).toString("base64url");
 }
+
 
 
 

@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { applyClearedSessionCookies, applySessionCookie, clearSessionCookie, getSession, refreshSession } from "@/lib/auth";
+import { applyAuthEventCookie, applyClearedSessionCookies, applySessionCookie, clearSessionCookie, getSession, refreshSession } from "@/lib/auth";
 import { touchConnectedUser } from "@/lib/connected-users";
 import { getAppUrl } from "@/lib/spotify";
 
@@ -9,7 +9,9 @@ export async function GET(request: NextRequest) {
   const session = await getSession();
 
   if (!session) {
-    return NextResponse.redirect(getAppUrl("/login"));
+    const response = NextResponse.redirect(getAppUrl("/login", request));
+    applyAuthEventCookie(response, "refresh_missing_session");
+    return response;
   }
 
   try {
@@ -23,12 +25,16 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.redirect(getAppUrl(returnTo, request));
     applySessionCookie(response, nextSession);
+    applyAuthEventCookie(response, "refresh_success", `user:${session.spotifyUserId}`);
     return response;
-  } catch {
+  } catch (error) {
     await clearSessionCookie();
+    const message = error instanceof Error ? error.message : String(error);
     const response = NextResponse.redirect(getAppUrl("/login?error=session_refresh_failed", request));
     applyClearedSessionCookies(response);
+    applyAuthEventCookie(response, "refresh_failed", message);
     return response;
   }
 }
+
 

@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { applySessionCookie, buildSession, consumeAuthStateCookie } from "@/lib/auth";
+import { applyAuthEventCookie, applySessionCookie, buildSession, consumeAuthStateCookie } from "@/lib/auth";
 import { upsertConnectedUser } from "@/lib/connected-users";
 import { exchangeSpotifyCode, getAppUrl, getSpotifyProfile } from "@/lib/spotify";
 
@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
     console.log("[spotify-callback] preparing redirect with session cookie");
     const response = NextResponse.redirect(getAppUrl("/dashboard", request));
     applySessionCookie(response, session);
+    applyAuthEventCookie(response, "callback_session_set", `user:${session.spotifyUserId}`);
 
     try {
       await upsertConnectedUser({
@@ -72,4 +73,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(getAppUrl("/login?error=" + errorCode, request));
   }
 }
+
 
