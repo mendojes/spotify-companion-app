@@ -325,11 +325,14 @@ body::-webkit-scrollbar-thumb {
 
 .marquee-separator {
   display: inline-flex;
-  min-width: 2.4rem;
+  width: 0.72rem;
+  height: 0.72rem;
+  flex: 0 0 0.72rem;
+  border-radius: 999px;
   justify-content: center;
-  color: var(--theme-accent);
-  font-size: 1.05rem;
-  opacity: 0.92;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.9), rgba(255,255,255,0.9) 20%, transparent 22%), linear-gradient(135deg, var(--theme-accent), var(--theme-highlight));
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.3), 0 0 18px rgba(181, 52, 141, 0.22);
+  opacity: 0.95;
 }
 
 .dashboard-mesh {

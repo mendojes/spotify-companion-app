@@ -331,7 +331,7 @@ function TrendMarquee({ tracks }: { tracks: TopListsData["tracks"] }) {
                   <span className="marquee-slash text-[var(--theme-muted)]">/</span>
                   <span>{track.artist}</span>
                 </span>
-                <span className="marquee-separator" aria-hidden="true">?</span>
+                <span className="marquee-separator" aria-hidden="true" />
               </Fragment>
             ))}
           </div>
@@ -1123,8 +1123,7 @@ export function DashboardView({
                         <div>
                           <p className="section-kicker">Playlist insight</p>
                           <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlistCard.name}</h3>
-                        </div>
-                        <div className="sticker-badge px-3 py-1 font-mono text-lg text-[var(--theme-badge)]">0{index + 1}</div>
+                        </div>
                       </div>
                     </div>
                   ) : null}

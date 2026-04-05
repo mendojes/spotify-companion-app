@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { ArrowRight, Heart, ImageIcon, Music4, Play, Search, SmilePlus, Sparkles, Star, Waves, Zap } from "lucide-react";
@@ -27,15 +28,17 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
       <div className="orbital-orb right-[8%] top-32 h-40 w-40 bg-[#9af2ff]" />
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="marquee-strip rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.18em] text-[#572282]">
-          <div>
-            <span>pastel desktop pop</span>
-            <span>spotify scrapbook</span>
-            <span>album-art collage</span>
-            <span>playlist toybox</span>
-            <span>retro browser energy</span>
-            <span>pastel desktop pop</span>
-            <span>spotify scrapbook</span>
-            <span>album-art collage</span>
+          <div className="marquee-track">
+            {[0, 1].map((group) => (
+              <div key={group} className="marquee-group" aria-hidden={group === 1}>
+                {['pastel desktop pop', 'spotify scrapbook', 'album-art collage', 'playlist toybox', 'retro browser energy'].map((item) => (
+                  <Fragment key={`${group}-${item}`}>
+                    <span className="marquee-item">{item}</span>
+                    <span className="marquee-separator" aria-hidden="true" />
+                  </Fragment>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
 
