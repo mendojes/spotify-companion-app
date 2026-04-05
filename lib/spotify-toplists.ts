@@ -19,6 +19,10 @@ export const FULL_TOP_LIST_LIMIT = 50;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const MIN_RECENT_PLAYS_FOR_TOPS = 5;
+
+function getTopListSourceLimit(limit: number) {
+  return Math.min(FULL_TOP_LIST_LIMIT, Math.max(limit, 20, limit * 4));
+}
 const MAX_RECENT_PLAYS_FOR_TOPS = 5000;
 
 type SnapshotListPair = {
@@ -536,9 +540,10 @@ async function getRecentPlayTopLists(spotifyUserId: string, range: TopListRange,
     return null;
   }
 
+  const sourceLimit = getTopListSourceLimit(limit);
   const artists = deriveRecentArtists(recentPlays, limit, buildArtistMetadataFromSnapshots(snapshots));
   const tracks = deriveRecentTracks(recentPlays, limit);
-  const albums = deriveRecentAlbums(recentPlays, limit);
+  const albums = deriveRecentAlbums(recentPlays, sourceLimit).slice(0, limit);
 
   return {
     range,
@@ -556,15 +561,17 @@ async function getRecentPlayTopLists(spotifyUserId: string, range: TopListRange,
 async function getFallbackSpotifyTopLists(accessToken: string, range: TopListRange, limit: number): Promise<TopListsData> {
   const spotifyRange = getFallbackSpotifyRange(range);
   const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
+  const sourceLimit = getTopListSourceLimit(boundedLimit);
 
   const [artistsResponse, tracksResponse] = await Promise.all([
-    spotifyFetch<SpotifyTopArtistsResponse>(`/me/top/artists?time_range=${spotifyRange}&limit=${boundedLimit}`, accessToken),
-    spotifyFetch<SpotifyTopTracksResponse>(`/me/top/tracks?time_range=${spotifyRange}&limit=${boundedLimit}`, accessToken),
+    spotifyFetch<SpotifyTopArtistsResponse>(`/me/top/artists?time_range=${spotifyRange}&limit=${sourceLimit}`, accessToken),
+    spotifyFetch<SpotifyTopTracksResponse>(`/me/top/tracks?time_range=${spotifyRange}&limit=${sourceLimit}`, accessToken),
   ]);
 
   const artists = toArtistList(artistsResponse.items, boundedLimit);
-  const tracks = toTrackList(tracksResponse.items, boundedLimit);
-  const albums = deriveAlbumsFromTracks(tracks, boundedLimit);
+  const expandedTracks = toTrackList(tracksResponse.items, sourceLimit);
+  const tracks = expandedTracks.slice(0, boundedLimit);
+  const albums = deriveAlbumsFromTracks(expandedTracks, boundedLimit);
 
   return {
     range,
@@ -629,9 +636,11 @@ export async function getSpotifyTopLists(
   }
 
   if (snapshots.length > 0 && (range === "all" || range === "custom")) {
+    const sourceLimit = getTopListSourceLimit(boundedLimit);
     const artists = aggregateArtistsFromSnapshots(snapshots, range, boundedLimit, from, to);
-    const tracks = aggregateTracksFromSnapshots(snapshots, range, boundedLimit, from, to);
-    const albums = deriveAlbumsFromTracks(tracks, boundedLimit);
+    const expandedTracks = aggregateTracksFromSnapshots(snapshots, range, sourceLimit, from, to);
+    const tracks = expandedTracks.slice(0, boundedLimit);
+    const albums = deriveAlbumsFromTracks(expandedTracks, boundedLimit);
 
     return {
       range,
@@ -669,9 +678,11 @@ export async function getSpotifyTopListsFromSnapshots(
     return null;
   }
 
+  const sourceLimit = getTopListSourceLimit(boundedLimit);
   const artists = aggregateArtistsFromSnapshots(historicalSnapshots, range, boundedLimit, from, to);
-  const tracks = aggregateTracksFromSnapshots(historicalSnapshots, range, boundedLimit, from, to);
-  const albums = deriveAlbumsFromTracks(tracks, boundedLimit);
+  const expandedTracks = aggregateTracksFromSnapshots(historicalSnapshots, range, sourceLimit, from, to);
+  const tracks = expandedTracks.slice(0, boundedLimit);
+  const albums = deriveAlbumsFromTracks(expandedTracks, boundedLimit);
 
   return {
     range,

@@ -1108,7 +1108,7 @@ export function DashboardView({
                     <div className="media-frame relative mb-5 aspect-square p-2">
                       <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-cover" />
                       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
-                      <div className="absolute bottom-5 left-5 right-5 flex items-center gap-3 rounded-[20px] border border-white/30 bg-[rgba(255,245,255,0.82)] px-4 py-3 pr-5 backdrop-blur-sm">
+                      <div className="absolute bottom-5 left-5 right-5 rounded-[20px] border border-white/30 bg-[rgba(255,245,255,0.82)] px-4 py-3 backdrop-blur-sm">
                         <div>
                           <p className="section-kicker">Playlist insight</p>
                           <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlistCard.name}</h3>
