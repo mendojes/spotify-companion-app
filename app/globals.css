@@ -290,11 +290,39 @@ body::-webkit-scrollbar-thumb {
 }
 
 .marquee-strip > div {
-  color: var(--theme-title);
   display: inline-flex;
+  align-items: center;
   gap: 1.5rem;
-  min-width: 100%;
-  animation: marquee 18s linear infinite;
+}
+
+.marquee-track {
+  color: var(--theme-title);
+  display: flex;
+  width: max-content;
+  align-items: center;
+  animation: marquee 22s linear infinite;
+}
+
+.marquee-group {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 1rem;
+  padding-right: 1rem;
+}
+
+.marquee-item {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.marquee-separator {
+  display: inline-flex;
+  min-width: 2rem;
+  justify-content: center;
+  color: var(--theme-accent);
+  opacity: 0.85;
 }
 
 .dashboard-mesh {
@@ -604,7 +632,7 @@ html[data-theme="dark"] .desktop-card .section-kicker {
     transform: translateX(0%);
   }
   100% {
-    transform: translateX(-100%);
+    transform: translateX(-50%);
   }
 }
 

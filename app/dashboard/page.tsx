@@ -33,7 +33,7 @@ function normalizeTopRange(range?: string): TopListRange {
     return range;
   }
 
-  return "month";
+  return "week";
 }
 
 function dashboardRangeToTopListRange(range: DashboardRange): TopListRange {

@@ -317,13 +317,20 @@ function TrackShelfCard({
   );
 }
 function TrendMarquee({ tracks }: { tracks: TopListsData["tracks"] }) {
-  const items = [...tracks, ...tracks];
+  const items = tracks.length > 0 ? tracks : [];
 
   return (
     <div className="marquee-strip rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.18em] text-[var(--theme-title)]">
-      <div>
-        {items.map((track, index) => (
-          <span key={`${track.id}-${index}`}>{track.title} / {track.artist}</span>
+      <div className="marquee-track">
+        {[0, 1].map((group) => (
+          <div key={group} className="marquee-group" aria-hidden={group === 1}>
+            {items.map((track) => (
+              <Fragment key={`${group}-${track.id}`}>
+                <span className="marquee-item">{track.title} <span className="text-[var(--theme-muted)]">/</span> {track.artist}</span>
+                <span className="marquee-separator" aria-hidden="true">{"//"}</span>
+              </Fragment>
+            ))}
+          </div>
         ))}
       </div>
     </div>
@@ -371,7 +378,7 @@ export function DashboardView({
   selectedRange = "week",
   topLists,
   heroTopLists,
-  selectedTopRange = "month",
+  selectedTopRange = "week",
   selectedTopFrom,
   selectedTopTo,
   sidebar,
@@ -534,7 +541,7 @@ export function DashboardView({
     <>
       <section id="dashboard" className="px-6 py-10 md:px-10">
         <div className="mx-auto max-w-7xl space-y-8">
-          <TrendMarquee tracks={topListData.tracks} />
+          <TrendMarquee tracks={heroTopListData.tracks} />
 
           <div className={sidebar && !isPreview ? "grid gap-8 2xl:grid-cols-[minmax(0,1fr)_420px] 2xl:items-start" : "space-y-8"}>
             <div className="min-w-0">
@@ -860,7 +867,7 @@ export function DashboardView({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-3">
                 {topRangeTabs.map((tab) => {
-                  const active = (isPreview ? "month" : selectedTopRange) === tab.key;
+                  const active = (isPreview ? "week" : selectedTopRange) === tab.key;
                   const href = isPreview ? undefined : `${dashboardBasePath}?range=${selectedRange}&topRange=${tab.key}${tab.key === "custom" ? topRangeQuery : ""}`;
 
                   return (
