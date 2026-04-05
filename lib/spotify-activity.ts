@@ -99,6 +99,7 @@ function toStoredRecentPlay(spotifyUserId: string, item: SpotifyRecentlyPlayedIt
     trackName: item.track.name,
     artistName: item.track.artists.map((artist) => artist.name).join(", "),
     albumName: item.track.album.name,
+    durationMs: item.track.duration_ms,
     imageUrl: item.track.album.images?.[0]?.url,
     playlistId,
     sourceType: item.context?.type,
@@ -155,6 +156,21 @@ export async function syncRecentPlays(accessToken: string, spotifyUserId: string
   }
 
   return recentPlays;
+}
+
+function filterRecentPlaysForRange(recentPlays: StoredRecentPlay[], range: "week" | "month" | "all") {
+  if (range === "all") {
+    return recentPlays;
+  }
+
+  const days = range === "week" ? 7 : 30;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return recentPlays.filter((play) => new Date(play.playedAt).getTime() >= cutoff);
+}
+
+export async function getStoredRecentPlaysForRange(spotifyUserId: string, range: "week" | "month" | "all", limit = RECENT_PLAY_LOOKBACK_LIMIT) {
+  const recentPlays = await getStoredRecentPlays(spotifyUserId, limit);
+  return filterRecentPlaysForRange(recentPlays, range);
 }
 
 export async function getStoredRecentPlays(spotifyUserId: string, limit = RECENT_PLAY_LOOKBACK_LIMIT) {

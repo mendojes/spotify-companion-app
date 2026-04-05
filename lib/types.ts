@@ -283,6 +283,7 @@ export type StoredRecentPlay = {
   trackName: string;
   artistName: string;
   albumName: string;
+  durationMs?: number;
   imageUrl?: string;
   playlistId?: string;
   playlistName?: string;

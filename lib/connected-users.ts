@@ -19,6 +19,7 @@ export type ConnectedUser = {
   lastSnapshotAt?: string;
   lastSnapshotStatus?: "success" | "error";
   lastSnapshotError?: string;
+  lastRecentSyncAt?: string;
 };
 
 export type CommunityUserProfile = {
@@ -163,6 +164,28 @@ export async function markConnectedUserSnapshotStatus(
         lastSnapshotAt: now,
         lastSnapshotStatus: status,
         lastSnapshotError: errorMessage,
+        updatedAt: now,
+      },
+    },
+  );
+}
+
+export async function markConnectedUserRecentSync(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
+    { spotifyUserId },
+    {
+      $set: {
+        lastRecentSyncAt: now,
         updatedAt: now,
       },
     },

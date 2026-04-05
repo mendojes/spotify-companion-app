@@ -24,6 +24,7 @@
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 
 import { getCachedPlaylistInsights } from "@/lib/spotify-playlists";
+import { getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-activity";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 
 const genreColors = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
@@ -32,6 +33,7 @@ const heatmapPeriods = ["Morning", "Afternoon", "Evening", "Late Night"] as cons
 const SNAPSHOT_REFRESH_TTL_MS = 1000 * 60 * 15;
 const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = true;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
+const SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS = 1000 * 60 * 60 * 6;
 
 type MoodAnalyticsResult = {
   moodData: MoodPoint[];
@@ -134,6 +136,35 @@ function downsampleSnapshotsForDashboardRange(snapshots: SpotifyDashboardSnapsho
 function dashboardCacheError(step: string, error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return new Error(`[${step}] ${message}`);
+}
+
+function toRecentPlayedItemsFromStoredPlays(recentPlays: Array<{
+  trackId: string;
+  playedAt: string;
+  trackName: string;
+  artistName: string;
+  albumName: string;
+  durationMs?: number;
+  imageUrl?: string;
+}>): SpotifyRecentlyPlayedItem[] {
+  return recentPlays.map((play) => ({
+    played_at: play.playedAt,
+    track: {
+      id: play.trackId,
+      name: play.trackName,
+      popularity: 0,
+      duration_ms: play.durationMs ?? 0,
+      album: {
+        name: play.albumName,
+        images: play.imageUrl ? [{ url: play.imageUrl }] : undefined,
+      },
+      artists: play.artistName.split(/,\s*/).filter(Boolean).map((name) => ({ name })),
+    },
+  }));
+}
+
+function mergeRecentSources(primary: SpotifyRecentlyPlayedItem[], fallback: SpotifyRecentlyPlayedItem[]) {
+  return dedupeRecent([...fallback, ...primary]);
 }
 
 function dedupeRecent(items: SpotifyRecentlyPlayedItem[]) {
@@ -778,7 +809,11 @@ async function deriveInsights(
   spotifyUserId?: string,
 ): Promise<DashboardInsights> {
   const sortedSnapshots = [...snapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
-  const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
+  const snapshotRecent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
+  const storedRecent = spotifyUserId ? await getStoredRecentPlaysForRange(spotifyUserId, range).catch(() => []) : [];
+  const recent = storedRecent.length > 0
+    ? mergeRecentSources(toRecentPlayedItemsFromStoredPlays(storedRecent), snapshotRecent)
+    : snapshotRecent;
   const topArtists = aggregateArtists(sortedSnapshots);
   const topTracks = aggregateTracks(sortedSnapshots);
   const longTermTopTracks = sortedSnapshots.flatMap((snapshot) => snapshot.longTermTopTracks ?? []);
@@ -961,8 +996,35 @@ async function fetchSnapshot(accessToken: string, spotifyUserId: string): Promis
   };
 }
 
-export async function refreshDashboardSnapshot(accessToken: string, spotifyUserId: string) {
+export async function shouldWriteSnapshot(spotifyUserId: string, recentPlays?: Array<{ playedAt: string }>) {
+  const latestSnapshot = await getLatestSnapshot(spotifyUserId);
+
+  if (!latestSnapshot) {
+    return true;
+  }
+
+  const latestSnapshotTime = new Date(latestSnapshot.fetchedAt).getTime();
+  const latestRecentPlayTime = recentPlays
+    ?.map((play) => new Date(play.playedAt).getTime())
+    .filter((time) => Number.isFinite(time))
+    .sort((a, b) => b - a)[0];
+
+  if (!latestRecentPlayTime) {
+    return !isFresh(latestSnapshot.fetchedAt, SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS);
+  }
+
+  return latestRecentPlayTime > latestSnapshotTime && (latestRecentPlayTime - latestSnapshotTime >= 1000 * 60 * 5 || !isFresh(latestSnapshot.fetchedAt, SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS));
+}
+
+export async function refreshDashboardSnapshot(accessToken: string, spotifyUserId: string, recentPlays?: Awaited<ReturnType<typeof syncRecentPlays>>) {
   await ensureIndexes();
+  const syncedRecent = recentPlays ?? await syncRecentPlays(accessToken, spotifyUserId).catch(() => []);
+  const shouldWrite = await shouldWriteSnapshot(spotifyUserId, syncedRecent);
+
+  if (!shouldWrite) {
+    return (await getLatestSnapshot(spotifyUserId)) ?? fetchSnapshot(accessToken, spotifyUserId);
+  }
+
   const snapshot = await fetchSnapshot(accessToken, spotifyUserId);
   await writeSnapshot(snapshot);
   return snapshot;
