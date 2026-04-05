@@ -326,8 +326,12 @@ function TrendMarquee({ tracks }: { tracks: TopListsData["tracks"] }) {
           <div key={group} className="marquee-group" aria-hidden={group === 1}>
             {items.map((track) => (
               <Fragment key={`${group}-${track.id}`}>
-                <span className="marquee-item">{track.title} <span className="text-[var(--theme-muted)]">/</span> {track.artist}</span>
-                <span className="marquee-separator" aria-hidden="true">{"//"}</span>
+                <span className="marquee-item">
+                  <span>{track.title}</span>
+                  <span className="marquee-slash text-[var(--theme-muted)]">/</span>
+                  <span>{track.artist}</span>
+                </span>
+                <span className="marquee-separator" aria-hidden="true">?</span>
               </Fragment>
             ))}
           </div>
