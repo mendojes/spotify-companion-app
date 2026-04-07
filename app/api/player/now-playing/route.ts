@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAuthorizedSession, getSession } from "@/lib/auth";
 import { getNowPlaying, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
 import { getCachedValue } from "@/lib/runtime-cache";
@@ -23,15 +23,16 @@ export async function GET(request: NextRequest) {
   const activeSession = await getAuthorizedSession(session);
 
   const payload = await getCachedValue(`now-playing:${activeSession.spotifyUserId}:${limit}`, NOW_PLAYING_TTL_MS, async () => {
-    const [nowPlaying, syncedRecent, storedRecent] = await Promise.all([
+    const [nowPlaying, syncedRecent] = await Promise.all([
       getNowPlaying(activeSession.accessToken).catch(() => ({ isPlaying: false })),
       syncRecentPlays(activeSession.accessToken, activeSession.spotifyUserId).catch(() => []),
-      getStoredRecentPlays(activeSession.spotifyUserId, limit).catch(() => []),
     ]);
+    const storedRecent = await getStoredRecentPlays(activeSession.spotifyUserId, limit).catch(() => []);
+    const recentTracksSource = storedRecent.length > 0 ? storedRecent : syncedRecent.slice(0, limit);
 
     return {
       ...nowPlaying,
-      recentTracks: storedRecent.map((play) => ({
+      recentTracks: recentTracksSource.map((play) => ({
         trackId: play.trackId,
         title: play.trackName,
         artist: play.artistName,
@@ -46,5 +47,4 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(payload);
 }
-
 

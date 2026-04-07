@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -134,6 +134,7 @@ function useNowPlayingState() {
   const pendingRecentTrackRef = useRef<RecentTrackSummary | null>(null);
   const pollTimerRef = useRef<number | undefined>(undefined);
   const handoffTimerRef = useRef<number | undefined>(undefined);
+  const loadRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     stateRef.current = state;
@@ -176,6 +177,10 @@ function useNowPlayingState() {
         const serverRecentTracks = nextState.recentTracks ?? [];
         const pendingRecentTrack = pendingRecentTrackRef.current;
         const serverContainsPending = serverHasMatchingRecentTrack(serverRecentTracks, pendingRecentTrack);
+        const hasTrackChange =
+          Boolean(previous?.track?.id) &&
+          Boolean(nextState.track?.id) &&
+          previous?.track?.id !== nextState.track?.id;
 
         if (serverContainsPending) {
           pendingRecentTrackRef.current = null;
@@ -199,10 +204,22 @@ function useNowPlayingState() {
           remainingPreviousMs <= HANDOFF_GRACE_MS;
 
         const resolvedState = nextState.track
-          ? {
-              ...nextState,
-              recentTracks: mergedRecentTracks,
-            }
+          ? (() => {
+              if (hasTrackChange && previous?.track) {
+                const { nextState: handedOffState, recentTrack } = handOffCurrentTrack(previous);
+                pendingRecentTrackRef.current = recentTrack;
+
+                return {
+                  ...nextState,
+                  recentTracks: mergeRecentTracks(handedOffState.recentTracks ?? [], mergedRecentTracks),
+                };
+              }
+
+              return {
+                ...nextState,
+                recentTracks: mergedRecentTracks,
+              };
+            })()
           : shouldHandOffPrevious && previous?.track
             ? (() => {
                 const { nextState: handedOffState, recentTrack } = handOffCurrentTrack(previous);
@@ -244,10 +261,12 @@ function useNowPlayingState() {
       }
     }
 
+    loadRef.current = load;
     void load();
 
     return () => {
       cancelled = true;
+      loadRef.current = null;
       clearPollTimer();
     };
   }, []);
@@ -296,6 +315,7 @@ function useNowPlayingState() {
         return nextState;
       });
       setHandoffPending(true);
+      void loadRef.current?.();
     }, remainingMs + TRACK_END_DELAY_MS);
 
     return () => {

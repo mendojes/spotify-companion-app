@@ -244,6 +244,33 @@ function aggregateArtists(snapshots: SpotifyDashboardSnapshot[]) {
 
   return [...artistMap.values()].sort((a, b) => b.score - a.score || b.popularity - a.popularity);
 }
+function mergeArtists(...groups: SpotifyArtist[][]) {
+  const artistMap = new Map<string, SpotifyArtist>();
+
+  groups.flat().forEach((artist) => {
+    if (!artist?.name) {
+      return;
+    }
+
+    const key = artist.id ?? artist.name.toLowerCase();
+    const existing = artistMap.get(key);
+
+    if (!existing) {
+      artistMap.set(key, artist);
+      return;
+    }
+
+    artistMap.set(key, {
+      ...existing,
+      ...artist,
+      genres: [...new Set([...(existing.genres ?? []), ...(artist.genres ?? [])])],
+      images: existing.images?.length ? existing.images : artist.images,
+      popularity: Math.max(existing.popularity ?? 0, artist.popularity ?? 0),
+    });
+  });
+
+  return [...artistMap.values()];
+}
 
 function pushTracksWithWeight(
   map: Map<string, { track: SpotifyDashboardSnapshot["topTracks"][number]; score: number }>,
@@ -1048,23 +1075,31 @@ async function deriveInsights(
     const recentArtistIds = [
       ...storedRecent.flatMap((play) => play.artistIds ?? []),
       ...recent.flatMap((item) => item.track.artists.map((artist) => artist.id).filter((id): id is string => Boolean(id))),
+      ...topArtists.map((artist) => artist.id).filter(Boolean),
+      ...sortedSnapshots.flatMap((snapshot) => [
+        ...snapshot.topArtists.map((artist) => artist.id),
+        ...(snapshot.mediumTermTopArtists ?? []).map((artist) => artist.id),
+        ...(snapshot.longTermTopArtists ?? []).map((artist) => artist.id),
+      ].filter((id): id is string => Boolean(id))),
     ];
     const [recentArtists, fallbackTopArtists] = await Promise.all([
       fetchArtistsByIds(accessToken, recentArtistIds),
       fetchTopArtistsMetadata(accessToken),
     ]);
-    const artistMetadata = buildArtistMetadataMap([...topArtists, ...recentArtists, ...fallbackTopArtists], sortedSnapshots);
+    const mergedGenreArtists = mergeArtists(topArtists, recentArtists, fallbackTopArtists);
+    const artistMetadata = buildArtistMetadataMap(mergedGenreArtists, sortedSnapshots);
     const recentGenrePulse = storedRecent.length > 0
       ? deriveGenrePulseFromStoredRecent(storedRecent, artistMetadata)
       : deriveGenrePulseFromRecentItems(recent, artistMetadata);
     const snapshotGenrePulse = deriveGenrePulseFromRecentItems(recent, artistMetadata);
+    const mergedArtistGenrePulse = deriveGenrePulse(mergedGenreArtists, recent.length > 0 ? recent : snapshotRecent);
 
     if (recentGenrePulse.length > 0) {
       genrePulse = recentGenrePulse;
     } else if (snapshotGenrePulse.length > 0) {
       genrePulse = snapshotGenrePulse;
-    } else if (fallbackTopArtists.length > 0) {
-      genrePulse = deriveGenrePulse(fallbackTopArtists, recent);
+    } else if (mergedArtistGenrePulse.length > 0) {
+      genrePulse = mergedArtistGenrePulse;
     }
 
     const audioFeatureTrackIds = [
@@ -1412,6 +1447,9 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
   return getDashboardInsightsFromSnapshots(snapshots, range, accessToken, spotifyUserId);
 }
+
+
+
 
 
 
