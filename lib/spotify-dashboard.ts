@@ -1,4 +1,4 @@
-﻿import {
+import {
   DashboardInsights,
   DashboardRange,
   FavoriteTrack,
@@ -36,6 +36,7 @@ const SNAPSHOT_REFRESH_TTL_MS = 1000 * 60 * 15;
 const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = true;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS = 1000 * 60 * 60 * 6;
+const PACIFIC_TIME_ZONE = "America/Los_Angeles";
 
 type MoodAnalyticsResult = {
   moodData: MoodPoint[];
@@ -96,6 +97,45 @@ function getRangeWindow(range: DashboardRange) {
   return null;
 }
 
+function getPacificDateParts(value: string | Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: PACIFIC_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(value));
+
+  const lookup = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    year: Number(lookup.year),
+    month: Number(lookup.month),
+    day: Number(lookup.day),
+    hour: lookup.hour,
+  };
+}
+
+function getPacificDaySerial(value: string | Date) {
+  const { year, month, day } = getPacificDateParts(value);
+  return Math.floor(Date.UTC(year, month - 1, day) / (1000 * 60 * 60 * 24));
+}
+
+function getPacificMonthSerial(value: string | Date) {
+  const { year, month } = getPacificDateParts(value);
+  return year * 12 + (month - 1);
+}
+
+function pacificSerialToDate(daySerial: number) {
+  return new Date(daySerial * 1000 * 60 * 60 * 24 + 1000 * 60 * 60 * 12);
+}
+
+function pacificMonthSerialToDate(monthSerial: number) {
+  const year = Math.floor(monthSerial / 12);
+  const month = monthSerial % 12;
+  return new Date(Date.UTC(year, month, 1, 12));
+}
+
 function filterSnapshotsForDashboardRange(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange) {
   const windowStart = getRangeWindow(range);
 
@@ -107,16 +147,12 @@ function filterSnapshotsForDashboardRange(snapshots: SpotifyDashboardSnapshot[],
 }
 
 function getDashboardSnapshotBucketKey(snapshot: SpotifyDashboardSnapshot, range: DashboardRange) {
-  const date = new Date(snapshot.fetchedAt);
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
+  const { year, month, day, hour } = getPacificDateParts(snapshot.fetchedAt);
 
   if (range === "all") {
     return `${year}-${month}-${day}`;
   }
 
-  const hour = String(date.getUTCHours()).padStart(2, "0");
   return `${year}-${month}-${day}-${hour}`;
 }
 
@@ -589,68 +625,107 @@ function deriveMoodAnalytics(
   };
 }
 
-function buildTrendBuckets(range: DashboardRange) {
+type TrendBucket = {
+  key: string;
+  label: string;
+};
+
+function buildTrendBuckets(range: DashboardRange): TrendBucket[] {
   const now = new Date();
+  const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: PACIFIC_TIME_ZONE });
+  const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: PACIFIC_TIME_ZONE });
 
   if (range === "week") {
+    const todaySerial = getPacificDaySerial(now);
     return Array.from({ length: 7 }, (_, index) => {
-      const start = new Date(now);
-      start.setDate(now.getDate() - (6 - index));
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setHours(23, 59, 59, 999);
+      const daySerial = todaySerial - (6 - index);
+      const labelDate = pacificSerialToDate(daySerial);
       return {
-        label: new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(start),
-        start,
-        end,
+        key: `day:${daySerial}`,
+        label: weekdayFormatter.format(labelDate),
       };
     });
   }
 
   if (range === "month") {
+    const todaySerial = getPacificDaySerial(now);
+    const firstBucketStart = todaySerial - 29;
+
     return Array.from({ length: 5 }, (_, index) => {
-      const end = new Date(now);
-      end.setDate(now.getDate() - ((4 - index) * 6));
-      end.setHours(23, 59, 59, 999);
-      const start = new Date(end);
-      start.setDate(end.getDate() - 5);
-      start.setHours(0, 0, 0, 0);
+      const bucketStart = firstBucketStart + index * 6;
+      const labelDate = pacificSerialToDate(bucketStart);
+      const { day } = getPacificDateParts(labelDate);
+
       return {
-        label: `${new Intl.DateTimeFormat("en-US", { month: "short" }).format(start)} ${start.getDate()}`,
-        start,
-        end,
+        key: `window:${index}`,
+        label: `${monthFormatter.format(labelDate)} ${day}`,
       };
     });
   }
 
+  const currentMonthSerial = getPacificMonthSerial(now);
   return Array.from({ length: 6 }, (_, index) => {
-    const base = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
-    const start = new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0, 0);
-    const end = new Date(base.getFullYear(), base.getMonth() + 1, 0, 23, 59, 59, 999);
+    const monthSerial = currentMonthSerial - (5 - index);
+    const labelDate = pacificMonthSerialToDate(monthSerial);
     return {
-      label: new Intl.DateTimeFormat("en-US", { month: "short" }).format(start),
-      start,
-      end,
+      key: `month:${monthSerial}`,
+      label: monthFormatter.format(labelDate),
     };
   });
 }
 
+function getTrendBucketKeyForPlay(playedAt: string, range: DashboardRange) {
+  if (range === "week") {
+    const todaySerial = getPacificDaySerial(new Date());
+    const playSerial = getPacificDaySerial(playedAt);
+    return playSerial >= todaySerial - 6 && playSerial <= todaySerial ? `day:${playSerial}` : null;
+  }
+
+  if (range === "month") {
+    const todaySerial = getPacificDaySerial(new Date());
+    const firstBucketStart = todaySerial - 29;
+    const playSerial = getPacificDaySerial(playedAt);
+
+    if (playSerial < firstBucketStart || playSerial > todaySerial) {
+      return null;
+    }
+
+    const index = Math.min(4, Math.floor((playSerial - firstBucketStart) / 6));
+    return `window:${index}`;
+  }
+
+  const currentMonthSerial = getPacificMonthSerial(new Date());
+  const playMonthSerial = getPacificMonthSerial(playedAt);
+  return playMonthSerial >= currentMonthSerial - 5 && playMonthSerial <= currentMonthSerial ? `month:${playMonthSerial}` : null;
+}
+
 function deriveTrendData(recent: SpotifyRecentlyPlayedItem[], range: DashboardRange): TrendPoint[] {
   const buckets = buildTrendBuckets(range);
+  const bucketMap = new Map<string, { minutes: number; artists: Set<string> }>(
+    buckets.map((bucket) => [bucket.key, { minutes: 0, artists: new Set<string>() }]),
+  );
+
+  recent.forEach((item) => {
+    const bucketKey = getTrendBucketKeyForPlay(item.played_at, range);
+    if (!bucketKey || !bucketMap.has(bucketKey)) {
+      return;
+    }
+
+    const bucket = bucketMap.get(bucketKey);
+    if (!bucket) {
+      return;
+    }
+
+    bucket.minutes += minutesFromMs(item.track.duration_ms);
+    item.track.artists.forEach((artist) => bucket.artists.add(artist.name.toLowerCase()));
+  });
 
   return buckets.map((bucket) => {
-    const bucketItems = recent.filter((item) => {
-      const playedAt = new Date(item.played_at).getTime();
-      return playedAt >= bucket.start.getTime() && playedAt <= bucket.end.getTime();
-    });
-
-    const minutes = Math.round(bucketItems.reduce((sum, item) => sum + minutesFromMs(item.track.duration_ms), 0));
-    const artistSpread = new Set(bucketItems.flatMap((item) => item.track.artists.map((artist) => artist.name.toLowerCase()))).size;
-
+    const values = bucketMap.get(bucket.key) ?? { minutes: 0, artists: new Set<string>() };
     return {
       label: bucket.label,
-      minutes,
-      rediscovered: artistSpread,
+      minutes: Math.round(values.minutes),
+      rediscovered: values.artists.size,
     };
   });
 }
@@ -1164,7 +1239,7 @@ export async function getDashboardInsights(accessToken: string, spotifyUserId: s
 
 export async function getDashboardInsightsLive(accessToken: string, spotifyUserId: string, range: DashboardRange): Promise<DashboardInsights> {
   const snapshot = await fetchSnapshot(accessToken, spotifyUserId);
-  return deriveInsights([snapshot], range, accessToken);
+  return deriveInsights([snapshot], range, accessToken, spotifyUserId);
 }
 
 export async function getDashboardAnalysisDetail(
@@ -1188,10 +1263,7 @@ export async function getDashboardAnalysisDetail(
     const buckets = buildTrendBuckets(range);
     const targetBucket = buckets.find((bucket) => bucket.label === options.label) ?? buckets[0];
     const entries = recentMoodMeta
-      .filter((meta) => {
-        const playedAt = new Date(meta.item.played_at).getTime();
-        return playedAt >= targetBucket.start.getTime() && playedAt <= targetBucket.end.getTime();
-      })
+      .filter((meta) => getTrendBucketKeyForPlay(meta.item.played_at, range) === targetBucket.key)
       .map(toAnalysisEntry);
 
     return {
@@ -1296,6 +1368,11 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
   return getDashboardInsightsFromSnapshots(snapshots, range, accessToken, spotifyUserId);
 }
+
+
+
+
+
 
 
 

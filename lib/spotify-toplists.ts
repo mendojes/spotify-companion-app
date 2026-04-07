@@ -1,4 +1,4 @@
-﻿import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { spotifyFetch } from "@/lib/spotify";
 import {
   SpotifyArtist,
@@ -39,6 +39,24 @@ type RecentPlayTopLists = TopListsData & {
 
 function getArtistGenres(artist: Pick<SpotifyArtist, "genres">) {
   return Array.isArray(artist.genres) ? artist.genres : [];
+}
+function getPacificDateParts(value: string | Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(value));
+
+  const lookup = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    year: Number(lookup.year),
+    month: Number(lookup.month),
+    day: Number(lookup.day),
+    hour: lookup.hour,
+  };
 }
 
 function toIsoDayStart(value: string) {
@@ -88,17 +106,15 @@ function filterSnapshotsForTopRange(snapshots: SpotifyDashboardSnapshot[], range
 }
 
 function getTopListSnapshotBucketKey(snapshot: SpotifyDashboardSnapshot, range: TopListRange) {
-  const date = new Date(snapshot.fetchedAt);
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
+  const { year, month, day, hour } = getPacificDateParts(snapshot.fetchedAt);
+  const paddedMonth = String(month).padStart(2, "0");
+  const paddedDay = String(day).padStart(2, "0");
 
   if (range === "all" || range === "year") {
-    return `${year}-${month}-${day}`;
+    return `${year}-${paddedMonth}-${paddedDay}`;
   }
 
-  const hour = String(date.getUTCHours()).padStart(2, "0");
-  return `${year}-${month}-${day}-${hour}`;
+  return `${year}-${paddedMonth}-${paddedDay}-${hour}`;
 }
 
 function downsampleSnapshotsForTopRange(snapshots: SpotifyDashboardSnapshot[], range: TopListRange) {
@@ -795,6 +811,7 @@ export async function getSpotifyTopListsFromHistory(
 
   return getSpotifyTopListsFromSnapshots(snapshots, range, boundedLimit, from, to);
 }
+
 
 
 
