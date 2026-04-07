@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import Image from "next/image";
@@ -235,6 +235,18 @@ function getAdaptiveValueClass(value: string) {
   return "text-3xl md:text-4xl leading-[0.92]";
 }
 
+function getAdaptivePlaylistTitleClass(value: string) {
+  if (value.length > 26) {
+    return "text-2xl leading-[0.98] tracking-[0.04em] [overflow-wrap:anywhere]";
+  }
+
+  if (value.length > 16) {
+    return "text-[2rem] leading-[1] tracking-[0.06em] [overflow-wrap:anywhere]";
+  }
+
+  return "text-3xl leading-[1] tracking-[0.08em]";
+}
+
 function MetricWindow({
   label,
   value,
@@ -428,6 +440,7 @@ export function DashboardView({
   ));
   const playlistCards = livePlaylistInsights ?? data.playlistInsights;
   const genrePulseItems = data.genrePulse.length > 0 ? data.genrePulse : buildGenreFallback(topListData.artists);
+  const hasGenrePulseData = genrePulseItems.length > 0;
 
   useEffect(() => {
     setHydratedInsights(insights);
@@ -752,33 +765,43 @@ export function DashboardView({
                     <p className="mt-1 text-sm text-[var(--theme-body)]">your biggest styles get stacked like icons pinned to a pastel corkboard.</p>
                   </div>
                   <div className="mt-6 h-[300px] rounded-[24px] border-2 border-[rgba(57,18,98,0.22)] bg-white/[0.62] p-3">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={genrePulseItems} layout="vertical" margin={{ left: 8 }}>
-                        <CartesianGrid horizontal={false} stroke="var(--chart-grid)" strokeDasharray="4 6" />
-                        <XAxis type="number" hide />
-                        <YAxis type="category" dataKey="genre" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} width={96} />
-                        <Tooltip contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }} labelStyle={{ color: "var(--theme-title)", fontWeight: 600 }} itemStyle={{ color: "var(--theme-title)" }} />
-                        <Bar dataKey="hours" radius={[0, 14, 14, 0]} barSize={18}>
-                          {genrePulseItems.map((entry) => (
-                            <Cell key={entry.genre} fill={entry.color} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="mt-5 grid gap-3">
-                    {genrePulseItems.slice(0, 3).map((genre) => (
-                      <div key={genre.genre} className="desktop-card px-4 py-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{genre.genre}</span>
-                          <span className="font-mono text-xl uppercase text-[var(--theme-highlight)]">{genre.hours}h</span>
+                    {hasGenrePulseData ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={genrePulseItems} layout="vertical" margin={{ left: 8 }}>
+                          <CartesianGrid horizontal={false} stroke="var(--chart-grid)" strokeDasharray="4 6" />
+                          <XAxis type="number" hide />
+                          <YAxis type="category" dataKey="genre" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} width={96} />
+                          <Tooltip contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }} labelStyle={{ color: "var(--theme-title)", fontWeight: 600 }} itemStyle={{ color: "var(--theme-title)" }} />
+                          <Bar dataKey="hours" radius={[0, 14, 14, 0]} barSize={18}>
+                            {genrePulseItems.map((entry) => (
+                              <Cell key={entry.genre} fill={entry.color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-full items-center justify-center rounded-[20px] border border-dashed border-[rgba(57,18,98,0.18)] bg-white/[0.32] px-6 text-center">
+                        <div className="max-w-sm space-y-2">
+                          <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">genre data unavailable</p>
+                          <p className="text-sm leading-6 text-[var(--theme-body)]">We could not match enough artist genre metadata for this listening window yet.</p>
                         </div>
                       </div>
-                    ))}
+                    )}
                   </div>
+                  {hasGenrePulseData ? (
+                    <div className="mt-5 grid gap-3">
+                      {genrePulseItems.slice(0, 3).map((genre) => (
+                        <div key={genre.genre} className="desktop-card px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{genre.genre}</span>
+                            <span className="font-mono text-xl uppercase text-[var(--theme-highlight)]">{genre.hours}h</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-
               <div className="grid gap-6 2xl:grid-cols-[0.88fr_1.12fr]">
                 <div className="glass-panel rounded-[34px] p-6 md:p-7 text-[var(--theme-text)]">
                   <div className="flex items-center justify-between gap-3">
@@ -1137,18 +1160,24 @@ export function DashboardView({
             {playlistCards.map((playlistCard, index) => {
               const content = (
                 <>
-                  {playlistCard.imageUrl ? (
-                    <div className="media-frame relative mb-5 aspect-square p-2">
-                      <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-cover" />
-                      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
-                      <div className="absolute bottom-5 left-5 right-5 rounded-[20px] border border-white/30 bg-[rgba(255,245,255,0.82)] px-4 py-3 backdrop-blur-sm">
-                        <div>
-                          <p className="section-kicker">Playlist insight</p>
-                          <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlistCard.name}</h3>
-                        </div>
+                  <div className="mb-5 space-y-4">
+                    {playlistCard.imageUrl ? (
+                      <div className="media-frame relative aspect-square p-2">
+                        <Image src={playlistCard.imageUrl} alt={playlistCard.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-cover" />
+                        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(72,24,110,0.12)_42%,rgba(72,24,110,0.3))]" />
                       </div>
+                    ) : (
+                      <div className="media-frame flex aspect-square items-center justify-center p-3 font-mono text-xl uppercase tracking-[0.16em] text-ink/60">
+                        Mix
+                      </div>
+                    )}
+                    <div className="desktop-card min-h-[9rem] p-4 md:min-h-[10rem]">
+                      <p className="section-kicker">Playlist insight</p>
+                      <h3 className={`mt-3 font-display uppercase text-[var(--theme-title)] ${getAdaptivePlaylistTitleClass(playlistCard.name)}`}>
+                        {playlistCard.name}
+                      </h3>
                     </div>
-                  ) : null}
+                  </div>
                   <div className="grid gap-4">
                     <div className="desktop-card p-4">
                       <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Mood consistency</p>

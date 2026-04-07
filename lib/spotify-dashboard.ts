@@ -37,6 +37,8 @@ const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = true;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS = 1000 * 60 * 60 * 6;
 const PACIFIC_TIME_ZONE = "America/Los_Angeles";
+const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( genre pulse fallback )";
+const PUBLIC_TAG_FETCH_LIMIT = 12;
 
 type MoodAnalyticsResult = {
   moodData: MoodPoint[];
@@ -299,6 +301,29 @@ function aggregateTracks(snapshots: SpotifyDashboardSnapshot[]) {
   return [...trackMap.values()].sort((a, b) => b.score - a.score || b.track.popularity - a.track.popularity).map((entry) => entry.track);
 }
 
+function mergeArtistMetadata(baseArtists: SpotifyArtist[], metadataArtists: SpotifyArtist[]) {
+  const metadataById = new Map(metadataArtists.filter((artist) => artist?.id).map((artist) => [artist.id, artist]));
+
+  return baseArtists.map((artist) => {
+    const metadataArtist = artist.id ? metadataById.get(artist.id) : undefined;
+
+    if (!metadataArtist) {
+      return {
+        ...artist,
+        genres: getArtistGenres(artist),
+      };
+    }
+
+    return {
+      ...artist,
+      ...metadataArtist,
+      genres: getArtistGenres(metadataArtist).length > 0 ? getArtistGenres(metadataArtist) : getArtistGenres(artist),
+      images: metadataArtist.images?.length ? metadataArtist.images : artist.images,
+      popularity: Math.max(metadataArtist.popularity ?? 0, artist.popularity ?? 0),
+    } satisfies SpotifyArtist;
+  });
+}
+
 async function fetchTopArtistsMetadata(accessToken: string) {
   try {
     const [shortTerm, mediumTerm, longTerm] = await Promise.all([
@@ -314,7 +339,9 @@ async function fetchTopArtistsMetadata(accessToken: string) {
       }
     });
 
-    return [...artistMap.values()];
+    const artists = [...artistMap.values()];
+    const enrichedArtists = await fetchArtistsByIds(accessToken, artists.map((artist) => artist.id));
+    return mergeArtistMetadata(artists, enrichedArtists);
   } catch {
     return [] as SpotifyArtist[];
   }
@@ -337,6 +364,61 @@ async function fetchArtistsByIds(accessToken: string, artistIds: string[]) {
   } catch {
     return [] as SpotifyArtist[];
   }
+}
+
+function hydrateCachedTopListsArtists(
+  cachedTopLists: SpotifyDashboardSnapshot["cachedTopLists"],
+  metadataArtists: SpotifyArtist[],
+): SpotifyDashboardSnapshot["cachedTopLists"] {
+  if (!cachedTopLists) {
+    return cachedTopLists;
+  }
+
+  const metadataById = new Map(metadataArtists.filter((artist) => artist?.id).map((artist) => [artist.id, artist]));
+
+  return Object.fromEntries(
+    Object.entries(cachedTopLists).map(([key, list]) => [
+      key,
+      {
+        ...list,
+        artists: list.artists.map((artist) => {
+          const metadataArtist = metadataById.get(artist.id);
+          if (!metadataArtist) {
+            return artist;
+          }
+
+          return {
+            ...artist,
+            genres: getArtistGenres(metadataArtist).length > 0 ? getArtistGenres(metadataArtist) : artist.genres,
+            imageUrl: artist.imageUrl ?? metadataArtist.images?.[0]?.url,
+          };
+        }),
+      },
+    ]),
+  ) as SpotifyDashboardSnapshot["cachedTopLists"];
+}
+
+async function enrichSnapshotsWithArtistMetadata(snapshots: SpotifyDashboardSnapshot[], accessToken: string) {
+  const snapshotArtistIds = snapshots.flatMap((snapshot) => [
+    ...snapshot.topArtists.map((artist) => artist.id),
+    ...(snapshot.mediumTermTopArtists ?? []).map((artist) => artist.id),
+    ...(snapshot.longTermTopArtists ?? []).map((artist) => artist.id),
+    ...snapshot.recent.flatMap((item) => item.track.artists.map((artist) => artist.id).filter((id): id is string => Boolean(id))),
+    ...Object.values(snapshot.cachedTopLists ?? {}).flatMap((cachedList) => cachedList.artists.map((artist) => artist.id)),
+  ]);
+
+  const metadataArtists = await fetchArtistsByIds(accessToken, snapshotArtistIds);
+  if (metadataArtists.length === 0) {
+    return snapshots;
+  }
+
+  return snapshots.map((snapshot) => ({
+    ...snapshot,
+    topArtists: mergeArtistMetadata(snapshot.topArtists, metadataArtists),
+    mediumTermTopArtists: mergeArtistMetadata(snapshot.mediumTermTopArtists ?? [], metadataArtists),
+    longTermTopArtists: mergeArtistMetadata(snapshot.longTermTopArtists ?? [], metadataArtists),
+    cachedTopLists: hydrateCachedTopListsArtists(snapshot.cachedTopLists, metadataArtists),
+  }));
 }
 
 function buildArtistMetadataMap(topArtists: SpotifyArtist[], snapshots: SpotifyDashboardSnapshot[]) {
@@ -484,6 +566,75 @@ function deriveGenrePulseFromRecentItems(recent: SpotifyRecentlyPlayedItem[], ar
       hours: Number(((score / total) * scaledHours).toFixed(1)),
       color: genreColors[index % genreColors.length],
     }));
+}
+
+function buildGenrePulseFromArtistTags(
+  items: Array<{ artistNames: string[]; durationMs?: number }>,
+  artistTags: Map<string, string[]>,
+) {
+  const scores = new Map<string, number>();
+  const totalHours = hoursFromMs(items.reduce((sum, item) => sum + (item.durationMs ?? 0), 0));
+
+  items.forEach((item, index) => {
+    const contribution = Math.max(0.15, hoursFromMs(item.durationMs ?? 0) * 3.2 || 0.15);
+    const genres = new Set<string>();
+
+    item.artistNames.forEach((artistName) => {
+      (artistTags.get(artistName.toLowerCase()) ?? []).forEach((genre) => genres.add(genre));
+    });
+
+    genres.forEach((genre) => {
+      scores.set(genre, (scores.get(genre) ?? 0) + contribution + Math.max(0, 0.02 * (items.length - index)));
+    });
+  });
+
+  const total = [...scores.values()].reduce((sum, value) => sum + value, 0) || 1;
+  const scaledHours = Math.max(totalHours, 1);
+
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([genre, score], index) => ({
+      genre,
+      hours: Number(((score / total) * scaledHours).toFixed(1)),
+      color: genreColors[index % genreColors.length],
+    }));
+}
+
+async function fetchMusicBrainzArtistTags(artistNames: string[]) {
+  const uniqueNames = [...new Set(artistNames.map((name) => name.trim()).filter(Boolean))].slice(0, PUBLIC_TAG_FETCH_LIMIT);
+  const tagMap = new Map<string, string[]>();
+
+  await Promise.all(uniqueNames.map(async (artistName) => {
+    try {
+      const response = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(artistName)}&fmt=json&limit=1`, {
+        headers: {
+          "User-Agent": MUSICBRAINZ_USER_AGENT,
+        },
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = await response.json() as { artists?: Array<{ name?: string; score?: number | string; tags?: Array<{ name?: string; count?: number }> }> };
+      const match = payload.artists?.[0];
+      const score = Number(match?.score ?? 0);
+      const tags = (match?.tags ?? [])
+        .map((tag) => tag?.name?.trim().toLowerCase() ?? "")
+        .filter((tag) => tag.length > 2)
+        .slice(0, 5);
+
+      if (score >= 80 && tags.length > 0) {
+        tagMap.set(artistName.toLowerCase(), tags);
+      }
+    } catch {
+      return;
+    }
+  }));
+
+  return tagMap;
 }
 
 function getMoodScores(feature: SpotifyAudioFeature) {
@@ -1052,7 +1203,8 @@ async function deriveInsights(
   accessToken?: string,
   spotifyUserId?: string,
 ): Promise<DashboardInsights> {
-  const sortedSnapshots = [...snapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
+  const metadataSnapshots = accessToken ? await enrichSnapshotsWithArtistMetadata(snapshots, accessToken) : snapshots;
+  const sortedSnapshots = [...metadataSnapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
   const snapshotRecent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
   const storedRecent = spotifyUserId ? await getStoredRecentPlaysForRange(spotifyUserId, range).catch(() => []) : [];
   const recent = storedRecent.length > 0
@@ -1100,6 +1252,23 @@ async function deriveInsights(
       genrePulse = snapshotGenrePulse;
     } else if (mergedArtistGenrePulse.length > 0) {
       genrePulse = mergedArtistGenrePulse;
+    } else {
+      const fallbackArtistNames = [
+        ...storedRecent.flatMap((play) => play.artistName.split(/,\s*/)),
+        ...recent.flatMap((item) => item.track.artists.map((artist) => artist.name)),
+        ...mergedGenreArtists.map((artist) => artist.name),
+      ];
+      const publicArtistTags = await fetchMusicBrainzArtistTags(fallbackArtistNames);
+      const publicGenrePulse = buildGenrePulseFromArtistTags(
+        storedRecent.length > 0
+          ? storedRecent.map((play) => ({ artistNames: play.artistName.split(/,\s*/), durationMs: play.durationMs }))
+          : recent.map((item) => ({ artistNames: item.track.artists.map((artist) => artist.name), durationMs: item.track.duration_ms })),
+        publicArtistTags,
+      );
+
+      if (publicGenrePulse.length > 0) {
+        genrePulse = publicGenrePulse;
+      }
     }
 
     const audioFeatureTrackIds = [
@@ -1257,14 +1426,17 @@ async function fetchSnapshot(accessToken: string, spotifyUserId: string): Promis
     fetchSavedTracks(accessToken, 100),
   ]);
 
+  const allTopArtists = [...topArtists.items, ...mediumTermTopArtists.items, ...longTermTopArtists.items];
+  const enrichedArtists = await fetchArtistsByIds(accessToken, allTopArtists.map((artist) => artist.id));
+
   const snapshot = {
     spotifyUserId,
     schemaVersion: SNAPSHOT_TOP_LISTS_SCHEMA_VERSION,
-    topArtists: topArtists.items,
+    topArtists: mergeArtistMetadata(topArtists.items, enrichedArtists),
     topTracks: topTracks.items,
-    mediumTermTopArtists: mediumTermTopArtists.items,
+    mediumTermTopArtists: mergeArtistMetadata(mediumTermTopArtists.items, enrichedArtists),
     mediumTermTopTracks: mediumTermTopTracks.items,
-    longTermTopArtists: longTermTopArtists.items,
+    longTermTopArtists: mergeArtistMetadata(longTermTopArtists.items, enrichedArtists),
     longTermTopTracks: longTermTopTracks.items,
     savedTracks,
     recent: recent.items,
@@ -1447,4 +1619,12 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
   return getDashboardInsightsFromSnapshots(snapshots, range, accessToken, spotifyUserId);
 }
+
+
+
+
+
+
+
+
 

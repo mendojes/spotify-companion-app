@@ -303,6 +303,37 @@ function toTrackList(items: SpotifyTopTracksResponse["items"], limit: number): T
   }));
 }
 
+async function enrichArtistsWithGenres(accessToken: string, artists: SpotifyArtist[]) {
+  const uniqueArtistIds = [...new Set(artists.map((artist) => artist.id).filter(Boolean))].slice(0, 200);
+
+  if (uniqueArtistIds.length === 0) {
+    return artists.map((artist) => ({ ...artist, genres: getArtistGenres(artist) }));
+  }
+
+  try {
+    const chunks = Array.from({ length: Math.ceil(uniqueArtistIds.length / 50) }, (_, index) => uniqueArtistIds.slice(index * 50, index * 50 + 50));
+    const responses = await Promise.all(chunks.map((chunk) => spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${chunk.join(",")}`, accessToken)));
+    const metadataById = new Map(responses.flatMap((response) => response.artists ?? []).filter((artist) => artist?.id).map((artist) => [artist.id, artist]));
+
+    return artists.map((artist) => {
+      const metadataArtist = metadataById.get(artist.id);
+      if (!metadataArtist) {
+        return { ...artist, genres: getArtistGenres(artist) };
+      }
+
+      return {
+        ...artist,
+        ...metadataArtist,
+        genres: getArtistGenres(metadataArtist).length > 0 ? getArtistGenres(metadataArtist) : getArtistGenres(artist),
+        images: metadataArtist.images?.length ? metadataArtist.images : artist.images,
+        popularity: Math.max(metadataArtist.popularity ?? 0, artist.popularity ?? 0),
+      };
+    });
+  } catch {
+    return artists.map((artist) => ({ ...artist, genres: getArtistGenres(artist) }));
+  }
+}
+
 function aggregateArtistsFromSnapshots(snapshots: SpotifyDashboardSnapshot[], range: TopListRange, limit: number, from?: string, to?: string): TopListArtist[] {
   const artistMap = new Map<string, TopListArtist & { score: number }>();
 
@@ -651,7 +682,8 @@ async function getFallbackSpotifyTopLists(accessToken: string, range: TopListRan
     spotifyFetch<SpotifyTopTracksResponse>(`/me/top/tracks?time_range=${spotifyRange}&limit=${sourceLimit}`, accessToken),
   ]);
 
-  const artists = toArtistList(artistsResponse.items, boundedLimit);
+  const enrichedArtists = await enrichArtistsWithGenres(accessToken, artistsResponse.items);
+  const artists = toArtistList(enrichedArtists, boundedLimit);
   const expandedTracks = toTrackList(tracksResponse.items, sourceLimit);
   const tracks = expandedTracks.slice(0, boundedLimit);
   const albums = deriveAlbumsFromTracks(expandedTracks, boundedLimit);
@@ -811,6 +843,8 @@ export async function getSpotifyTopListsFromHistory(
 
   return getSpotifyTopListsFromSnapshots(snapshots, range, boundedLimit, from, to);
 }
+
+
 
 
 
