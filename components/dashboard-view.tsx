@@ -709,16 +709,16 @@ export function DashboardView({
                       <AreaChart data={data.trendData}>
                         <defs>
                           <linearGradient id="minutesFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#7AF7FF" stopOpacity={0.72} />
-                            <stop offset="100%" stopColor="#7AF7FF" stopOpacity={0} />
+                            <stop offset="0%" stopColor="#5a35b8" stopOpacity={0.55} />
+                            <stop offset="100%" stopColor="#5a35b8" stopOpacity={0.05} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid vertical={false} stroke="var(--chart-grid)" strokeDasharray="4 6" />
                         <XAxis dataKey="label" stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 15 }} tickLine={false} axisLine={false} />
                         <YAxis stroke="var(--chart-axis)" tick={{ fill: "var(--chart-axis)", fontSize: 14 }} tickLine={false} axisLine={false} />
                         <Tooltip contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }} labelStyle={{ color: "var(--theme-title)", fontWeight: 600 }} itemStyle={{ color: "var(--theme-title)" }} />
-                        <Area type="monotone" dataKey="minutes" stroke="#7AF7FF" strokeWidth={4} fill="url(#minutesFill)" />
-                        <Bar dataKey="rediscovered" fill="#a81f7f" radius={[10, 10, 0, 0]} barSize={20} />
+                        <Area type="monotone" dataKey="minutes" stroke="#4b2f99" strokeWidth={4} fill="url(#minutesFill)" />
+                        <Bar dataKey="rediscovered" fill="#8b1c68" radius={[10, 10, 0, 0]} barSize={20} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>

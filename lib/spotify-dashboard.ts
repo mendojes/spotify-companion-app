@@ -236,6 +236,27 @@ function aggregateTracks(snapshots: SpotifyDashboardSnapshot[]) {
   return [...trackMap.values()].sort((a, b) => b.score - a.score || b.track.popularity - a.track.popularity).map((entry) => entry.track);
 }
 
+async function fetchTopArtistsMetadata(accessToken: string) {
+  try {
+    const [shortTerm, mediumTerm, longTerm] = await Promise.all([
+      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=short_term&limit=25", accessToken),
+      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=medium_term&limit=25", accessToken),
+      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=long_term&limit=25", accessToken),
+    ]);
+
+    const artistMap = new Map<string, SpotifyArtist>();
+    [...shortTerm.items, ...mediumTerm.items, ...longTerm.items].forEach((artist) => {
+      if (artist?.id) {
+        artistMap.set(artist.id, artist);
+      }
+    });
+
+    return [...artistMap.values()];
+  } catch {
+    return [] as SpotifyArtist[];
+  }
+}
+
 async function fetchArtistsByIds(accessToken: string, artistIds: string[]) {
   const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 50);
 
@@ -914,9 +935,15 @@ async function deriveInsights(
 
   if (accessToken) {
     const recentArtistIds = storedRecent.flatMap((play) => play.artistIds ?? []);
-    const recentArtists = await fetchArtistsByIds(accessToken, recentArtistIds);
-    const artistMetadata = buildArtistMetadataMap([...topArtists, ...recentArtists], sortedSnapshots);
+    const [recentArtists, fallbackTopArtists] = await Promise.all([
+      fetchArtistsByIds(accessToken, recentArtistIds),
+      fetchTopArtistsMetadata(accessToken),
+    ]);
+    const artistMetadata = buildArtistMetadataMap([...topArtists, ...recentArtists, ...fallbackTopArtists], sortedSnapshots);
     const recentGenrePulse = deriveGenrePulseFromStoredRecent(storedRecent, artistMetadata);
+     if (genrePulse.length === 0 && fallbackTopArtists.length > 0) {
+      genrePulse = deriveGenrePulse(fallbackTopArtists, recent);
+    }
     if (recentGenrePulse.length > 0) {
       genrePulse = recentGenrePulse;
     }
