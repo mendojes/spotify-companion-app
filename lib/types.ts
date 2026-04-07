@@ -278,6 +278,11 @@ export type SpotifyRecentlyPlayedItem = {
 
 export type SpotifyRecentlyPlayedResponse = {
   items: SpotifyRecentlyPlayedItem[];
+  next?: string | null;
+  cursors?: {
+    after?: string;
+    before?: string;
+  };
 };
 
 export type StoredRecentPlay = {
@@ -356,6 +361,4 @@ export type SpotifyDashboardSnapshot = {
   recent: SpotifyRecentlyPlayedItem[];
   fetchedAt: string;
 };
-
-
 

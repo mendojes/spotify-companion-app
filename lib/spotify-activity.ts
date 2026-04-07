@@ -10,6 +10,7 @@ import {
 
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const RECENT_PLAY_LOOKBACK_LIMIT = 500;
+const RECENT_PLAY_SYNC_WINDOW_DAYS = 35;
 
 function getPlaylistIdFromContext(context?: SpotifyRecentlyPlayedItem["context"] | SpotifyCurrentlyPlayingResponse["context"]) {
   if (context?.type !== "playlist") {
@@ -107,6 +108,69 @@ function toStoredRecentPlay(spotifyUserId: string, item: SpotifyRecentlyPlayedIt
   };
 }
 
+async function fetchRecentPlayHistory(accessToken: string, limit = RECENT_PLAY_LOOKBACK_LIMIT) {
+  const items: SpotifyRecentlyPlayedItem[] = [];
+  const seenKeys = new Set<string>();
+  const boundedLimit = Math.max(1, Math.min(RECENT_PLAY_LOOKBACK_LIMIT, limit));
+  const cutoffMs = Date.now() - RECENT_PLAY_SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  let before: string | undefined;
+
+  while (items.length < boundedLimit) {
+    const pageSize = Math.min(50, boundedLimit - items.length);
+    const searchParams = new URLSearchParams({ limit: String(pageSize) });
+
+    if (before) {
+      searchParams.set("before", before);
+    }
+
+    const response = await spotifyFetch<SpotifyRecentlyPlayedResponse>(`/me/player/recently-played?${searchParams.toString()}`, accessToken);
+    const pageItems = response.items ?? [];
+
+    if (pageItems.length === 0) {
+      break;
+    }
+
+    let reachedCutoff = false;
+
+    for (const item of pageItems) {
+      const playedAtMs = new Date(item.played_at).getTime();
+      if (Number.isFinite(playedAtMs) && playedAtMs < cutoffMs) {
+        reachedCutoff = true;
+        continue;
+      }
+
+      const dedupeKey = `${item.track.id}:${item.played_at}`;
+      if (seenKeys.has(dedupeKey)) {
+        continue;
+      }
+
+      seenKeys.add(dedupeKey);
+      items.push(item);
+
+      if (items.length >= boundedLimit) {
+        break;
+      }
+    }
+
+    const oldestItem = pageItems[pageItems.length - 1];
+    const oldestPlayedAtMs = oldestItem ? new Date(oldestItem.played_at).getTime() : Number.NaN;
+
+    if (
+      items.length >= boundedLimit ||
+      pageItems.length < pageSize ||
+      !Number.isFinite(oldestPlayedAtMs) ||
+      reachedCutoff ||
+      oldestPlayedAtMs < cutoffMs
+    ) {
+      break;
+    }
+
+    before = String(oldestPlayedAtMs - 1);
+  }
+
+  return items;
+}
+
 export async function ensureRecentPlayIndexes() {
   if (!hasMongoConfig()) {
     return;
@@ -125,8 +189,8 @@ export async function ensureRecentPlayIndexes() {
 }
 
 export async function syncRecentPlays(accessToken: string, spotifyUserId: string) {
-  const response = await spotifyFetch<SpotifyRecentlyPlayedResponse>("/me/player/recently-played?limit=50", accessToken);
-  const recentPlays = response.items.map((item) => toStoredRecentPlay(spotifyUserId, item));
+  const recentItems = await fetchRecentPlayHistory(accessToken);
+  const recentPlays = recentItems.map((item) => toStoredRecentPlay(spotifyUserId, item));
 
   if (!hasMongoConfig()) {
     return recentPlays;
@@ -213,3 +277,4 @@ export async function getNowPlaying(accessToken: string): Promise<NowPlayingStat
     playingFrom: await getPlayingFrom(accessToken, response),
   };
 }
+

@@ -1253,7 +1253,7 @@ async function fetchSnapshot(accessToken: string, spotifyUserId: string): Promis
     spotifyFetch<SpotifyTopTracksResponse>("/me/top/tracks?time_range=medium_term&limit=15", accessToken),
     spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=long_term&limit=20", accessToken),
     spotifyFetch<SpotifyTopTracksResponse>("/me/top/tracks?time_range=long_term&limit=20", accessToken),
-    spotifyFetch<SpotifyRecentlyPlayedResponse>("/me/player/recently-played?limit=20", accessToken),
+    spotifyFetch<SpotifyRecentlyPlayedResponse>("/me/player/recently-played?limit=50", accessToken),
     fetchSavedTracks(accessToken, 100),
   ]);
 
@@ -1447,25 +1447,4 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
   return getDashboardInsightsFromSnapshots(snapshots, range, accessToken, spotifyUserId);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
