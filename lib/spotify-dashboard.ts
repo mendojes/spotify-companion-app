@@ -294,15 +294,19 @@ async function fetchTopArtistsMetadata(accessToken: string) {
 }
 
 async function fetchArtistsByIds(accessToken: string, artistIds: string[]) {
-  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 50);
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 200);
 
   if (uniqueArtistIds.length === 0) {
     return [] as SpotifyArtist[];
   }
 
   try {
-    const response = await spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${uniqueArtistIds.join(",")}`, accessToken);
-    return response.artists ?? [];
+    const chunks = Array.from({ length: Math.ceil(uniqueArtistIds.length / 50) }, (_, index) => uniqueArtistIds.slice(index * 50, index * 50 + 50));
+    const responses = await Promise.all(
+      chunks.map((chunk) => spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${chunk.join(",")}`, accessToken)),
+    );
+
+    return responses.flatMap((response) => response.artists ?? []);
   } catch {
     return [] as SpotifyArtist[];
   }
@@ -412,6 +416,38 @@ function deriveGenrePulse(topArtists: SpotifyArtist[], recent: SpotifyRecentlyPl
 
   const total = [...scores.values()].reduce((sum, value) => sum + value, 0) || 1;
   const scaledHours = Math.max(recentListeningHours, 6);
+
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([genre, score], index) => ({
+      genre,
+      hours: Number(((score / total) * scaledHours).toFixed(1)),
+      color: genreColors[index % genreColors.length],
+    }));
+}
+function deriveGenrePulseFromRecentItems(recent: SpotifyRecentlyPlayedItem[], artistMetadata: Map<string, { genres: string[]; imageUrl?: string }>) {
+  const scores = new Map<string, number>();
+  const recentListeningHours = hoursFromMs(recent.reduce((sum, item) => sum + item.track.duration_ms, 0));
+
+  recent.forEach((item, index) => {
+    const contribution = Math.max(0.15, hoursFromMs(item.track.duration_ms) * 3.2 || 0.15);
+    const genres = new Set<string>();
+
+    item.track.artists.forEach((artistRef) => {
+      const keys = [artistRef.id, artistRef.name.toLowerCase()].filter(Boolean) as string[];
+      keys.forEach((key) => {
+        (artistMetadata.get(key)?.genres ?? []).forEach((genre) => genres.add(genre));
+      });
+    });
+
+    genres.forEach((genre) => {
+      scores.set(genre, (scores.get(genre) ?? 0) + contribution + Math.max(0, 0.02 * (recent.length - index)));
+    });
+  });
+
+  const total = [...scores.values()].reduce((sum, value) => sum + value, 0) || 1;
+  const scaledHours = Math.max(recentListeningHours, 1);
 
   return [...scores.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -1009,18 +1045,26 @@ async function deriveInsights(
   let playlistInsights: PlaylistInsight[] = [];
 
   if (accessToken) {
-    const recentArtistIds = storedRecent.flatMap((play) => play.artistIds ?? []);
+    const recentArtistIds = [
+      ...storedRecent.flatMap((play) => play.artistIds ?? []),
+      ...recent.flatMap((item) => item.track.artists.map((artist) => artist.id).filter((id): id is string => Boolean(id))),
+    ];
     const [recentArtists, fallbackTopArtists] = await Promise.all([
       fetchArtistsByIds(accessToken, recentArtistIds),
       fetchTopArtistsMetadata(accessToken),
     ]);
     const artistMetadata = buildArtistMetadataMap([...topArtists, ...recentArtists, ...fallbackTopArtists], sortedSnapshots);
-    const recentGenrePulse = deriveGenrePulseFromStoredRecent(storedRecent, artistMetadata);
-     if (genrePulse.length === 0 && fallbackTopArtists.length > 0) {
-      genrePulse = deriveGenrePulse(fallbackTopArtists, recent);
-    }
+    const recentGenrePulse = storedRecent.length > 0
+      ? deriveGenrePulseFromStoredRecent(storedRecent, artistMetadata)
+      : deriveGenrePulseFromRecentItems(recent, artistMetadata);
+    const snapshotGenrePulse = deriveGenrePulseFromRecentItems(recent, artistMetadata);
+
     if (recentGenrePulse.length > 0) {
       genrePulse = recentGenrePulse;
+    } else if (snapshotGenrePulse.length > 0) {
+      genrePulse = snapshotGenrePulse;
+    } else if (fallbackTopArtists.length > 0) {
+      genrePulse = deriveGenrePulse(fallbackTopArtists, recent);
     }
 
     const audioFeatureTrackIds = [
@@ -1368,6 +1412,9 @@ export async function getDashboardInsightsFromHistory(spotifyUserId: string, ran
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
   return getDashboardInsightsFromSnapshots(snapshots, range, accessToken, spotifyUserId);
 }
+
+
+
 
 
 
