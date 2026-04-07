@@ -97,6 +97,14 @@ async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>
   }
 }
 
+function insightsNeedEnrichment(insights?: { genrePulse?: Array<unknown> }) {
+  if (!insights) {
+    return true;
+  }
+
+  return (insights.genrePulse?.length ?? 0) === 0;
+}
+
 function topListsNeedEnrichment(topLists?: { artists: Array<{ genres: string[] }>; albums: Array<unknown> }) {
   if (!topLists) {
     return true;
@@ -160,17 +168,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
 
   const cacheErrors = [cachedSnapshots.error].filter((value): value is string => Boolean(value));
+  const incompleteInsights = insightsNeedEnrichment(insights);
   const incompleteTopLists = topListsNeedEnrichment(topLists);
   const incompleteHeroTopLists = topListsNeedEnrichment(heroTopLists);
   const missingCachedSections = [!insights ? "insights" : null, !topLists ? "top lists" : null, !heroTopLists ? "hero top lists" : null].filter(
     (value): value is string => Boolean(value),
   );
-  const neededLiveFallback = missingCachedSections.length > 0 || incompleteTopLists || incompleteHeroTopLists;
+  const neededLiveFallback = missingCachedSections.length > 0 || incompleteInsights || incompleteTopLists || incompleteHeroTopLists;
 
   if (neededLiveFallback) {
     try {
       const [liveInsights, liveTopLists, liveHeroTopLists] = await loadLiveDashboardData();
-      insights ??= liveInsights;
+      if (!insights || incompleteInsights) {
+        insights = liveInsights;
+      }
       if (!topLists || incompleteTopLists) {
         topLists = liveTopLists;
       }
@@ -194,7 +205,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           }
 
           const [liveInsights, liveTopLists, liveHeroTopLists] = await loadLiveDashboardData();
-          insights ??= liveInsights;
+          if (!insights || incompleteInsights) {
+            insights = liveInsights;
+          }
           if (!topLists || incompleteTopLists) {
             topLists = liveTopLists;
           }
