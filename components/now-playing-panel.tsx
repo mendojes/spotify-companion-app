@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Heart, Pause, Play, Radio, Sparkles, Waves } from "lucide-react";
 import { NowPlayingState, RecentTrackSummary } from "@/lib/types";
+import { formatPstDateTime } from "@/lib/time";
 
 function formatPlayedAt(value: string) {
   return new Intl.DateTimeFormat("en-US", {

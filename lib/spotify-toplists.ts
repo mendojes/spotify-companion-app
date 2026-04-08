@@ -15,6 +15,7 @@ import {
   TopListTrack,
   TopListsData,
 } from "@/lib/types";
+import { PST_TIME_ZONE } from "@/lib/time";
 
 export const DASHBOARD_TOP_LIST_LIMIT = 5;
 export const FULL_TOP_LIST_LIMIT = 50;
@@ -42,7 +43,7 @@ function getArtistGenres(artist: Pick<SpotifyArtist, "genres">) {
 }
 function getPacificDateParts(value: string | Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
+    timeZone: PST_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

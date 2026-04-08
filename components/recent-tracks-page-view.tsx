@@ -1,10 +1,11 @@
-﻿"use client";
+"use client";
 
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Disc3 } from "lucide-react";
 import { NowPlayingState } from "@/lib/types";
+import { formatPstDateTime } from "@/lib/time";
 
 function formatPlayedAt(value: string) {
   return new Intl.DateTimeFormat("en-US", {

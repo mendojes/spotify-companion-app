@@ -6,6 +6,7 @@ import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { getListeningSnapshotSummary } from "@/lib/social";
 import { DashboardRange, TopListRange } from "@/lib/types";
+import { formatPstDateTime, PST_TIME_ZONE } from "@/lib/time";
 
 type SocialProfilePageProps = {
   params: Promise<{ spotifyUserId: string }>;
@@ -40,7 +41,7 @@ function formatCachedAt(value?: string) {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: "America/Los_Angeles",
+    timeZone: PST_TIME_ZONE,
   }).format(new Date(value)) + " PT";
 }
 

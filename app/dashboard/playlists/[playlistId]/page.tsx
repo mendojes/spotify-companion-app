@@ -4,21 +4,14 @@ import { notFound, redirect } from "next/navigation";
 import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getPlaylistDetail } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
+import { formatPstDateTime } from "@/lib/time";
 
 type PlaylistDetailPageProps = {
   params: Promise<{ playlistId: string }>;
 };
 
 function formatDateLabel(value?: string) {
-  if (!value) {
-    return "Unavailable";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(value));
+  return formatPstDateTime(value);
 }
 
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {

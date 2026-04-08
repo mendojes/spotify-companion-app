@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
+import { formatPstDateTime } from "@/lib/time";
 
 type PlaylistsPageProps = {
   searchParams: Promise<{ sort?: string }>;
@@ -29,15 +30,7 @@ function normalizeSort(sort?: string): PlaylistSortOption {
 }
 
 function formatDateLabel(value?: string) {
-  if (!value) {
-    return "Unavailable";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(value));
+  return formatPstDateTime(value);
 }
 
 function getErrorMessage(error: unknown) {

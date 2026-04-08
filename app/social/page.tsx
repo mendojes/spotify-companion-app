@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireSession } from "@/lib/auth";
 import { getConnectedUser, getDefaultPrivacySettings, listCommunityUsers } from "@/lib/connected-users";
+import { formatPstDateTime, PST_TIME_ZONE } from "@/lib/time";
 
 function formatSeenAt(value?: string) {
   if (!value) {
@@ -13,7 +14,7 @@ function formatSeenAt(value?: string) {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: "America/Los_Angeles",
+    timeZone: PST_TIME_ZONE,
   }).format(new Date(value)) + " PT";
 }
 

@@ -1,10 +1,11 @@
-﻿import Image from "next/image";
+import Image from "next/image";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getDashboardInsights } from "@/lib/spotify-dashboard";
 import { DashboardRange, FavoriteTrack } from "@/lib/types";
+import { PST_TIME_ZONE } from "@/lib/time";
 
 const ranges: Array<{ key: DashboardRange; label: string }> = [
   { key: "week", label: "This Week" },
@@ -53,7 +54,7 @@ function TrackRow({ track, accent }: { track: FavoriteTrack; accent: "mint" | "g
             </span>
             {track.savedAt ? (
               <span className="rounded-full border border-white/15 bg-white/[0.45] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-faint)]">
-                Saved {new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(track.savedAt))}
+                Saved {new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: PST_TIME_ZONE }).format(new Date(track.savedAt))}
               </span>
             ) : null}
           </div>

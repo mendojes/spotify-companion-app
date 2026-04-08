@@ -28,6 +28,7 @@ import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
 import { getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-activity";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { buildCachedTopListsForSnapshot, SNAPSHOT_TOP_LISTS_SCHEMA_VERSION } from "@/lib/spotify-toplists";
+import { PST_TIME_ZONE } from "@/lib/time";
 
 const genreColors = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
 const moodOrder = ["Energetic", "Chill", "Moody", "Joyful", "Focus"] as const;
@@ -36,7 +37,7 @@ const SNAPSHOT_REFRESH_TTL_MS = 1000 * 60 * 15;
 const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = true;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS = 1000 * 60 * 60 * 6;
-const PACIFIC_TIME_ZONE = "America/Los_Angeles";
+const PACIFIC_TIME_ZONE = PST_TIME_ZONE;
 const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( genre pulse fallback )";
 const PUBLIC_TAG_FETCH_LIMIT = 12;
 

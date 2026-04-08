@@ -30,6 +30,7 @@ import {
   trendData,
 } from "@/lib/mock-data";
 import { buildRediscoveryPlaylist, getVibeSummary } from "@/lib/insights";
+import { formatPstDateTime, PST_LABEL, PST_TIME_ZONE } from "@/lib/time";
 import {
   DashboardInsights,
   DashboardRange,
@@ -136,15 +137,14 @@ function formatTimestamp(value?: string) {
     return null;
   }
 
-  return new Intl.DateTimeFormat("en-US", {
+  return formatPstDateTime(value, {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    timeZone: "America/Los_Angeles",
     hour12: true,
-  }).format(new Date(value)) + " PT";
+  });
 }
 
 function Artwork({

@@ -20,6 +20,7 @@ import {
   SpotifyTrack,
   StoredRecentPlay,
 } from "@/lib/types";
+import { PST_TIME_ZONE } from "@/lib/time";
 
 const PLAYLIST_PAGE_LIMIT = 20;
 const PLAYLIST_TRACK_LIMIT = 100;
@@ -56,6 +57,24 @@ type StoredPlaylistLibraryItem = SpotifyPlaylist & {
   updatedAt: string;
 };
 
+function isUsablePlaylistTrack(track: unknown): track is SpotifyTrack {
+  if (!track || typeof track !== "object") {
+    return false;
+  }
+
+  const candidate = track as Partial<SpotifyTrack>;
+  return Boolean(
+    candidate.id &&
+    candidate.name &&
+    candidate.album?.name &&
+    Array.isArray(candidate.artists) &&
+    candidate.artists.length > 0,
+  );
+}
+
+function isPlaylistDetailIncomplete(detail: PlaylistDetail | CachedPlaylistDetail) {
+  return detail.trackCount <= 0 || detail.mood.toLowerCase().includes("analysis pending");
+}
 function normalizePlaylist(playlist: Partial<SpotifyPlaylist> | null | undefined): SpotifyPlaylist | null {
   if (!playlist?.id || !playlist.name) {
     return null;
@@ -647,7 +666,7 @@ function buildListenTimeline(playlistId: string, recentPlays: StoredRecentPlay[]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .slice(-14)
     .map(([day, listens]) => ({
-      label: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${day}T00:00:00.000Z`)),
+      label: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: PST_TIME_ZONE }).format(new Date(`${day}T00:00:00.000Z`)),
       playedAt: `${day}T00:00:00.000Z`,
       listens,
     }));
@@ -865,7 +884,7 @@ function buildCachedPlaylistInsights(
     uniqueById(
       playlists.map((playlist) => {
         const detail = cachedDetailMap.get(playlist.id);
-        return detail ? toInsight(detail, recentPlays) : toBasicInsight(playlist, recentPlays);
+        return detail && !isPlaylistDetailIncomplete(detail) ? toInsight(detail, recentPlays) : toBasicInsight(playlist, recentPlays);
       }),
     ),
     sort,
@@ -1032,7 +1051,10 @@ export async function getAllPlaylistInsights(
 
     const cachedDetails = await getCachedPlaylistDetails(spotifyUserId, mergedPlaylists.map((playlist) => playlist.id));
     const cachedDetailMap = new Map(cachedDetails.map((detail) => [detail.id, detail]));
-    const missingPlaylists = mergedPlaylists.filter((playlist) => !cachedDetailMap.has(playlist.id)).slice(0, PLAYLIST_DETAIL_REFRESH_LIMIT);
+    const missingPlaylists = mergedPlaylists.filter((playlist) => {
+      const cached = cachedDetailMap.get(playlist.id);
+      return !cached || isPlaylistDetailIncomplete(cached);
+    }).slice(0, PLAYLIST_DETAIL_REFRESH_LIMIT);
 
     const freshDetails = missingPlaylists.length > 0
       ? await analyzeManyPlaylists(accessToken, missingPlaylists, recentPlays)

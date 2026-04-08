@@ -1,9 +1,10 @@
-﻿import Image from "next/image";
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getDashboardAnalysisDetail } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
+import { formatPstDateTime } from "@/lib/time";
 
 type AnalysisPageProps = {
   searchParams: Promise<{ section?: string; range?: string; label?: string; mood?: string; period?: string }>;
@@ -85,7 +86,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                         <p className="mt-2 text-sm uppercase tracking-[0.2em] text-ink/55">{entry.album}</p>
                       </div>
                       <div className="text-right text-sm text-ink/70">
-                        <p>{new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.playedAt))}</p>
+                        <p>{formatPstDateTime(entry.playedAt)}</p>
                         <p className="mt-2 uppercase tracking-[0.14em]">{Math.round(entry.durationMs / 60000)} min</p>
                       </div>
                     </div>
