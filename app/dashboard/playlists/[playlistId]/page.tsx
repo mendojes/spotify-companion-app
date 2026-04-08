@@ -1,8 +1,9 @@
-﻿import Image from "next/image";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getAuthorizedSession, requireSession } from "@/lib/auth";
 import { getPlaylistDetail } from "@/lib/spotify-playlists";
+import { PlaylistDetailView } from "./playlist-detail-view";
 
 type PlaylistDetailPageProps = {
   params: Promise<{ playlistId: string }>;
@@ -51,7 +52,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
               <h1 className="mt-3 font-display text-4xl text-white md:text-5xl">{detail.name}</h1>
               <p className="mt-3 max-w-2xl text-base leading-7 text-ink/80">
                 {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
-                This view breaks down the playlist&apos;s mood center, diversity, repetition patterns, and timeline signals.
+                This view breaks down the playlist&apos;s mood center, genre composition, repeat patterns, top tracks, and listening timeline.
               </p>
               <div className="mt-4 space-y-1 text-sm text-ink/65">
                 <p>Created estimate: {formatDateLabel(detail.createdAt)}</p>
@@ -88,79 +89,8 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-3">
-          <div className="glass-panel rounded-[30px] p-6">
-            <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Genre diversity</p>
-            <p className="mt-3 text-white">{detail.diversity}</p>
-            <div className="mt-6 space-y-3">
-              {detail.topGenres.map((genre) => (
-                <div key={genre.genre} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                  <p className="text-white">{genre.genre}</p>
-                  <p className="text-sm text-cyan">{genre.count}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="glass-panel rounded-[30px] p-6">
-            <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Artist concentration</p>
-            <p className="mt-3 text-white">{detail.overlap}</p>
-            <div className="mt-6 space-y-3">
-              {detail.topArtists.map((artist) => (
-                <div key={artist.artist} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                  <p className="text-white">{artist.artist}</p>
-                  <p className="text-sm text-cyan">{artist.count}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="glass-panel rounded-[30px] p-6">
-            <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Repeated tracks</p>
-            <p className="mt-3 text-white">
-              {detail.repeatedTracks.length > 0 ? "Tracks that appear more than once in this playlist." : "No duplicate tracks detected in the analyzed slice."}
-            </p>
-            <div className="mt-6 space-y-3">
-              {(detail.repeatedTracks.length > 0 ? detail.repeatedTracks : detail.sampleTracks.slice(0, 3)).map((track) => (
-                <div key={track.id} className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  {track.imageUrl ? (
-                    <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                      <Image src={track.imageUrl} alt={track.title} fill sizes="64px" className="object-contain bg-white/[0.2]" />
-                    </div>
-                  ) : null}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-white">{track.title}</p>
-                    <p className="truncate text-sm text-ink/65">{track.artist}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="glass-panel rounded-[32px] p-6">
-          <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Sample tracks</p>
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {detail.sampleTracks.map((track) => (
-              <div key={track.id} className="flex items-center gap-4 rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
-                {track.imageUrl ? (
-                  <div className="relative h-20 w-20 overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
-                    <Image src={track.imageUrl} alt={track.title} fill sizes="80px" className="object-contain bg-white/[0.2]" />
-                  </div>
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-white">{track.title}</p>
-                  <p className="truncate text-sm text-ink/65">{track.artist}</p>
-                  <p className="truncate text-xs uppercase tracking-[0.18em] text-ink/50">{track.album}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <PlaylistDetailView detail={detail} />
       </div>
     </main>
   );
 }
-
-
-

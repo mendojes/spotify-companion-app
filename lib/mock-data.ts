@@ -161,6 +161,8 @@ export const playlistInsights: PlaylistInsight[] = [
     mood: "Dreamy / reflective",
     diversity: "High genre spread",
     overlap: "12% repeated artists",
+    topGenresSummary: "dream pop, synthwave, and ambient pop",
+    listeningCadence: "6 tracked plays across 4 days, 2 this week",
     imageUrl:
       "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
   },
@@ -169,6 +171,8 @@ export const playlistInsights: PlaylistInsight[] = [
     mood: "Explosive / confident",
     diversity: "Focused energy pocket",
     overlap: "Low redundancy",
+    topGenresSummary: "edm, house, and pop rap",
+    listeningCadence: "11 tracked plays across 6 days, 4 this week",
     imageUrl:
       "https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80",
   },
@@ -177,6 +181,8 @@ export const playlistInsights: PlaylistInsight[] = [
     mood: "Melancholic / cinematic",
     diversity: "Moderate consistency",
     overlap: "3 tracks overplayed recently",
+    topGenresSummary: "indie folk, chamber pop, and piano rock",
+    listeningCadence: "3 tracked plays across 3 days in recent history",
     imageUrl:
       "https://images.unsplash.com/photo-1496293455970-f8581aae0e3b?auto=format&fit=crop&w=1200&q=80",
   },

@@ -1,4 +1,4 @@
-﻿import Image from "next/image";
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthorizedSession, requireSession } from "@/lib/auth";
@@ -77,7 +77,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
             <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Playlist Lab</p>
             <h1 className="mt-3 font-display text-4xl text-white md:text-5xl">All playlist breakdowns</h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-ink/80">
-              Browse every playlist we can access, sort them by timeline signals, and open any one for deeper mood, genre, and overlap analysis.
+              Browse every playlist we can access, sort them by timeline signals, and open any one for deeper mood, top-genre, and listening-cadence analysis.
             </p>
             <p className="mt-3 text-sm text-ink/60">
               Created is estimated from the oldest track add date we can see, and last listened only updates when Spotify gives us exact playlist playback context.
@@ -147,16 +147,16 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
                 </div>
                 <div className="mt-6 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Mood consistency</p>
+                    <p className="text-sm text-ink/60">Mood</p>
                     <p className="mt-2 text-white">{playlist.mood}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Genre diversity</p>
-                    <p className="mt-2 text-white">{playlist.diversity}</p>
+                    <p className="text-sm text-ink/60">Top genres</p>
+                    <p className="mt-2 text-white">{playlist.topGenresSummary ?? playlist.diversity}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Redundancy</p>
-                    <p className="mt-2 text-white">{playlist.overlap}</p>
+                    <p className="text-sm text-ink/60">Listening cadence</p>
+                    <p className="mt-2 text-white">{playlist.listeningCadence ?? playlist.overlap}</p>
                   </div>
                 </div>
               </Link>

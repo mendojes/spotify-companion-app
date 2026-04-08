@@ -52,6 +52,8 @@ export type PlaylistInsight = {
   mood: string;
   diversity: string;
   overlap: string;
+  topGenresSummary?: string;
+  listeningCadence?: string;
   imageUrl?: string;
   trackCount?: number;
   createdAt?: string;
@@ -76,6 +78,12 @@ export type PlaylistTrackSummary = {
   imageUrl?: string;
 };
 
+export type PlaylistListenTimelinePoint = {
+  label: string;
+  playedAt: string;
+  listens: number;
+};
+
 export type PlaylistDetail = {
   id: string;
   name: string;
@@ -87,12 +95,15 @@ export type PlaylistDetail = {
   mood: string;
   diversity: string;
   overlap: string;
+  listeningCadence: string;
   createdAt?: string;
   lastListenedAt?: string;
   topGenres: PlaylistGenreSummary[];
   topArtists: PlaylistArtistSummary[];
   repeatedTracks: PlaylistTrackSummary[];
   sampleTracks: PlaylistTrackSummary[];
+  topTracks: PlaylistTrackSummary[];
+  listenTimeline: PlaylistListenTimelinePoint[];
 };
 
 export type DashboardInsights = {

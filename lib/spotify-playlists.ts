@@ -9,6 +9,7 @@ import {
   PlaylistInsight,
   PlaylistSortOption,
   PlaylistTrackSummary,
+  PlaylistListenTimelinePoint,
   SpotifyArtist,
   SpotifyAudioFeature,
   SpotifyAudioFeaturesResponse,
@@ -337,6 +338,8 @@ function toBasicInsight(playlist: SpotifyPlaylist, recentPlays: StoredRecentPlay
     mood: "Analysis pending",
     diversity: "Playlist cached, deeper analysis loading",
     overlap: "Open the playlist after more syncs",
+    topGenresSummary: "Loading top genres",
+    listeningCadence: getPlaylistListeningCadence(playlist.id, recentPlays),
     lastListenedAt: deriveLastListenedAt(playlist.id, recentPlays),
   };
 }
@@ -495,6 +498,24 @@ function buildGenreSummary(artists: SpotifyArtist[]): PlaylistGenreSummary[] {
     .map(([genre, count]) => ({ genre, count }));
 }
 
+function formatTopGenresSummary(topGenres: PlaylistGenreSummary[]) {
+  if (topGenres.length === 0) {
+    return "Genre metadata is sparse here";
+  }
+
+  const names = topGenres.slice(0, 3).map((genre) => genre.genre);
+
+  if (names.length === 1) {
+    return names[0];
+  }
+
+  if (names.length === 2) {
+    return `${names[0]} and ${names[1]}`;
+  }
+
+  return `${names[0]}, ${names[1]}, and ${names[2]}`;
+}
+
 function getGenreDiversity(artists: SpotifyArtist[], trackCount: number) {
   const topGenres = buildGenreSummary(artists);
   const uniqueGenres = topGenres.length === 0 ? 0 : new Set(artists.flatMap((artist) => artist.genres)).size;
@@ -505,6 +526,29 @@ function getGenreDiversity(artists: SpotifyArtist[], trackCount: number) {
   if (uniqueGenres >= 5) return `Balanced mix, top lane only ${topGenreShare}%`;
   if (uniqueGenres > 0) return `Focused palette, ${uniqueGenres} core genres`;
   return "Genre metadata is sparse here";
+}
+
+function getPlaylistListeningCadence(playlistId: string, recentPlays: StoredRecentPlay[]) {
+  const playlistPlays = recentPlays.filter((play) => play.playlistId === playlistId);
+
+  if (playlistPlays.length === 0) {
+    return "No tracked playlist plays yet";
+  }
+
+  const activeDays = new Set(playlistPlays.map((play) => play.playedAt.slice(0, 10))).size;
+  const thisWeekCount = playlistPlays.filter((play) => Date.now() - new Date(play.playedAt).getTime() <= 7 * 24 * 60 * 60 * 1000).length;
+
+  if (playlistPlays.length === 1) {
+    return thisWeekCount === 1 ? "1 tracked play this week" : "1 tracked play in recent history";
+  }
+
+  const playLabel = `${playlistPlays.length} tracked plays across ${activeDays} day${activeDays === 1 ? "" : "s"}`;
+
+  if (thisWeekCount > 0) {
+    return `${playLabel}, ${thisWeekCount} this week`;
+  }
+
+  return `${playLabel} in recent history`;
 }
 
 function buildArtistSummary(tracks: SpotifyTrack[]): PlaylistArtistSummary[] {
@@ -576,6 +620,39 @@ function buildSampleTracks(tracks: SpotifyTrack[]): PlaylistTrackSummary[] {
     }));
 }
 
+function buildTopTracks(tracks: SpotifyTrack[]): PlaylistTrackSummary[] {
+  return uniqueById(tracks)
+    .sort((a, b) => b.popularity - a.popularity)
+    .slice(0, 8)
+    .map((track) => ({
+      id: track.id,
+      title: track.name,
+      artist: track.artists.map((artist) => artist.name).join(", "),
+      album: track.album.name,
+      imageUrl: track.album.images?.[0]?.url,
+    }));
+}
+
+function buildListenTimeline(playlistId: string, recentPlays: StoredRecentPlay[]): PlaylistListenTimelinePoint[] {
+  const counts = new Map<string, number>();
+
+  recentPlays
+    .filter((play) => play.playlistId === playlistId)
+    .forEach((play) => {
+      const dayKey = play.playedAt.slice(0, 10);
+      counts.set(dayKey, (counts.get(dayKey) ?? 0) + 1);
+    });
+
+  return [...counts.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-14)
+    .map(([day, listens]) => ({
+      label: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${day}T00:00:00.000Z`)),
+      playedAt: `${day}T00:00:00.000Z`,
+      listens,
+    }));
+}
+
 function deriveCreatedAt(trackItems: PlaylistTrackWithMeta[]) {
   const timestamps = trackItems
     .map((item) => item.addedAt)
@@ -640,6 +717,8 @@ async function analyzePlaylist(
     const uniqueArtists = new Set(tracks.flatMap((track) => track.artists.map((artist) => artist.name)));
     const uniqueAlbums = new Set(tracks.map((track) => track.album.name));
 
+        const topGenres = buildGenreSummary(artists);
+
     return {
       id: playlist.id,
       name: playlist.name,
@@ -651,12 +730,15 @@ async function analyzePlaylist(
       mood: getDominantMood(features) ?? getFallbackMood(tracks),
       diversity: getGenreDiversity(artists, tracks.length),
       overlap: getRedundancy(tracks),
+      listeningCadence: getPlaylistListeningCadence(playlist.id, recentPlays),
       createdAt: deriveCreatedAt(trackItems),
       lastListenedAt: deriveLastListenedAt(playlist.id, recentPlays),
-      topGenres: buildGenreSummary(artists),
+      topGenres,
       topArtists: buildArtistSummary(tracks),
       repeatedTracks: buildRepeatedTracks(tracks),
       sampleTracks: buildSampleTracks(tracks),
+      topTracks: buildTopTracks(tracks),
+      listenTimeline: buildListenTimeline(playlist.id, recentPlays),
     };
   } catch {
     return null;
@@ -679,13 +761,15 @@ async function analyzeManyPlaylists(
   return results;
 }
 
-function toInsight(detail: PlaylistDetail): PlaylistInsight {
+function toInsight(detail: PlaylistDetail, recentPlays: StoredRecentPlay[] = []): PlaylistInsight {
   return {
     id: detail.id,
     name: detail.name,
     mood: detail.mood,
     diversity: detail.diversity,
     overlap: detail.overlap,
+    topGenresSummary: formatTopGenresSummary(detail.topGenres),
+    listeningCadence: getPlaylistListeningCadence(detail.id, recentPlays),
     imageUrl: detail.imageUrl,
     trackCount: detail.trackCount,
     createdAt: detail.createdAt,
@@ -781,7 +865,7 @@ function buildCachedPlaylistInsights(
     uniqueById(
       playlists.map((playlist) => {
         const detail = cachedDetailMap.get(playlist.id);
-        return detail ? toInsight(detail) : toBasicInsight(playlist, recentPlays);
+        return detail ? toInsight(detail, recentPlays) : toBasicInsight(playlist, recentPlays);
       }),
     ),
     sort,
@@ -855,7 +939,7 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
   const currentPlaybackTimestamp = currentPlaylistId ? new Date().toISOString() : undefined;
   const detailInsights = uniqueById(details)
     .map((detail) => {
-      const insight = toInsight(detail);
+      const insight = toInsight(detail, recentPlays);
 
       if (currentPlaylistId && detail.id === currentPlaylistId) {
         return {
@@ -963,7 +1047,7 @@ export async function getAllPlaylistInsights(
 
     const insights = mergedPlaylists.map((playlist) => {
       const detail = cachedDetailMap.get(playlist.id);
-      return detail ? toInsight(detail) : toBasicInsight(playlist, recentPlays);
+      return detail ? toInsight(detail, recentPlays) : toBasicInsight(playlist, recentPlays);
     });
 
     return sortPlaylistInsights(uniqueById(insights), sort);
@@ -1009,10 +1093,13 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
         ownerName: storedPlaylist.owner?.display_name,
         uniqueArtistCount: 0,
         uniqueAlbumCount: 0,
+        listeningCadence: getPlaylistListeningCadence(storedPlaylist.id, recentPlays),
         topGenres: [],
         topArtists: [],
         repeatedTracks: [],
         sampleTracks: [],
+        topTracks: [],
+        listenTimeline: buildListenTimeline(storedPlaylist.id, recentPlays),
       };
     }
   }

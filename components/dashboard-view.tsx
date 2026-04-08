@@ -236,12 +236,16 @@ function getAdaptiveValueClass(value: string) {
 }
 
 function getAdaptivePlaylistTitleClass(value: string) {
-  if (value.length > 26) {
-    return "text-2xl leading-[0.98] tracking-[0.04em] [overflow-wrap:anywhere]";
+  if (value.length > 24) {
+    return "text-xl leading-[1] tracking-[0.02em] [overflow-wrap:anywhere]";
   }
 
-  if (value.length > 16) {
-    return "text-[2rem] leading-[1] tracking-[0.06em] [overflow-wrap:anywhere]";
+  if (value.length > 18) {
+    return "text-2xl leading-[1] tracking-[0.03em] [overflow-wrap:anywhere]";
+  }
+
+  if (value.length > 12) {
+    return "text-[2rem] leading-[1] tracking-[0.05em] [overflow-wrap:anywhere]";
   }
 
   return "text-3xl leading-[1] tracking-[0.08em]";
@@ -1144,7 +1148,7 @@ export function DashboardView({
           <SectionHeader
             kicker="Playlist lab"
             title="Playlist intelligence as a glossy media wall"
-            copy="Playlist mood, diversity, and overlap."
+            copy="Playlist mood, top genres, and listening cadence."
           />
 
           <div className="flex items-center justify-between gap-4">
@@ -1180,16 +1184,16 @@ export function DashboardView({
                   </div>
                   <div className="grid gap-4">
                     <div className="desktop-card p-4">
-                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Mood consistency</p>
+                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Mood</p>
                       <p className="mt-2 text-[var(--theme-title)]">{playlistCard.mood}</p>
                     </div>
                     <div className="desktop-card p-4">
-                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Genre diversity</p>
-                      <p className="mt-2 text-[var(--theme-title)]">{playlistCard.diversity}</p>
+                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Top genres</p>
+                      <p className="mt-2 text-[var(--theme-title)]">{playlistCard.topGenresSummary ?? playlistCard.diversity}</p>
                     </div>
                     <div className="desktop-card p-4">
-                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Redundancy</p>
-                      <p className="mt-2 text-[var(--theme-title)]">{playlistCard.overlap}</p>
+                      <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">Listening cadence</p>
+                      <p className="mt-2 text-[var(--theme-title)]">{playlistCard.listeningCadence ?? playlistCard.overlap}</p>
                     </div>
                   </div>
                 </>
