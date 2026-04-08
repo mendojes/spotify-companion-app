@@ -1079,29 +1079,31 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
       return detail;
     }
   } catch {
-    const cached = cachedDetails[0];
-    if (cached) {
-      return cached;
-    }
+    // Fall through to cached and stored fallbacks below.
+  }
 
-    const storedPlaylist = storedLibrary.find((playlist) => playlist.id === playlistId);
-    if (storedPlaylist) {
-      return {
-        ...toBasicInsight(storedPlaylist, recentPlays),
-        id: storedPlaylist.id,
-        trackCount: storedPlaylist.tracks?.total ?? 0,
-        ownerName: storedPlaylist.owner?.display_name,
-        uniqueArtistCount: 0,
-        uniqueAlbumCount: 0,
-        listeningCadence: getPlaylistListeningCadence(storedPlaylist.id, recentPlays),
-        topGenres: [],
-        topArtists: [],
-        repeatedTracks: [],
-        sampleTracks: [],
-        topTracks: [],
-        listenTimeline: buildListenTimeline(storedPlaylist.id, recentPlays),
-      };
-    }
+  const cached = cachedDetails[0];
+  if (cached) {
+    return cached;
+  }
+
+  const storedPlaylist = storedLibrary.find((playlist) => playlist.id === playlistId);
+  if (storedPlaylist) {
+    return {
+      ...toBasicInsight(storedPlaylist, recentPlays),
+      id: storedPlaylist.id,
+      trackCount: storedPlaylist.tracks?.total ?? 0,
+      ownerName: storedPlaylist.owner?.display_name,
+      uniqueArtistCount: 0,
+      uniqueAlbumCount: 0,
+      listeningCadence: getPlaylistListeningCadence(storedPlaylist.id, recentPlays),
+      topGenres: [],
+      topArtists: [],
+      repeatedTracks: [],
+      sampleTracks: [],
+      topTracks: [],
+      listenTimeline: buildListenTimeline(storedPlaylist.id, recentPlays),
+    };
   }
 
   return null;

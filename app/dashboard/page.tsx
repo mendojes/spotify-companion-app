@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { Disc3, LogOut, RefreshCcw, Settings2, Sparkles, Users } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
@@ -97,12 +97,19 @@ async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>
   }
 }
 
-function insightsNeedEnrichment(insights?: { genrePulse?: Array<unknown> }) {
+function insightsNeedEnrichment(insights?: { genrePulse?: Array<unknown>; playlistInsights?: Array<{ mood?: string; topGenresSummary?: string }> }) {
   if (!insights) {
     return true;
   }
 
-  return (insights.genrePulse?.length ?? 0) === 0;
+  const missingGenrePulse = (insights.genrePulse?.length ?? 0) === 0;
+  const playlistInsightsNeedRefresh = (insights.playlistInsights ?? []).some((playlist) => {
+    const mood = playlist.mood?.toLowerCase() ?? "";
+    const topGenres = playlist.topGenresSummary?.toLowerCase() ?? "";
+    return mood.includes("analysis pending") || topGenres.includes("loading top genres") || topGenres.length === 0;
+  });
+
+  return missingGenrePulse || playlistInsightsNeedRefresh;
 }
 
 function topListsNeedEnrichment(topLists?: { artists: Array<{ genres: string[] }>; albums: Array<unknown> }) {

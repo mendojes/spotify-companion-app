@@ -24,7 +24,7 @@ import {
 } from "@/lib/types";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 
-import { getCachedPlaylistInsights } from "@/lib/spotify-playlists";
+import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
 import { getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-activity";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { buildCachedTopListsForSnapshot, SNAPSHOT_TOP_LISTS_SCHEMA_VERSION } from "@/lib/spotify-toplists";
@@ -1279,7 +1279,7 @@ async function deriveInsights(
       audioFeatureTrackIds.length > 0
         ? spotifyFetchOptional<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${audioFeatureTrackIds.join(",")}`, accessToken)
         : Promise.resolve(null),
-      spotifyUserId ? getCachedPlaylistInsights(accessToken, spotifyUserId).catch(() => null) : Promise.resolve(null),
+      spotifyUserId ? getAllPlaylistInsights(accessToken, spotifyUserId, "last_listened_desc").then((items) => items.slice(0, 3)).catch(() => null) : Promise.resolve(null),
     ]);
 
     const features = audioFeatureResponse?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];

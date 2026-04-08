@@ -237,15 +237,15 @@ function getAdaptiveValueClass(value: string) {
 
 function getAdaptivePlaylistTitleClass(value: string) {
   if (value.length > 24) {
-    return "text-xl leading-[1] tracking-[0.02em] [overflow-wrap:anywhere]";
+    return "text-sm leading-none tracking-[0.01em] whitespace-nowrap";
   }
 
   if (value.length > 18) {
-    return "text-2xl leading-[1] tracking-[0.03em] [overflow-wrap:anywhere]";
+    return "text-lg leading-none tracking-[0.015em] whitespace-nowrap";
   }
 
   if (value.length > 12) {
-    return "text-[2rem] leading-[1] tracking-[0.05em] [overflow-wrap:anywhere]";
+    return "text-[1.65rem] leading-none tracking-[0.03em] whitespace-nowrap";
   }
 
   return "text-3xl leading-[1] tracking-[0.08em]";
@@ -1177,7 +1177,7 @@ export function DashboardView({
                     )}
                     <div className="desktop-card min-h-[9rem] p-4 md:min-h-[10rem]">
                       <p className="section-kicker">Playlist insight</p>
-                      <h3 className={`mt-3 font-display uppercase text-[var(--theme-title)] ${getAdaptivePlaylistTitleClass(playlistCard.name)}`}>
+                      <h3 className={`mt-3 overflow-hidden font-display uppercase text-[var(--theme-title)] ${getAdaptivePlaylistTitleClass(playlistCard.name)}`}>
                         {playlistCard.name}
                       </h3>
                     </div>
