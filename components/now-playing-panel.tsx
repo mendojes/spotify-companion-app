@@ -125,6 +125,34 @@ function handOffCurrentTrack(previous: NowPlayingState) {
   };
 }
 
+async function promoteFinishedPlaylist(options: {
+  playlistId: string;
+  playlistName?: string;
+  imageUrl?: string;
+  playedAt: string;
+}) {
+  const response = await fetch("/api/dashboard/playlist-insights", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      playlistId: options.playlistId,
+      playlistName: options.playlistName,
+      imageUrl: options.imageUrl,
+      playedAt: options.playedAt,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Could not promote recently played playlist.");
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("soundscope:playlist-insights-refresh"));
+  }
+}
+
 function useNowPlayingState() {
   const [state, setState] = useState<NowPlayingState | null>(null);
   const [displayProgressMs, setDisplayProgressMs] = useState(0);
@@ -133,6 +161,7 @@ function useNowPlayingState() {
   const stateRef = useRef<NowPlayingState | null>(null);
   const displayProgressRef = useRef(0);
   const pendingRecentTrackRef = useRef<RecentTrackSummary | null>(null);
+  const pendingPlaylistPromotionKeyRef = useRef<string | null>(null);
   const pollTimerRef = useRef<number | undefined>(undefined);
   const handoffTimerRef = useRef<number | undefined>(undefined);
   const loadRef = useRef<(() => Promise<void>) | null>(null);
@@ -166,6 +195,31 @@ function useNowPlayingState() {
       }, NOW_PLAYING_POLL_MS);
     }
 
+    function queuePlaylistPromotion(previous: NowPlayingState, recentTrack: RecentTrackSummary | null) {
+      const finishedPlaylistId = previous.playingFrom?.type === "playlist" ? previous.playingFrom.playlistId : undefined;
+      const currentTopPlaylistId = stateRef.current?.playingFrom?.type === "playlist" ? stateRef.current.playingFrom.playlistId : undefined;
+
+      if (!finishedPlaylistId || !recentTrack || finishedPlaylistId === currentTopPlaylistId) {
+        return;
+      }
+
+      const promotionKey = `${finishedPlaylistId}:${recentTrack.playedAt}`;
+      if (pendingPlaylistPromotionKeyRef.current === promotionKey) {
+        return;
+      }
+
+      pendingPlaylistPromotionKeyRef.current = promotionKey;
+      void promoteFinishedPlaylist({
+        playlistId: finishedPlaylistId,
+        playlistName: previous.playingFrom?.label,
+        imageUrl: previous.playingFrom?.imageUrl,
+        playedAt: recentTrack.playedAt,
+      }).catch(() => {
+        if (pendingPlaylistPromotionKeyRef.current === promotionKey) {
+          pendingPlaylistPromotionKeyRef.current = null;
+        }
+      });
+    }
     async function load() {
       try {
         const response = await fetch("/api/player/now-playing?limit=12", { cache: "no-store" });
@@ -209,6 +263,7 @@ function useNowPlayingState() {
               if (hasTrackChange && previous?.track) {
                 const { nextState: handedOffState, recentTrack } = handOffCurrentTrack(previous);
                 pendingRecentTrackRef.current = recentTrack;
+                queuePlaylistPromotion(previous, recentTrack);
 
                 return {
                   ...nextState,
@@ -225,6 +280,7 @@ function useNowPlayingState() {
             ? (() => {
                 const { nextState: handedOffState, recentTrack } = handOffCurrentTrack(previous);
                 pendingRecentTrackRef.current = recentTrack;
+                queuePlaylistPromotion(previous, recentTrack);
 
                 return {
                   ...handedOffState,

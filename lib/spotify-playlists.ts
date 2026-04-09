@@ -295,6 +295,61 @@ export async function getDashboardPlaylistInsights(spotifyUserId: string): Promi
   return playlistInsights;
 }
 
+export async function promoteRecentlyPlayedPlaylist(
+  spotifyUserId: string,
+  playlist: { id: string; name?: string; imageUrl?: string },
+  playedAt = new Date().toISOString(),
+): Promise<PlaylistInsight[]> {
+  if (!playlist.id) {
+    return [] as PlaylistInsight[];
+  }
+
+  const [storedInsights, storedLibrary, cachedDetails] = await Promise.all([
+    getStoredPlaylistInsights(spotifyUserId),
+    getStoredPlaylistLibrary(spotifyUserId),
+    getCachedPlaylistDetails(spotifyUserId, [playlist.id]),
+  ]);
+
+  const currentTopPlaylistId = storedInsights[0]?.id;
+  const existingInsight = storedInsights.find((entry) => entry.id === playlist.id);
+  const cachedDetail = cachedDetails.find((detail) => detail.id === playlist.id);
+  const storedPlaylist = storedLibrary.find((entry) => entry.id === playlist.id);
+
+  const baseInsight = existingInsight
+    ?? (cachedDetail && !isPlaylistDetailIncomplete(cachedDetail) ? toInsight(cachedDetail) : null)
+    ?? (storedPlaylist ? toBasicInsight(storedPlaylist) : null)
+    ?? {
+      id: playlist.id,
+      name: playlist.name ?? "Spotify playlist",
+      mood: "Analysis pending",
+      diversity: "Playlist cached, deeper analysis loading",
+      overlap: "Open the playlist after more syncs",
+      topGenresSummary: "Loading top genres",
+      listeningCadence: "Refreshing recent playlist",
+      imageUrl: playlist.imageUrl,
+    };
+
+  const nextInsight: PlaylistInsight = {
+    ...baseInsight,
+    id: playlist.id,
+    name: playlist.name ?? baseInsight.name,
+    imageUrl: playlist.imageUrl ?? baseInsight.imageUrl,
+    lastListenedAt: playedAt,
+  };
+
+  const nextInsights = [
+    nextInsight,
+    ...storedInsights.filter((entry) => entry.id !== playlist.id),
+  ].slice(0, Math.max(DASHBOARD_PLAYLIST_COUNT, storedInsights.length || DASHBOARD_PLAYLIST_COUNT));
+
+  if (currentTopPlaylistId !== playlist.id || !existingInsight || existingInsight.lastListenedAt !== playedAt) {
+    await writeStoredPlaylistInsights(spotifyUserId, nextInsights);
+    invalidateCachedValue(`playlist-insights:${spotifyUserId}`);
+  }
+
+  return nextInsights;
+}
+
 async function getCachedPlaylistDetails(spotifyUserId: string, playlistIds?: string[]) {
   if (!hasMongoConfig()) {
     return [] as CachedPlaylistDetail[];

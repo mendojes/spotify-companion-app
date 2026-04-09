@@ -509,6 +509,17 @@ export function DashboardView({
       }
     }
 
+    function handlePlaylistRefresh() {
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+
+      void loadPlaylistInsights();
+    }
+
+    window.addEventListener("soundscope:playlist-insights-refresh", handlePlaylistRefresh);
+
     if (hasServerPlaylistInsights) {
       timer = window.setTimeout(loadPlaylistInsights, refreshDelayMs);
     } else {
@@ -517,6 +528,7 @@ export function DashboardView({
 
     return () => {
       cancelled = true;
+      window.removeEventListener("soundscope:playlist-insights-refresh", handlePlaylistRefresh);
       if (timer) {
         window.clearTimeout(timer);
       }
