@@ -445,6 +445,12 @@ export function DashboardView({
   const playlistCards = livePlaylistInsights ?? data.playlistInsights;
   const genrePulseItems = data.genrePulse.length > 0 ? data.genrePulse : buildGenreFallback(topListData.artists);
   const hasGenrePulseData = genrePulseItems.length > 0;
+  const summaryTopArtists = topListData.artists.slice(0, 3);
+  const summaryTopTracks = topListData.tracks.slice(0, 3);
+  const summaryTopAlbums = topListData.albums.slice(0, 3);
+  const summaryForgottenFavorites = data.forgottenFavorites.slice(0, 2);
+  const summaryQuietSavedTracks = data.quietSavedTracks.slice(0, 2);
+  const summaryPlaylistCards = playlistCards.slice(0, 2);
 
   useEffect(() => {
     setHydratedInsights(insights);
@@ -752,16 +758,11 @@ export function DashboardView({
                     </ResponsiveContainer>
                   </div>
                   {!isPreview && analysisBasePath ? (
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      {data.trendData.map((point) => (
-                        <Link
-                          key={point.label}
-                          href={`${analysisBasePath}?section=trend&range=${selectedRange}&label=${encodeURIComponent(point.label)}`}
-                          className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
-                        >
-                          Open {point.label} sessions
-                        </Link>
-                      ))}
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-[var(--theme-muted)]">Open the analysis page for bucket-by-bucket breakdowns and mood-session drilldowns.</p>
+                      <Link href={`${analysisBasePath}?section=trend&range=${selectedRange}`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                        Open full analysis
+                      </Link>
                     </div>
                   ) : null}
                 </div>
@@ -918,8 +919,8 @@ export function DashboardView({
         <div className="mx-auto max-w-7xl space-y-10">
           <SectionHeader
             kicker="Top lists"
-            title="Album-art walls and rotating favorites"
-            copy="Top artists, tracks, and albums."
+            title="Ranking preview for the current window"
+            copy="This dashboard keeps rankings lightweight. Open the full rankings page for all tabs, pagination, and custom windows."
             meta={
               <>
                 <p className="text-[var(--theme-badge)]">{topListData.sourceLabel}</p>
@@ -930,42 +931,18 @@ export function DashboardView({
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-3">
-                {topRangeTabs.map((tab) => {
-                  const active = (isPreview ? "week" : selectedTopRange) === tab.key;
-                  const href = isPreview ? undefined : `${dashboardBasePath}?range=${selectedRange}&topRange=${tab.key}${tab.key === "custom" ? topRangeQuery : ""}`;
-
-                  return (
-                    <TabPill key={tab.key} active={active} href={href}>
-                      {tab.label}
-                    </TabPill>
-                  );
-                })}
+              <div className="desktop-card px-4 py-3 text-sm text-[var(--theme-body)]">
+                Showing a quick read for <span className="font-mono uppercase tracking-[0.14em] text-[var(--theme-title)]">{selectedTopRange}</span>.
               </div>
-              {!isPreview && playlistsPagePath ? (
+              {!isPreview && topListsPagePath ? (
                 <Link
                   href={`${topListsPagePath}?range=${selectedTopRange}&tab=artists&page=1${selectedTopRange === "custom" && selectedTopFrom && selectedTopTo ? `&from=${selectedTopFrom}&to=${selectedTopTo}` : ""}`}
                   className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
                 >
-                  View all rankings
+                  Open rankings page
                 </Link>
               ) : null}
             </div>
-            {!isPreview && playlistsPagePath ? (
-              <form action={dashboardBasePath} method="get" className="desktop-card flex flex-wrap items-end gap-3 p-4">
-                <input type="hidden" name="range" value={selectedRange} />
-                <input type="hidden" name="topRange" value="custom" />
-                <label className="space-y-2 text-sm text-[var(--theme-muted)]">
-                  <span className="block font-mono uppercase tracking-[0.14em]">From</span>
-                  <input name="topFrom" type="date" defaultValue={selectedTopRange === "custom" ? selectedTopFrom : undefined} className="rounded-2xl border border-white/15 bg-white/60 px-3 py-2 text-[var(--theme-text)]" />
-                </label>
-                <label className="space-y-2 text-sm text-[var(--theme-muted)]">
-                  <span className="block font-mono uppercase tracking-[0.14em]">To</span>
-                  <input name="topTo" type="date" defaultValue={selectedTopRange === "custom" ? selectedTopTo : undefined} className="rounded-2xl border border-white/15 bg-white/60 px-3 py-2 text-[var(--theme-text)]" />
-                </label>
-                <button type="submit" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">Apply custom window</button>
-              </form>
-            ) : null}
           </div>
 
           <div className="grid gap-6 xl:grid-cols-3">
@@ -978,7 +955,7 @@ export function DashboardView({
                 </div>
               </div>
               <div className="space-y-4">
-                {topListData.artists.map((artist) => (
+                {summaryTopArtists.map((artist) => (
                   <div key={artist.id} className="desktop-card p-4">
                     <div className="flex items-start gap-4">
                       <Artwork imageUrl={artist.imageUrl} label={artist.name} />
@@ -1006,7 +983,7 @@ export function DashboardView({
                 </div>
               </div>
               <div className="space-y-4">
-                {topListData.tracks.map((track) => (
+                {summaryTopTracks.map((track) => (
                   <div key={track.id} className="desktop-card p-4">
                     <div className="flex items-start gap-4">
                       <Artwork imageUrl={track.imageUrl} label={track.title} />
@@ -1033,7 +1010,7 @@ export function DashboardView({
                 </div>
               </div>
               <div className="space-y-4">
-                {topListData.albums.map((album) => (
+                {summaryTopAlbums.map((album) => (
                   <div key={album.id} className="desktop-card p-4">
                     <div className="flex items-start gap-4">
                       <Artwork imageUrl={album.imageUrl} label={album.name} />
@@ -1053,6 +1030,17 @@ export function DashboardView({
               </div>
             </div>
           </div>
+
+          {!isPreview && topListsPagePath ? (
+            <div className="flex justify-end">
+              <Link
+                href={`${topListsPagePath}?range=${selectedTopRange}&tab=artists&page=1${selectedTopRange === "custom" && selectedTopFrom && selectedTopTo ? `&from=${selectedTopFrom}&to=${selectedTopTo}` : ""}`}
+                className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
+              >
+                See complete rankings
+              </Link>
+            </div>
+          ) : null}
         </div>
       </section>
       </LazySection>
@@ -1063,7 +1051,7 @@ export function DashboardView({
           <SectionHeader
             kicker="Rediscovery"
             title="Bring buried favorites back with a little drama"
-            copy="Older favorites and quiet saved tracks worth replaying."
+            copy="A short rediscovery preview lives here. The full page keeps the longer archive and both lanes together."
           />
           <div className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
             <div className="glass-panel rounded-[36px] p-6 md:p-7 text-[var(--theme-text)]">
@@ -1101,7 +1089,7 @@ export function DashboardView({
                   </div>
                 </div>
                 <div className="space-y-4">
-                  {data.forgottenFavorites.slice(1, 4).map((track) => (
+                  {summaryForgottenFavorites.slice(1).map((track) => (
                     <TrackShelfCard key={`${track.title}-${track.artist}`} track={track} accent="mint" />
                   ))}
                 </div>
@@ -1119,7 +1107,7 @@ export function DashboardView({
                 </div>
               </div>
               <div className="space-y-4">
-                {data.quietSavedTracks.slice(0, 3).map((track) => (
+                {summaryQuietSavedTracks.map((track) => (
                   <TrackShelfCard key={`${track.title}-${track.artist}`} track={track} accent="gold" />
                 ))}
               </div>
@@ -1159,21 +1147,21 @@ export function DashboardView({
         <div className="mx-auto max-w-7xl space-y-10">
           <SectionHeader
             kicker="Playlist lab"
-            title="Playlist intelligence as a glossy media wall"
-            copy="Playlist mood, top genres, and listening cadence."
+            title="Playlist preview cards"
+            copy="The dashboard keeps just a couple of stored playlist summaries. Open the full playlist lab for the larger library and detail views."
           />
 
           <div className="flex items-center justify-between gap-4">
-            <p className="font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-muted)]">Open a playlist for details.</p>
+            <p className="font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-muted)]">Open the playlist lab for the complete archive.</p>
             {!isPreview && playlistsPagePath ? (
               <Link href={playlistsPagePath} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
-                View all playlists
+                Open playlist lab
               </Link>
             ) : null}
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-3">
-            {playlistCards.map((playlistCard, index) => {
+          <div className="grid gap-5 lg:grid-cols-2">
+            {summaryPlaylistCards.map((playlistCard, index) => {
               const content = (
                 <>
                   <div className="mb-5 space-y-4">
@@ -1228,6 +1216,14 @@ export function DashboardView({
               );
             })}
           </div>
+
+          {!isPreview && playlistsPagePath ? (
+            <div className="flex justify-end">
+              <Link href={playlistsPagePath} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                Browse all playlists
+              </Link>
+            </div>
+          ) : null}
         </div>
       </section>
       </LazySection>
