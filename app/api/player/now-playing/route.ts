@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthorizedSession, getSession } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, getSession, isSessionRefreshFailure } from "@/lib/auth";
 import { getNowPlaying, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
 import { getCachedValue } from "@/lib/runtime-cache";
 
@@ -20,7 +20,17 @@ export async function GET(request: NextRequest) {
     ? Math.max(1, Math.min(MAX_LIMIT, Math.floor(limitParam)))
     : DEFAULT_LIMIT;
 
-  const activeSession = await getAuthorizedSession(session);
+  let activeSession: AuthorizedSession;
+
+  try {
+    activeSession = await getAuthorizedSession(session);
+  } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      return NextResponse.json({ error: "Session refresh failed." }, { status: 401 });
+    }
+
+    throw error;
+  }
 
   const payload = await getCachedValue(`now-playing:${activeSession.spotifyUserId}:${limit}`, NOW_PLAYING_TTL_MS, async () => {
     const [nowPlaying, syncedRecent] = await Promise.all([

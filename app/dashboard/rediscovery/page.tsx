@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
-import { getAuthorizedSession, requireSession } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getDashboardInsights } from "@/lib/spotify-dashboard";
 import { DashboardRange, FavoriteTrack } from "@/lib/types";
 import { PST_TIME_ZONE } from "@/lib/time";
@@ -76,7 +76,17 @@ export default async function RediscoveryPage({
     redirect("/login");
   }
 
-  const authorizedSession = await getAuthorizedSession(session);
+  let authorizedSession: AuthorizedSession;
+
+  try {
+    authorizedSession = await getAuthorizedSession(session);
+  } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      redirect("/login?error=session_refresh_failed");
+    }
+
+    throw error;
+  }
 
   const { range } = await searchParams;
   const selectedRange = normalizeRange(range);

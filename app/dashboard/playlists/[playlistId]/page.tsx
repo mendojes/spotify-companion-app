@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getAuthorizedSession, requireSession } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getPlaylistDetail } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { formatPstDateTime } from "@/lib/time";
@@ -21,7 +21,17 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     redirect("/login");
   }
 
-  const authorizedSession = await getAuthorizedSession(session);
+  let authorizedSession: AuthorizedSession;
+
+  try {
+    authorizedSession = await getAuthorizedSession(session);
+  } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      redirect("/login?error=session_refresh_failed");
+    }
+
+    throw error;
+  }
 
   const { playlistId } = await params;
   const detail = await getPlaylistDetail(authorizedSession.accessToken, authorizedSession.spotifyUserId, playlistId);

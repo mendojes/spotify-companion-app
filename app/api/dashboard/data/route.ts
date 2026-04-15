@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthorizedSession, getSession } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, getSession, isSessionRefreshFailure } from "@/lib/auth";
 import { touchConnectedUser } from "@/lib/connected-users";
 import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
@@ -48,7 +48,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const authorizedSession = await getAuthorizedSession(session);
+  let authorizedSession: AuthorizedSession;
+
+  try {
+    authorizedSession = await getAuthorizedSession(session);
+  } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      return NextResponse.json({ error: "Session refresh failed." }, { status: 401 });
+    }
+
+    throw error;
+  }
 
   const { searchParams } = new URL(request.url);
   const selectedRange = normalizeRange(searchParams.get("range") ?? undefined);

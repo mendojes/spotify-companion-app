@@ -64,20 +64,6 @@ function toCommunityUserProfile(user: ConnectedUser): CommunityUserProfile {
   };
 }
 
-export async function ensureConnectedUserIndexes() {
-  if (!hasMongoConfig()) {
-    return;
-  }
-
-  const db = await getDatabase({ forceRetry: true });
-  if (!db) {
-    return;
-  }
-
-  await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).createIndex({ spotifyUserId: 1 }, { unique: true });
-  await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).createIndex({ lastSeenAt: -1 });
-}
-
 export async function upsertConnectedUser(user: {
   spotifyUserId: string;
   displayName: string;

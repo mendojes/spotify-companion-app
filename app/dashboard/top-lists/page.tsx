@@ -1,7 +1,7 @@
-﻿import Image from "next/image";
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getAuthorizedSession, requireSession } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { FULL_TOP_LIST_LIMIT, getSpotifyTopLists, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
 import { TopListAlbum, TopListArtist, TopListRange, TopListTrack } from "@/lib/types";
 
@@ -147,7 +147,17 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   const selectedPage = normalizePage(page);
   const selectedFrom = normalizeDate(from);
   const selectedTo = normalizeDate(to);
-  const authorizedSession = await getAuthorizedSession(session);
+  let authorizedSession: AuthorizedSession;
+
+  try {
+    authorizedSession = await getAuthorizedSession(session);
+  } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      redirect("/login?error=session_refresh_failed");
+    }
+
+    throw error;
+  }
   const pageSize = FULL_TOP_LIST_LIMIT;
   let data;
   let rankingsNotice: string | null = null;

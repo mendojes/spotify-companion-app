@@ -171,23 +171,6 @@ async function fetchRecentPlayHistory(accessToken: string, limit = RECENT_PLAY_L
   return items;
 }
 
-export async function ensureRecentPlayIndexes() {
-  if (!hasMongoConfig()) {
-    return;
-  }
-
-  const db = await getDatabase();
-  if (!db) {
-    return;
-  }
-
-  await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).createIndex(
-    { spotifyUserId: 1, playedAt: -1, trackId: 1 },
-    { unique: true },
-  );
-  await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, playedAt: -1 });
-}
-
 export async function syncRecentPlays(accessToken: string, spotifyUserId: string) {
   const recentItems = await fetchRecentPlayHistory(accessToken);
   const recentPlays = recentItems.map((item) => toStoredRecentPlay(spotifyUserId, item));
@@ -200,8 +183,6 @@ export async function syncRecentPlays(accessToken: string, spotifyUserId: string
   if (!db) {
     return recentPlays;
   }
-
-  await ensureRecentPlayIndexes();
 
   if (recentPlays.length > 0) {
     await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).bulkWrite(

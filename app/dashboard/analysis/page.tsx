@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getAuthorizedSession, requireSession } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getDashboardAnalysisDetail } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
@@ -25,7 +25,17 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
     redirect("/login");
   }
 
-  const authorizedSession = await getAuthorizedSession(session);
+  let authorizedSession: AuthorizedSession;
+
+  try {
+    authorizedSession = await getAuthorizedSession(session);
+  } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      redirect("/login?error=session_refresh_failed");
+    }
+
+    throw error;
+  }
 
   const { section, range, label, mood, period } = await searchParams;
   const selectedRange = normalizeRange(range);

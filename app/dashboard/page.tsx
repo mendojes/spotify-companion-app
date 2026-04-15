@@ -5,10 +5,11 @@ import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { getAuthorizedSession, refreshSession, requireSession } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { syncConnectedUserSession } from "@/lib/connected-users";
-import { getDashboardInsightsFromSnapshots, getDashboardInsightsLive, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
-import { getSpotifyTopListsFromSnapshots, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
+import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
+import { getDashboardPlaylistInsights } from "@/lib/spotify-playlists";
+import { getSpotifyTopListsFromSnapshots } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
@@ -61,12 +62,7 @@ function getErrorMessage(error: unknown) {
     return error.message;
   }
 
-  return "Unknown Spotify error";
-}
-
-function isSpotifyUnauthorized(error: unknown) {
-  const message = getErrorMessage(error);
-  return message.includes("Spotify request failed: 401") || message.includes("Spotify token refresh failed: 401");
+  return "Unknown error";
 }
 
 function wait(ms: number) {
@@ -97,29 +93,6 @@ async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>
   }
 }
 
-function insightsNeedEnrichment(insights?: { genrePulse?: Array<unknown>; playlistInsights?: Array<{ mood?: string; topGenresSummary?: string }> }) {
-  if (!insights) {
-    return true;
-  }
-
-  const missingGenrePulse = (insights.genrePulse?.length ?? 0) === 0;
-  const playlistInsightsNeedRefresh = (insights.playlistInsights ?? []).some((playlist) => {
-    const mood = playlist.mood?.toLowerCase() ?? "";
-    const topGenres = playlist.topGenresSummary?.toLowerCase() ?? "";
-    return mood.includes("analysis pending") || topGenres.includes("loading top genres") || topGenres.length === 0;
-  });
-
-  return missingGenrePulse || playlistInsightsNeedRefresh;
-}
-
-function topListsNeedEnrichment(topLists?: { artists: Array<{ genres: string[] }>; albums: Array<unknown> }) {
-  if (!topLists) {
-    return true;
-  }
-
-  return topLists.artists.some((artist) => artist.genres.length === 0) || topLists.albums.length < 5;
-}
-
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
   const styles = {
     cyan: "bg-[rgba(229,255,255,0.78)] text-[#3a1a58]",
@@ -137,7 +110,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect("/login");
   }
 
-  let activeSession = await getAuthorizedSession(session);
+  let activeSession: AuthorizedSession;
+
+  try {
+    activeSession = await getAuthorizedSession(session);
+  } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      redirect("/login?error=session_refresh_failed");
+    }
+
+    throw error;
+  }
 
   try {
     await syncConnectedUserSession(activeSession);
@@ -156,82 +139,34 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let topLists;
   let heroTopLists;
   let dashboardError: string | null = null;
-  let topListsError: string | null = null;
 
-  async function loadLiveDashboardData() {
-    return Promise.all([
-      getDashboardInsightsLive(activeSession.accessToken, activeSession.spotifyUserId, selectedRange),
-      getSpotifyTopListsLive(activeSession.accessToken, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-      getSpotifyTopListsLive(activeSession.accessToken, selectedHeroRange),
-    ]);
-  }
-
-  const cachedSnapshots = await settleCacheLoad("dashboard cache", () => getSharedDashboardCacheSnapshots(activeSession.spotifyUserId, activeSession.accessToken));
+  const [cachedSnapshots, cachedPlaylistInsights] = await Promise.all([
+    settleCacheLoad("dashboard cache", () => getSharedDashboardCacheSnapshots(activeSession.spotifyUserId)),
+    settleCacheLoad("playlist insights", () => getDashboardPlaylistInsights(activeSession.spotifyUserId)),
+  ]);
 
   if (cachedSnapshots.value && cachedSnapshots.value.length > 0) {
-    insights = (await getDashboardInsightsFromSnapshots(cachedSnapshots.value, selectedRange, activeSession.accessToken, activeSession.spotifyUserId)) ?? undefined;
+    insights = (await getDashboardInsightsFromSnapshots(cachedSnapshots.value, selectedRange)) ?? undefined;
     topLists = (await getSpotifyTopListsFromSnapshots(cachedSnapshots.value, selectedTopRange, undefined, selectedTopFrom, selectedTopTo)) ?? undefined;
     heroTopLists = (await getSpotifyTopListsFromSnapshots(cachedSnapshots.value, selectedHeroRange)) ?? undefined;
   }
 
-  const cacheErrors = [cachedSnapshots.error].filter((value): value is string => Boolean(value));
-  const incompleteInsights = insightsNeedEnrichment(insights);
-  const incompleteTopLists = topListsNeedEnrichment(topLists);
-  const incompleteHeroTopLists = topListsNeedEnrichment(heroTopLists);
+  if (insights) {
+    insights = {
+      ...insights,
+      playlistInsights: cachedPlaylistInsights.value ?? [],
+    };
+  }
+
+  const cacheErrors = [cachedSnapshots.error, cachedPlaylistInsights.error].filter((value): value is string => Boolean(value));
   const missingCachedSections = [!insights ? "insights" : null, !topLists ? "top lists" : null, !heroTopLists ? "hero top lists" : null].filter(
     (value): value is string => Boolean(value),
   );
-  const neededLiveFallback = missingCachedSections.length > 0 || incompleteInsights || incompleteTopLists || incompleteHeroTopLists;
 
-  if (neededLiveFallback) {
-    try {
-      const [liveInsights, liveTopLists, liveHeroTopLists] = await loadLiveDashboardData();
-      if (!insights || incompleteInsights) {
-        insights = liveInsights;
-      }
-      if (!topLists || incompleteTopLists) {
-        topLists = liveTopLists;
-      }
-      if (!heroTopLists || incompleteHeroTopLists) {
-        heroTopLists = liveHeroTopLists;
-      }
-
-      if (cacheErrors.length > 0) {
-        dashboardError = `Some cached dashboard data could not be loaded, so SoundScope is filling the gaps from live Spotify data for this page load. (${cacheErrors.join("; ")})`;
-      } else if (missingCachedSections.length > 0) {
-        dashboardError = `Cached dashboard data is incomplete for ${missingCachedSections.join(", ")}, so SoundScope is filling those sections from live Spotify data for this page load.`;
-      }
-    } catch (liveError) {
-      if (isSpotifyUnauthorized(liveError)) {
-        try {
-          activeSession = await refreshSession(activeSession);
-          try {
-            await syncConnectedUserSession(activeSession);
-          } catch {
-            // Ignore persistence failure during retry refresh as well.
-          }
-
-          const [liveInsights, liveTopLists, liveHeroTopLists] = await loadLiveDashboardData();
-          if (!insights || incompleteInsights) {
-            insights = liveInsights;
-          }
-          if (!topLists || incompleteTopLists) {
-            topLists = liveTopLists;
-          }
-          if (!heroTopLists || incompleteHeroTopLists) {
-            heroTopLists = liveHeroTopLists;
-          }
-
-          dashboardError = cacheErrors.length > 0 || missingCachedSections.length > 0
-            ? `Cached dashboard data could not fully load, and Spotify required a token refresh before the live fallback could fill the remaining sections. (${cacheErrors.join("; ") || missingCachedSections.join(", ")})`
-            : null;
-        } catch (refreshRetryError) {
-          dashboardError = `Cached dashboard data could not be loaded right now, and the live Spotify fallback also failed after retrying your session token, so the dashboard is showing preview fallback sections. (${getErrorMessage(refreshRetryError)})`;
-        }
-      } else {
-        dashboardError = `Cached dashboard data could not be loaded right now, and the live Spotify fallback also failed, so the dashboard is showing preview fallback sections. (${getErrorMessage(liveError)})`;
-      }
-    }
+  if (cacheErrors.length > 0) {
+    dashboardError = `Cached dashboard data could not be fully loaded right now, so SoundScope is showing the latest stored sections it could find. (${cacheErrors.join("; ")})`;
+  } else if (missingCachedSections.length > 0) {
+    dashboardError = `Cached dashboard data is missing ${missingCachedSections.join(", ")}. Use Refresh snapshot to update the dashboard.`;
   }
 
   return (
@@ -286,7 +221,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         {refreshed ? <Notice tone="cyan">Spotify snapshot refreshed successfully.</Notice> : null}
         {refreshErrorFlag ? <Notice tone="coral">Snapshot refresh failed. The dashboard is still using your previous cached data when available.</Notice> : null}
         {dashboardError ? <Notice tone="gold">{dashboardError}</Notice> : null}
-        {topListsError ? <Notice tone="gold">{topListsError}</Notice> : null}
       </div>
 
       <DashboardView

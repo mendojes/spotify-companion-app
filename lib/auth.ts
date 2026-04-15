@@ -1,4 +1,4 @@
-﻿import crypto from "node:crypto";
+import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCachedValue } from "@/lib/runtime-cache";
@@ -252,6 +252,11 @@ export async function requireSession() {
   }
 
   return session;
+}
+
+export function isSessionRefreshFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("Spotify token refresh failed: 400") || message.includes("Spotify token refresh failed: 401");
 }
 
 export async function refreshSession(session: AuthSession) {
