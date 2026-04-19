@@ -9,6 +9,10 @@ import { formatPstDateTime } from "@/lib/time";
 
 type RecentHistoryState = {
   recentTracks: RecentTrackSummary[];
+  nextCursor?: string | null;
+  syncState?: "idle" | "syncing";
+  syncMode?: "incremental" | "full";
+  syncStartedAt?: string;
   syncedRecentCount?: number;
   syncedAt?: string;
 };
@@ -25,18 +29,24 @@ function formatPlayedAt(value: string) {
 export function RecentTracksPageView() {
   const [state, setState] = useState<RecentHistoryState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        await fetch("/api/player/recent-sync?force=1", {
+        if (!cancelled) {
+          setIsSyncing(true);
+        }
+
+        await fetch("/api/player/recent-sync?force=1&full=1", {
           method: "POST",
           cache: "no-store",
         }).catch(() => undefined);
 
-        const response = await fetch("/api/player/recent-history?limit=500", { cache: "no-store" });
+        const response = await fetch("/api/player/recent-history?limit=100", { cache: "no-store" });
         if (!response.ok) {
           throw new Error("Could not load recent playback.");
         }
@@ -50,6 +60,10 @@ export function RecentTracksPageView() {
         if (!cancelled) {
           setError("Recent listening history could not be loaded right now.");
         }
+      } finally {
+        if (!cancelled) {
+          setIsSyncing(false);
+        }
       }
     }
 
@@ -61,6 +75,35 @@ export function RecentTracksPageView() {
   }, []);
 
   const recentTracks = state?.recentTracks ?? [];
+
+  async function loadMore() {
+    if (!state?.nextCursor || isLoadingMore) {
+      return;
+    }
+
+    setIsLoadingMore(true);
+
+    try {
+      const response = await fetch(`/api/player/recent-history?limit=100&before=${encodeURIComponent(state.nextCursor)}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error("Could not load more recent playback.");
+      }
+
+      const nextState = (await response.json()) as RecentHistoryState;
+      setState((current) => ({
+        recentTracks: [...(current?.recentTracks ?? []), ...nextState.recentTracks],
+        nextCursor: nextState.nextCursor,
+        syncedRecentCount: current?.syncedRecentCount ?? nextState.syncedRecentCount,
+        syncedAt: current?.syncedAt ?? nextState.syncedAt,
+      }));
+    } catch {
+      setError("More recent listening history could not be loaded right now.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
 
   return (
     <section className="px-6 py-10 md:px-10">
@@ -85,6 +128,12 @@ export function RecentTracksPageView() {
           <div className="rounded-[28px] border border-gold/30 bg-gold/10 px-5 py-4 text-sm text-ink/85">{error}</div>
         ) : null}
 
+        {isSyncing ? (
+          <div className="rounded-[28px] border border-cyan/25 bg-cyan/10 px-5 py-4 text-sm text-ink/85">
+            Syncing recent listening history from Spotify and backfilling missed plays from when the app was closed. This can take a few seconds if there are a lot of listens to recover.
+          </div>
+        ) : null}
+
         <div className="glass-panel rounded-[34px] p-6 md:p-8">
           <div className="flex items-center gap-3">
             <Disc3 className="h-5 w-5 text-coral" />
@@ -96,7 +145,13 @@ export function RecentTracksPageView() {
 
           {state?.syncedAt ? (
             <p className="mt-4 text-sm text-ink/60">
-              Last synced {formatPstDateTime(state.syncedAt)}. Showing up to 500 of your most recent recovered plays.
+              Last synced {formatPstDateTime(state.syncedAt)}. Showing {recentTracks.length} recovered plays{state.nextCursor ? " so far" : ""}.
+            </p>
+          ) : null}
+
+          {state?.syncState === "syncing" ? (
+            <p className="mt-2 text-sm text-cyan">
+              Spotify history recovery is still running{state.syncMode === "full" ? " in full-backfill mode" : ""}{state.syncStartedAt ? ` since ${formatPstDateTime(state.syncStartedAt)}` : ""}.
             </p>
           ) : null}
 
@@ -126,6 +181,19 @@ export function RecentTracksPageView() {
               </div>
             )}
           </div>
+
+          {state?.nextCursor ? (
+            <div className="mt-8 flex justify-center">
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={isLoadingMore}
+                className="rounded-full border border-ink/15 bg-white/5 px-5 py-3 text-sm text-ink transition hover:border-gold/25 hover:text-gold disabled:cursor-wait disabled:opacity-60"
+              >
+                {isLoadingMore ? "Loading more..." : "Load more history"}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

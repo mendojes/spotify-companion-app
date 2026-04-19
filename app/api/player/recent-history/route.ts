@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, isSessionRefreshFailure } from "@/lib/auth";
-import { getRecentPlaySyncStatus, getStoredRecentPlays } from "@/lib/spotify-activity";
+import { getRecentPlaySyncStatus, getStoredRecentPlaysPage } from "@/lib/spotify-activity";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
 
   const url = new URL(request.url);
   const limitParam = Number(url.searchParams.get("limit"));
+  const before = url.searchParams.get("before") ?? undefined;
   const limit = Number.isFinite(limitParam)
     ? Math.max(1, Math.min(MAX_LIMIT, Math.floor(limitParam)))
     : DEFAULT_LIMIT;
@@ -30,11 +31,17 @@ export async function GET(request: NextRequest) {
     throw error;
   }
 
-  const storedRecent = await getStoredRecentPlays(activeSession.spotifyUserId, limit).catch(() => []);
+  const page = await getStoredRecentPlaysPage(activeSession.spotifyUserId, {
+    limit,
+    beforePlayedAt: before,
+  }).catch(() => ({
+    recentPlays: [],
+    nextCursor: null,
+  }));
   const syncStatus = getRecentPlaySyncStatus(activeSession.spotifyUserId);
 
   return NextResponse.json({
-    recentTracks: storedRecent.map((play) => ({
+    recentTracks: page.recentPlays.map((play) => ({
       trackId: play.trackId,
       title: play.trackName,
       artist: play.artistName,
@@ -42,7 +49,11 @@ export async function GET(request: NextRequest) {
       imageUrl: play.imageUrl,
       playedAt: play.playedAt,
     })),
-    syncedRecentCount: syncStatus?.syncedCount ?? storedRecent.length,
+    nextCursor: page.nextCursor,
+    syncState: syncStatus?.state,
+    syncMode: syncStatus?.mode,
+    syncStartedAt: syncStatus?.startedAt,
+    syncedRecentCount: syncStatus?.syncedCount ?? page.recentPlays.length,
     syncedAt: syncStatus?.syncedAt,
   });
 }

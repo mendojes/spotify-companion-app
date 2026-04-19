@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, isSessionRefreshFailure } from "@/lib/auth";
-import { markConnectedUserSnapshotStatus, touchConnectedUser } from "@/lib/connected-users";
+import { markConnectedUserRecentSync, markConnectedUserSnapshotStatus, touchConnectedUser } from "@/lib/connected-users";
 import { getAppUrl } from "@/lib/spotify";
 import { refreshDashboardSnapshot } from "@/lib/spotify-dashboard";
 import { invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
+import { syncRecentPlays } from "@/lib/spotify-activity";
 
 function normalizeRange(range?: string) {
   if (range === "month" || range === "all") {
@@ -36,7 +37,13 @@ export async function GET(request: NextRequest) {
 
   try {
     await touchConnectedUser(session.spotifyUserId);
-    await refreshDashboardSnapshot(authorizedSession.accessToken, authorizedSession.spotifyUserId);
+    const recentPlays = await syncRecentPlays(
+      authorizedSession.accessToken,
+      authorizedSession.spotifyUserId,
+      { fullBackfill: true },
+    ).catch(() => []);
+    await markConnectedUserRecentSync(authorizedSession.spotifyUserId).catch(() => undefined);
+    await refreshDashboardSnapshot(authorizedSession.accessToken, authorizedSession.spotifyUserId, recentPlays);
     await markConnectedUserSnapshotStatus(authorizedSession.spotifyUserId, "success");
     await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId).catch(() => []);
     invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);

@@ -23,12 +23,17 @@ export async function POST(request: NextRequest) {
 
   const url = new URL(request.url);
   const force = url.searchParams.get("force") === "1";
+  const fullBackfill = url.searchParams.get("full") === "1";
 
   try {
-    const recentPlays = await syncRecentPlaysIfNeeded(activeSession.accessToken, activeSession.spotifyUserId, { force });
+    const recentPlays = await syncRecentPlaysIfNeeded(activeSession.accessToken, activeSession.spotifyUserId, {
+      force,
+      fullBackfill,
+    });
     return NextResponse.json({
       syncedCount: recentPlays.length,
       syncedAt: new Date().toISOString(),
+      mode: fullBackfill ? "full" : "incremental",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not sync recent plays.";
