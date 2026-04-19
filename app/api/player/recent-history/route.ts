@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
     syncState: syncStatus?.state,
     syncMode: syncStatus?.mode,
     syncStartedAt: syncStatus?.startedAt,
+    syncError: syncStatus?.error,
     syncedRecentCount: syncStatus?.syncedCount ?? page.recentPlays.length,
     syncedAt: syncStatus?.syncedAt,
   });

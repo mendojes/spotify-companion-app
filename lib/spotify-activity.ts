@@ -19,6 +19,7 @@ const recentPlaySyncStatus = new Map<string, {
   syncedAt?: string;
   syncedCount: number;
   mode?: "incremental" | "full";
+  error?: string;
 }>();
 
 function getPlaylistIdFromContext(context?: SpotifyRecentlyPlayedItem["context"] | SpotifyCurrentlyPlayingResponse["context"]) {
@@ -164,19 +165,20 @@ async function fetchRecentPlayHistory(
       }
     }
 
+    const spotifyBeforeCursor = response.cursors?.before;
     const oldestItem = pageItems[pageItems.length - 1];
     const oldestPlayedAtMs = oldestItem ? new Date(oldestItem.played_at).getTime() : Number.NaN;
 
     if (
       items.length >= boundedLimit ||
       pageItems.length < pageSize ||
-      !Number.isFinite(oldestPlayedAtMs) ||
+      (!spotifyBeforeCursor && !Number.isFinite(oldestPlayedAtMs)) ||
       reachedExisting
     ) {
       break;
     }
 
-    before = String(oldestPlayedAtMs - 1);
+    before = spotifyBeforeCursor ?? String(oldestPlayedAtMs - 1);
   }
 
   return items;
@@ -241,6 +243,7 @@ export function getRecentPlaySyncStatus(spotifyUserId: string) {
   return recentPlaySyncStatus.get(spotifyUserId) ?? {
     state: "idle" as const,
     syncedCount: 0,
+    error: undefined,
   };
 }
 
@@ -256,6 +259,7 @@ async function runRecentPlaySync(
     syncedAt: previousStatus?.syncedAt,
     syncedCount: previousStatus?.syncedCount ?? 0,
     mode: options?.fullBackfill ? "full" : "incremental",
+    error: undefined,
   });
 
   try {
@@ -265,14 +269,17 @@ async function runRecentPlaySync(
       syncedAt: new Date().toISOString(),
       syncedCount: recentPlays.length,
       mode: options?.fullBackfill ? "full" : "incremental",
+      error: undefined,
     });
     return recentPlays;
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not sync recent plays.";
     recentPlaySyncStatus.set(spotifyUserId, {
       state: "idle",
       syncedAt: previousStatus?.syncedAt,
       syncedCount: previousStatus?.syncedCount ?? 0,
       mode: options?.fullBackfill ? "full" : "incremental",
+      error: message,
     });
     throw error;
   }

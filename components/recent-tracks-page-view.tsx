@@ -13,6 +13,7 @@ type RecentHistoryState = {
   syncState?: "idle" | "syncing";
   syncMode?: "incremental" | "full";
   syncStartedAt?: string;
+  syncError?: string;
   syncedRecentCount?: number;
   syncedAt?: string;
 };
@@ -41,10 +42,15 @@ export function RecentTracksPageView() {
           setIsSyncing(true);
         }
 
-        await fetch("/api/player/recent-sync?force=1&full=1", {
+        const syncResponse = await fetch("/api/player/recent-sync?force=1&full=1", {
           method: "POST",
           cache: "no-store",
         }).catch(() => undefined);
+
+        if (syncResponse && !syncResponse.ok) {
+          const payload = (await syncResponse.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(payload?.error || "Could not sync recent playback from Spotify.");
+        }
 
         const response = await fetch("/api/player/recent-history?limit=100", { cache: "no-store" });
         if (!response.ok) {
@@ -152,6 +158,12 @@ export function RecentTracksPageView() {
           {state?.syncState === "syncing" ? (
             <p className="mt-2 text-sm text-cyan">
               Spotify history recovery is still running{state.syncMode === "full" ? " in full-backfill mode" : ""}{state.syncStartedAt ? ` since ${formatPstDateTime(state.syncStartedAt)}` : ""}.
+            </p>
+          ) : null}
+
+          {state?.syncError ? (
+            <p className="mt-2 text-sm text-coral">
+              Last Spotify history recovery error: {state.syncError}
             </p>
           ) : null}
 
