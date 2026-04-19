@@ -25,6 +25,11 @@ export function RecentTracksPageView() {
 
     async function load() {
       try {
+        await fetch("/api/player/recent-sync?force=1", {
+          method: "POST",
+          cache: "no-store",
+        }).catch(() => undefined);
+
         const response = await fetch("/api/player/now-playing?limit=50", { cache: "no-store" });
         if (!response.ok) {
           throw new Error("Could not load recent playback.");

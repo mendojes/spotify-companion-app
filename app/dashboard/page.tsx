@@ -5,7 +5,6 @@ import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
-import { syncConnectedUserSession } from "@/lib/connected-users";
 import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { getDashboardPlaylistInsights } from "@/lib/spotify-playlists";
 import { getSpotifyTopListsFromSnapshots } from "@/lib/spotify-toplists";
@@ -119,12 +118,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     }
 
     throw error;
-  }
-
-  try {
-    await syncConnectedUserSession(activeSession);
-  } catch {
-    // Keep dashboard access working even if connected-user persistence is temporarily unavailable.
   }
 
   const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag } = await searchParams;

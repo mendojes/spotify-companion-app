@@ -1,5 +1,6 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
+import { getCachedValue } from "@/lib/runtime-cache";
 import {
   NowPlayingState,
   SpotifyCurrentlyPlayingResponse,
@@ -11,6 +12,8 @@ import {
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const RECENT_PLAY_LOOKBACK_LIMIT = 500;
 const RECENT_PLAY_SYNC_WINDOW_DAYS = 35;
+const RECENT_PLAY_SYNC_TTL_MS = 1000 * 60 * 5;
+const recentPlaySyncStatus = new Map<string, { syncedAt: string; syncedCount: number }>();
 
 function getPlaylistIdFromContext(context?: SpotifyRecentlyPlayedItem["context"] | SpotifyCurrentlyPlayingResponse["context"]) {
   if (context?.type !== "playlist") {
@@ -108,11 +111,15 @@ function toStoredRecentPlay(spotifyUserId: string, item: SpotifyRecentlyPlayedIt
   };
 }
 
-async function fetchRecentPlayHistory(accessToken: string, limit = RECENT_PLAY_LOOKBACK_LIMIT) {
+async function fetchRecentPlayHistory(
+  accessToken: string,
+  options?: { limit?: number; stopAfterPlayedAt?: string },
+) {
   const items: SpotifyRecentlyPlayedItem[] = [];
   const seenKeys = new Set<string>();
-  const boundedLimit = Math.max(1, Math.min(RECENT_PLAY_LOOKBACK_LIMIT, limit));
+  const boundedLimit = Math.max(1, Math.min(RECENT_PLAY_LOOKBACK_LIMIT, options?.limit ?? RECENT_PLAY_LOOKBACK_LIMIT));
   const cutoffMs = Date.now() - RECENT_PLAY_SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const stopAfterPlayedAtMs = options?.stopAfterPlayedAt ? new Date(options.stopAfterPlayedAt).getTime() : Number.NaN;
   let before: string | undefined;
 
   while (items.length < boundedLimit) {
@@ -131,11 +138,16 @@ async function fetchRecentPlayHistory(accessToken: string, limit = RECENT_PLAY_L
     }
 
     let reachedCutoff = false;
+    let reachedExisting = false;
 
     for (const item of pageItems) {
       const playedAtMs = new Date(item.played_at).getTime();
       if (Number.isFinite(playedAtMs) && playedAtMs < cutoffMs) {
         reachedCutoff = true;
+        continue;
+      }
+      if (Number.isFinite(stopAfterPlayedAtMs) && Number.isFinite(playedAtMs) && playedAtMs <= stopAfterPlayedAtMs) {
+        reachedExisting = true;
         continue;
       }
 
@@ -159,6 +171,7 @@ async function fetchRecentPlayHistory(accessToken: string, limit = RECENT_PLAY_L
       items.length >= boundedLimit ||
       pageItems.length < pageSize ||
       !Number.isFinite(oldestPlayedAtMs) ||
+      reachedExisting ||
       reachedCutoff ||
       oldestPlayedAtMs < cutoffMs
     ) {
@@ -171,8 +184,29 @@ async function fetchRecentPlayHistory(accessToken: string, limit = RECENT_PLAY_L
   return items;
 }
 
+async function getLatestStoredRecentPlay(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return null;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return null;
+  }
+
+  return db
+    .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({ spotifyUserId })
+    .sort({ playedAt: -1 })
+    .limit(1)
+    .next();
+}
+
 export async function syncRecentPlays(accessToken: string, spotifyUserId: string) {
-  const recentItems = await fetchRecentPlayHistory(accessToken);
+  const latestStoredRecent = await getLatestStoredRecentPlay(spotifyUserId).catch(() => null);
+  const recentItems = await fetchRecentPlayHistory(accessToken, {
+    stopAfterPlayedAt: latestStoredRecent?.playedAt,
+  });
   const recentPlays = recentItems.map((item) => toStoredRecentPlay(spotifyUserId, item));
 
   if (!hasMongoConfig()) {
@@ -202,6 +236,32 @@ export async function syncRecentPlays(accessToken: string, spotifyUserId: string
   }
 
   return recentPlays;
+}
+
+export function getRecentPlaySyncStatus(spotifyUserId: string) {
+  return recentPlaySyncStatus.get(spotifyUserId) ?? null;
+}
+
+export async function syncRecentPlaysIfNeeded(accessToken: string, spotifyUserId: string, options?: { force?: boolean }) {
+  const syncKey = `recent-play-sync:${spotifyUserId}`;
+
+  if (options?.force) {
+    const recentPlays = await syncRecentPlays(accessToken, spotifyUserId);
+    recentPlaySyncStatus.set(spotifyUserId, {
+      syncedAt: new Date().toISOString(),
+      syncedCount: recentPlays.length,
+    });
+    return recentPlays;
+  }
+
+  return getCachedValue(syncKey, RECENT_PLAY_SYNC_TTL_MS, async () => {
+    const recentPlays = await syncRecentPlays(accessToken, spotifyUserId);
+    recentPlaySyncStatus.set(spotifyUserId, {
+      syncedAt: new Date().toISOString(),
+      syncedCount: recentPlays.length,
+    });
+    return recentPlays;
+  });
 }
 
 function filterRecentPlaysForRange(recentPlays: StoredRecentPlay[], range: "week" | "month" | "all") {

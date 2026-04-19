@@ -25,6 +25,7 @@ function formatClock(ms: number) {
 
 const COLLAPSED_RECENT_COUNT = 3;
 const NOW_PLAYING_POLL_MS = 1000 * 30;
+const RECENT_SYNC_INTERVAL_MS = 1000 * 60 * 5;
 const TRACK_END_DELAY_MS = 750;
 const PROGRESS_TICK_MS = 1000;
 const HANDOFF_GRACE_MS = PROGRESS_TICK_MS + TRACK_END_DELAY_MS;
@@ -163,6 +164,7 @@ function useNowPlayingState() {
   const pendingRecentTrackRef = useRef<RecentTrackSummary | null>(null);
   const pendingPlaylistPromotionKeyRef = useRef<string | null>(null);
   const pollTimerRef = useRef<number | undefined>(undefined);
+  const syncTimerRef = useRef<number | undefined>(undefined);
   const handoffTimerRef = useRef<number | undefined>(undefined);
   const loadRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -195,6 +197,24 @@ function useNowPlayingState() {
       }, NOW_PLAYING_POLL_MS);
     }
 
+    function clearSyncTimer() {
+      if (syncTimerRef.current) {
+        window.clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = undefined;
+      }
+    }
+
+    function scheduleNextSync() {
+      if (cancelled) {
+        return;
+      }
+
+      clearSyncTimer();
+      syncTimerRef.current = window.setTimeout(() => {
+        void syncRecentHistory();
+      }, RECENT_SYNC_INTERVAL_MS);
+    }
+
     function queuePlaylistPromotion(previous: NowPlayingState, recentTrack: RecentTrackSummary | null) {
       const finishedPlaylistId = previous.playingFrom?.type === "playlist" ? previous.playingFrom.playlistId : undefined;
       const currentTopPlaylistId = stateRef.current?.playingFrom?.type === "playlist" ? stateRef.current.playingFrom.playlistId : undefined;
@@ -220,6 +240,33 @@ function useNowPlayingState() {
         }
       });
     }
+
+    async function syncRecentHistory(force = false) {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        scheduleNextSync();
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/player/recent-sync${force ? "?force=1" : ""}`, {
+          method: "POST",
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error("Could not sync recent listening history.");
+        }
+      } catch {
+        if (!cancelled) {
+          // Keep polling now-playing even if history sync fails.
+        }
+      } finally {
+        if (!cancelled) {
+          scheduleNextSync();
+        }
+      }
+    }
+
     async function load() {
       try {
         const response = await fetch("/api/player/now-playing?limit=12", { cache: "no-store" });
@@ -320,11 +367,13 @@ function useNowPlayingState() {
 
     loadRef.current = load;
     void load();
+    void syncRecentHistory();
 
     return () => {
       cancelled = true;
       loadRef.current = null;
       clearPollTimer();
+      clearSyncTimer();
     };
   }, []);
 
