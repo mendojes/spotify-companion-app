@@ -11,8 +11,8 @@ import {
 
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const RECENT_PLAY_LOOKBACK_LIMIT = 500;
-const RECENT_PLAY_SYNC_WINDOW_DAYS = 35;
 const RECENT_PLAY_SYNC_TTL_MS = 1000 * 60 * 5;
+const MAX_RECENT_PLAY_SYNC_ITEMS = 5000;
 const recentPlaySyncStatus = new Map<string, { syncedAt: string; syncedCount: number }>();
 
 function getPlaylistIdFromContext(context?: SpotifyRecentlyPlayedItem["context"] | SpotifyCurrentlyPlayingResponse["context"]) {
@@ -117,8 +117,7 @@ async function fetchRecentPlayHistory(
 ) {
   const items: SpotifyRecentlyPlayedItem[] = [];
   const seenKeys = new Set<string>();
-  const boundedLimit = Math.max(1, Math.min(RECENT_PLAY_LOOKBACK_LIMIT, options?.limit ?? RECENT_PLAY_LOOKBACK_LIMIT));
-  const cutoffMs = Date.now() - RECENT_PLAY_SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const boundedLimit = Math.max(1, Math.min(MAX_RECENT_PLAY_SYNC_ITEMS, options?.limit ?? MAX_RECENT_PLAY_SYNC_ITEMS));
   const stopAfterPlayedAtMs = options?.stopAfterPlayedAt ? new Date(options.stopAfterPlayedAt).getTime() : Number.NaN;
   let before: string | undefined;
 
@@ -137,15 +136,10 @@ async function fetchRecentPlayHistory(
       break;
     }
 
-    let reachedCutoff = false;
     let reachedExisting = false;
 
     for (const item of pageItems) {
       const playedAtMs = new Date(item.played_at).getTime();
-      if (Number.isFinite(playedAtMs) && playedAtMs < cutoffMs) {
-        reachedCutoff = true;
-        continue;
-      }
       if (Number.isFinite(stopAfterPlayedAtMs) && Number.isFinite(playedAtMs) && playedAtMs <= stopAfterPlayedAtMs) {
         reachedExisting = true;
         continue;
@@ -171,9 +165,7 @@ async function fetchRecentPlayHistory(
       items.length >= boundedLimit ||
       pageItems.length < pageSize ||
       !Number.isFinite(oldestPlayedAtMs) ||
-      reachedExisting ||
-      reachedCutoff ||
-      oldestPlayedAtMs < cutoffMs
+      reachedExisting
     ) {
       break;
     }

@@ -4,8 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Disc3 } from "lucide-react";
-import { NowPlayingState } from "@/lib/types";
+import { RecentTrackSummary } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
+
+type RecentHistoryState = {
+  recentTracks: RecentTrackSummary[];
+  syncedRecentCount?: number;
+  syncedAt?: string;
+};
 
 function formatPlayedAt(value: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -17,7 +23,7 @@ function formatPlayedAt(value: string) {
 }
 
 export function RecentTracksPageView() {
-  const [state, setState] = useState<NowPlayingState | null>(null);
+  const [state, setState] = useState<RecentHistoryState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,12 +36,12 @@ export function RecentTracksPageView() {
           cache: "no-store",
         }).catch(() => undefined);
 
-        const response = await fetch("/api/player/now-playing?limit=50", { cache: "no-store" });
+        const response = await fetch("/api/player/recent-history?limit=500", { cache: "no-store" });
         if (!response.ok) {
           throw new Error("Could not load recent playback.");
         }
 
-        const nextState = (await response.json()) as NowPlayingState;
+        const nextState = (await response.json()) as RecentHistoryState;
         if (!cancelled) {
           setState(nextState);
           setError(null);
@@ -87,6 +93,12 @@ export function RecentTracksPageView() {
               <h2 className="mt-1 font-display text-3xl text-[var(--theme-title)]">Recent plays</h2>
             </div>
           </div>
+
+          {state?.syncedAt ? (
+            <p className="mt-4 text-sm text-ink/60">
+              Last synced {formatPstDateTime(state.syncedAt)}. Showing up to 500 of your most recent recovered plays.
+            </p>
+          ) : null}
 
           <div className="mt-8 space-y-4">
             {recentTracks.length > 0 ? (
