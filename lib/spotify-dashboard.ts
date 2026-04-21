@@ -1531,6 +1531,72 @@ export async function getDashboardAnalysisDetail(
   };
 }
 
+export async function getDashboardAnalysisDetailFromHistory(
+  spotifyUserId: string,
+  range: DashboardRange,
+  options: { section: "trend" | "heatmap"; label?: string; mood?: string; period?: string },
+): Promise<DashboardAnalysisDetail | null> {
+  const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
+  const scopedSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
+  const relevantSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
+  const sortedSnapshots = [...relevantSnapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
+
+  if (sortedSnapshots.length === 0) {
+    return null;
+  }
+
+  const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
+
+  if (options.section === "trend") {
+    const buckets = buildTrendBuckets(range);
+    const targetBucket = buckets.find((bucket) => bucket.label === options.label) ?? buckets[0];
+    const entries = recent
+      .filter((item) => getTrendBucketKeyForPlay(item.played_at, range) === targetBucket.key)
+      .map((item) => ({
+        trackId: item.track.id,
+        title: item.track.name,
+        artist: item.track.artists.map((artist) => artist.name).join(", "),
+        album: item.track.album.name,
+        imageUrl: item.track.album.images?.[0]?.url,
+        playedAt: item.played_at,
+        durationMs: item.track.duration_ms,
+        period: getDayPeriod(new Date(item.played_at)),
+      }));
+
+    return {
+      section: "trend",
+      title: `${targetBucket.label} listening sessions`,
+      subtitle: `Tracks played during the ${range} trend bucket shown in your cached dashboard history.`,
+      range,
+      entries,
+    };
+  }
+
+  const targetPeriod = (options.period && heatmapPeriods.includes(options.period as (typeof heatmapPeriods)[number])
+    ? options.period
+    : heatmapPeriods[0]) as (typeof heatmapPeriods)[number];
+  const entries = recent
+    .filter((item) => getDayPeriod(new Date(item.played_at)) === targetPeriod)
+    .map((item) => ({
+      trackId: item.track.id,
+      title: item.track.name,
+      artist: item.track.artists.map((artist) => artist.name).join(", "),
+      album: item.track.album.name,
+      imageUrl: item.track.album.images?.[0]?.url,
+      playedAt: item.played_at,
+      durationMs: item.track.duration_ms,
+      period: getDayPeriod(new Date(item.played_at)),
+    }));
+
+  return {
+    section: "heatmap",
+    title: `${targetPeriod} sessions`,
+    subtitle: "Cached history does not include live audio-feature mood matching, so this view shows the selected time-of-day sessions from stored snapshots.",
+    range,
+    entries,
+  };
+}
+
 
 export async function getSharedDashboardCacheSnapshots(spotifyUserId: string) {
   let latestSnapshot;

@@ -2,8 +2,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
-import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
-import { getDashboardInsights } from "@/lib/spotify-dashboard";
+import { requireSession } from "@/lib/auth";
+import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange, FavoriteTrack } from "@/lib/types";
 import { PST_TIME_ZONE } from "@/lib/time";
 
@@ -76,21 +76,13 @@ export default async function RediscoveryPage({
     redirect("/login");
   }
 
-  let authorizedSession: AuthorizedSession;
-
-  try {
-    authorizedSession = await getAuthorizedSession(session);
-  } catch (error) {
-    if (isSessionRefreshFailure(error)) {
-      redirect("/login?error=session_refresh_failed");
-    }
-
-    throw error;
-  }
-
   const { range } = await searchParams;
   const selectedRange = normalizeRange(range);
-  const insights = await getDashboardInsights(authorizedSession.accessToken, authorizedSession.spotifyUserId, selectedRange);
+  const insights = await getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange);
+
+  if (!insights) {
+    redirect(`/dashboard?range=${selectedRange}`);
+  }
 
   return (
     <main className="relative overflow-hidden px-6 py-10 md:px-10">
@@ -121,6 +113,10 @@ export default async function RediscoveryPage({
               </Link>
             );
           })}
+        </div>
+
+        <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
+          Rediscovery is being generated from stored SoundScope history so this page stays fast and predictable.
         </div>
 
         <section className="glass-panel rounded-[36px] p-6 md:p-8">

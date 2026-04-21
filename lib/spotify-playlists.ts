@@ -1139,6 +1139,26 @@ export async function getAllPlaylistInsights(
   }
 }
 
+export async function getAllPlaylistInsightsFromHistory(
+  spotifyUserId: string,
+  sort: PlaylistSortOption = "created_desc",
+): Promise<PlaylistInsight[]> {
+  const [storedInsights, storedPlaylists, cachedDetails, recentPlays] = await Promise.all([
+    getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
+    getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
+    getCachedPlaylistDetails(spotifyUserId).catch(() => [] as CachedPlaylistDetail[]),
+    getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
+  ]);
+
+  if (storedPlaylists.length > 0) {
+    const cachedInsights = buildCachedPlaylistInsights(storedPlaylists, cachedDetails, recentPlays, sort);
+    const mergedInsights = uniqueById([...cachedInsights, ...storedInsights]);
+    return sortPlaylistInsights(mergedInsights, sort);
+  }
+
+  return sortPlaylistInsights(uniqueById(storedInsights), sort);
+}
+
 export async function getPlaylistDetail(accessToken: string, spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {
   const [storedLibrary, cachedDetails, recentPlays] = await Promise.all([
     getStoredPlaylistLibrary(spotifyUserId),

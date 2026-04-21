@@ -1,8 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
-import { FULL_TOP_LIST_LIMIT, getSpotifyTopLists, getSpotifyTopListsLive } from "@/lib/spotify-toplists";
+import { isSessionRefreshFailure, requireSession } from "@/lib/auth";
+import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { TopListAlbum, TopListArtist, TopListRange, TopListTrack } from "@/lib/types";
 
 type TopListsPageProps = {
@@ -147,27 +147,44 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   const selectedPage = normalizePage(page);
   const selectedFrom = normalizeDate(from);
   const selectedTo = normalizeDate(to);
-  let authorizedSession: AuthorizedSession;
-
-  try {
-    authorizedSession = await getAuthorizedSession(session);
-  } catch (error) {
-    if (isSessionRefreshFailure(error)) {
-      redirect("/login?error=session_refresh_failed");
-    }
-
-    throw error;
-  }
   const pageSize = FULL_TOP_LIST_LIMIT;
   let data;
   let rankingsNotice: string | null = null;
 
   try {
-    data = await getSpotifyTopLists(authorizedSession.accessToken, authorizedSession.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+    data = await getSpotifyTopListsFromHistory(session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
   } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      redirect("/login?error=session_refresh_failed");
+    }
+
     const message = error instanceof Error ? error.message : String(error);
-    data = await getSpotifyTopListsLive(authorizedSession.accessToken, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
-    rankingsNotice = `Cached rankings could not be loaded, so this page is showing live Spotify rankings instead. (${message})`;
+    data = {
+      range: selectedRange,
+      artists: [],
+      tracks: [],
+      albums: [],
+      sourceLabel: "No cached SoundScope rankings yet",
+      from: selectedFrom,
+      to: selectedTo,
+    };
+    rankingsNotice = `Cached rankings could not be loaded yet. Use Refresh snapshot to update stored rankings. (${message})`;
+  }
+
+  if (!rankingsNotice) {
+    rankingsNotice = "This page is using stored SoundScope rankings so it can load without waiting on live Spotify requests.";
+  }
+
+  if (!data) {
+    data = {
+      range: selectedRange,
+      artists: [],
+      tracks: [],
+      albums: [],
+      sourceLabel: "No cached SoundScope rankings yet",
+      from: selectedFrom,
+      to: selectedTo,
+    };
   }
 
   const artists = data.artists;

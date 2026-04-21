@@ -1,8 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
-import { getDashboardAnalysisDetail } from "@/lib/spotify-dashboard";
+import { requireSession } from "@/lib/auth";
+import { getDashboardAnalysisDetailFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
 
@@ -25,28 +25,20 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
     redirect("/login");
   }
 
-  let authorizedSession: AuthorizedSession;
-
-  try {
-    authorizedSession = await getAuthorizedSession(session);
-  } catch (error) {
-    if (isSessionRefreshFailure(error)) {
-      redirect("/login?error=session_refresh_failed");
-    }
-
-    throw error;
-  }
-
   const { section, range, label, mood, period } = await searchParams;
   const selectedRange = normalizeRange(range);
   const selectedSection = section === "heatmap" ? "heatmap" : "trend";
 
-  const detail = await getDashboardAnalysisDetail(authorizedSession.accessToken, authorizedSession.spotifyUserId, selectedRange, {
+  const detail = await getDashboardAnalysisDetailFromHistory(session.spotifyUserId, selectedRange, {
     section: selectedSection,
     label,
     mood,
     period,
   });
+
+  if (!detail) {
+    redirect(`/dashboard?range=${selectedRange}`);
+  }
 
   return (
     <main className="relative overflow-hidden px-6 py-10 md:px-10">
@@ -69,6 +61,10 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
               <h2 className="mt-2 font-display text-3xl text-[var(--theme-title)]">{detail.entries.length} matching play{detail.entries.length === 1 ? "" : "s"}</h2>
             </div>
             <p className="text-sm text-ink/70">Range: {detail.range === "week" ? "This Week" : detail.range === "month" ? "This Month" : "All Time"}</p>
+          </div>
+
+          <div className="mt-4 rounded-[24px] border border-cyan/20 bg-cyan/10 px-4 py-3 text-sm text-ink/85">
+            This drilldown is using stored snapshot history. Heatmap drilldowns show cached time-of-day sessions without live audio-feature refresh.
           </div>
 
           {detail.entries.length === 0 ? (

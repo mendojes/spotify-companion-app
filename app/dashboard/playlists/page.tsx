@@ -1,8 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
-import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
+import { requireSession } from "@/lib/auth";
+import { getAllPlaylistInsightsFromHistory } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
 
@@ -48,18 +48,6 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
     redirect("/login");
   }
 
-  let authorizedSession: AuthorizedSession;
-
-  try {
-    authorizedSession = await getAuthorizedSession(session);
-  } catch (error) {
-    if (isSessionRefreshFailure(error)) {
-      redirect("/login?error=session_refresh_failed");
-    }
-
-    throw error;
-  }
-
   const { sort } = await searchParams;
   const selectedSort = normalizeSort(sort);
 
@@ -67,9 +55,9 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
   let error: string | null = null;
 
   try {
-    playlists = await getAllPlaylistInsights(authorizedSession.accessToken, authorizedSession.spotifyUserId, selectedSort);
+    playlists = await getAllPlaylistInsightsFromHistory(session.spotifyUserId, selectedSort);
   } catch (caughtError) {
-    error = `Playlist analysis could not be fully refreshed right now. Showing stored playlist data when available. (${getErrorMessage(caughtError)})`;
+    error = `Stored playlist analysis could not be loaded right now. Use Refresh snapshot to update playlist data. (${getErrorMessage(caughtError)})`;
   }
 
   return (
@@ -115,7 +103,11 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
 
         {error ? (
           <div className="rounded-[24px] border border-gold/30 bg-gold/10 px-5 py-4 text-sm text-ink/85">{error}</div>
-        ) : null}
+        ) : (
+          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-ink/85">
+            This page is using stored playlist insights and cached playlist analysis so it doesn&apos;t wait on live Spotify requests.
+          </div>
+        )}
 
         {playlists.length === 0 ? (
           <div className="glass-panel rounded-[30px] p-8 text-sm text-ink/75">

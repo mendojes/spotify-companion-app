@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Orbitron, Space_Grotesk, VT323 } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const orbitron = Orbitron({
@@ -47,6 +48,21 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-6VE9KFC8P6"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+
+            gtag('config', 'G-6VE9KFC8P6');
+          `}
+        </Script>
+      </head>
       <body className={`${orbitron.variable} ${spaceGrotesk.variable} ${vt323.variable} font-sans antialiased`}>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         {children}
