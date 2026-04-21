@@ -22,7 +22,7 @@ import {
 } from "@/lib/types";
 import { PST_TIME_ZONE } from "@/lib/time";
 
-const PLAYLIST_PAGE_LIMIT = 20;
+const PLAYLIST_PAGE_LIMIT = 50;
 const PLAYLIST_TRACK_LIMIT = 100;
 const DASHBOARD_PLAYLIST_COUNT = 3;
 const PLAYLIST_ANALYSIS_CONCURRENCY = 3;
@@ -220,7 +220,7 @@ async function upsertStoredPlaylist(spotifyUserId: string, playlist: SpotifyPlay
   }
 }
 
-async function getPlaylistLibrary(accessToken: string, spotifyUserId: string) {
+async function getPlaylistLibrary(accessToken: string, spotifyUserId: string, options?: { allowStoredFallback?: boolean }) {
   const storedPlaylists = await getStoredPlaylistLibrary(spotifyUserId);
 
   try {
@@ -230,7 +230,11 @@ async function getPlaylistLibrary(accessToken: string, spotifyUserId: string) {
       return livePlaylists;
     }
   } catch {
-    return storedPlaylists;
+    if (options?.allowStoredFallback ?? true) {
+      return storedPlaylists;
+    }
+
+    throw new Error("Could not fetch playlist library from Spotify.");
   }
 
   return storedPlaylists;
@@ -484,8 +488,7 @@ async function fetchAllPlaylists(accessToken: string) {
     const page = await fetchPlaylistsPage(accessToken, offset);
     playlists.push(...page.items
       .map((playlist) => normalizePlaylist(playlist))
-      .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist))
-      .filter((playlist) => playlist.tracks.total > 0));
+      .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)));
 
     if (!page.next || page.items.length === 0) {
       break;
@@ -1079,7 +1082,7 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
 
 export async function syncPlaylistLibrary(accessToken: string, spotifyUserId: string) {
   const [playlists, currentPlaybackSource, storedPlaylists] = await Promise.all([
-    getPlaylistLibrary(accessToken, spotifyUserId),
+    getPlaylistLibrary(accessToken, spotifyUserId, { allowStoredFallback: false }),
     getCurrentPlaybackSource(accessToken).catch(() => undefined),
     getStoredPlaylistLibrary(spotifyUserId),
   ]);
