@@ -2,12 +2,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
-import { getAllPlaylistInsightsFromHistory } from "@/lib/spotify-playlists";
+import { getAllPlaylistInsightsFromHistory, getPlaylistLibraryStatus } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
 
 type PlaylistsPageProps = {
-  searchParams: Promise<{ sort?: string }>;
+  searchParams: Promise<{ sort?: string; refreshed?: string; refresh_error?: string }>;
 };
 
 const sortOptions: Array<{ key: PlaylistSortOption; label: string }> = [
@@ -48,11 +48,12 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
     redirect("/login");
   }
 
-  const { sort } = await searchParams;
+  const { sort, refreshed, refresh_error: refreshError } = await searchParams;
   const selectedSort = normalizeSort(sort);
 
   let playlists: PlaylistInsight[] = [];
   let error: string | null = null;
+  const libraryStatus = await getPlaylistLibraryStatus(session.spotifyUserId);
 
   try {
     playlists = await getAllPlaylistInsightsFromHistory(session.spotifyUserId, selectedSort);
@@ -73,11 +74,18 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
             <p className="mt-3 text-sm text-ink/60">
               Created is estimated from the oldest track add date we can see, and last listened only updates when Spotify gives us exact playlist playback context.
             </p>
+            <div className="mt-4 space-y-1 text-sm text-ink/65">
+              <p>Stored playlists: {libraryStatus.playlistCount}</p>
+              <p>Last playlist sync: {formatDateLabel(libraryStatus.lastSyncedAt)}</p>
+            </div>
           </div>
           <div className="flex gap-3">
             <Link href="/dashboard" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white">
               Back to dashboard
             </Link>
+            <a href="/api/dashboard/playlists/refresh" className="rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-sm text-cyan">
+              Refresh playlists
+            </a>
             <a href="/api/auth/logout" className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm text-white">
               Log out
             </a>
@@ -100,6 +108,18 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
             );
           })}
         </div>
+
+        {refreshed ? (
+          <div className="rounded-[24px] border border-cyan/30 bg-cyan/10 px-5 py-4 text-sm text-ink/85">
+            Playlist library refreshed successfully.
+          </div>
+        ) : null}
+
+        {refreshError ? (
+          <div className="rounded-[24px] border border-gold/30 bg-gold/10 px-5 py-4 text-sm text-ink/85">
+            Playlist library refresh failed. {refreshError}
+          </div>
+        ) : null}
 
         {error ? (
           <div className="rounded-[24px] border border-gold/30 bg-gold/10 px-5 py-4 text-sm text-ink/85">{error}</div>

@@ -2,6 +2,9 @@
 import { applyAuthEventCookie, applySessionCookie, buildSession, consumeAuthStateCookie } from "@/lib/auth";
 import { upsertConnectedUser } from "@/lib/connected-users";
 import { exchangeSpotifyCode, getAppUrl, getSpotifyProfile } from "@/lib/spotify";
+import { getPlaylistLibraryStatus, invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
+
+const LOGIN_PLAYLIST_SYNC_TTL_MS = 1000 * 60 * 60 * 24;
 
 export async function GET(request: NextRequest) {
   const startedAt = Date.now();
@@ -62,6 +65,28 @@ export async function GET(request: NextRequest) {
     } catch (persistenceError) {
       const message = persistenceError instanceof Error ? persistenceError.message : String(persistenceError);
       console.log("[spotify-callback] connected user persistence failed", { message, ms: Date.now() - startedAt });
+    }
+
+    try {
+      const playlistLibraryStatus = await getPlaylistLibraryStatus(session.spotifyUserId);
+      const shouldSyncPlaylists =
+        playlistLibraryStatus.playlistCount === 0 ||
+        !playlistLibraryStatus.lastSyncedAt ||
+        Date.now() - new Date(playlistLibraryStatus.lastSyncedAt).getTime() >= LOGIN_PLAYLIST_SYNC_TTL_MS;
+
+      if (shouldSyncPlaylists) {
+        console.log("[spotify-callback] syncing playlist library", {
+          spotifyUserId: session.spotifyUserId,
+          playlistCount: playlistLibraryStatus.playlistCount,
+          lastSyncedAt: playlistLibraryStatus.lastSyncedAt,
+          ms: Date.now() - startedAt,
+        });
+        await syncPlaylistLibrary(session.accessToken, session.spotifyUserId).catch(() => []);
+        invalidatePlaylistInsightsCache(session.spotifyUserId);
+      }
+    } catch (playlistSyncError) {
+      const message = playlistSyncError instanceof Error ? playlistSyncError.message : String(playlistSyncError);
+      console.log("[spotify-callback] playlist library sync failed", { message, ms: Date.now() - startedAt });
     }
 
     console.log("[spotify-callback] redirecting to dashboard", { ms: Date.now() - startedAt });

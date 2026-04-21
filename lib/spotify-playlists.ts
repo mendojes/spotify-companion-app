@@ -57,6 +57,11 @@ type StoredPlaylistLibraryItem = SpotifyPlaylist & {
   updatedAt: string;
 };
 
+export type PlaylistLibraryStatus = {
+  playlistCount: number;
+  lastSyncedAt?: string;
+};
+
 function isUsablePlaylistTrack(track: unknown): track is SpotifyTrack {
   if (!track || typeof track !== "object") {
     return false;
@@ -115,6 +120,36 @@ async function getStoredPlaylistLibrary(spotifyUserId: string) {
       .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
   } catch {
     return [] as SpotifyPlaylist[];
+  }
+}
+
+export async function getPlaylistLibraryStatus(spotifyUserId: string): Promise<PlaylistLibraryStatus> {
+  if (!hasMongoConfig()) {
+    return { playlistCount: 0 };
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return { playlistCount: 0 };
+    }
+
+    const [playlistCount, latestRecord] = await Promise.all([
+      db.collection<StoredPlaylistLibraryItem>(PLAYLIST_LIBRARY_COLLECTION).countDocuments({ spotifyUserId }),
+      db.collection<StoredPlaylistLibraryItem>(PLAYLIST_LIBRARY_COLLECTION)
+        .find({ spotifyUserId })
+        .sort({ updatedAt: -1 })
+        .limit(1)
+        .project({ updatedAt: 1 })
+        .next(),
+    ]);
+
+    return {
+      playlistCount,
+      lastSyncedAt: latestRecord?.updatedAt,
+    };
+  } catch {
+    return { playlistCount: 0 };
   }
 }
 
@@ -1157,6 +1192,40 @@ export async function getAllPlaylistInsightsFromHistory(
   }
 
   return sortPlaylistInsights(uniqueById(storedInsights), sort);
+}
+
+export async function getPlaylistDetailFromHistory(spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {
+  const [storedLibrary, cachedDetails, recentPlays] = await Promise.all([
+    getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
+    getCachedPlaylistDetails(spotifyUserId, [playlistId]).catch(() => [] as CachedPlaylistDetail[]),
+    getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
+  ]);
+
+  const cached = cachedDetails[0];
+  if (cached) {
+    return cached;
+  }
+
+  const storedPlaylist = storedLibrary.find((playlist) => playlist.id === playlistId);
+  if (storedPlaylist) {
+    return {
+      ...toBasicInsight(storedPlaylist, recentPlays),
+      id: storedPlaylist.id,
+      trackCount: storedPlaylist.tracks?.total ?? 0,
+      ownerName: storedPlaylist.owner?.display_name,
+      uniqueArtistCount: 0,
+      uniqueAlbumCount: 0,
+      listeningCadence: getPlaylistListeningCadence(storedPlaylist.id, recentPlays),
+      topGenres: [],
+      topArtists: [],
+      repeatedTracks: [],
+      sampleTracks: [],
+      topTracks: [],
+      listenTimeline: buildListenTimeline(storedPlaylist.id, recentPlays),
+    };
+  }
+
+  return null;
 }
 
 export async function getPlaylistDetail(accessToken: string, spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {

@@ -1,8 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
-import { getPlaylistDetail } from "@/lib/spotify-playlists";
+import { requireSession } from "@/lib/auth";
+import { getPlaylistDetailFromHistory } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { formatPstDateTime } from "@/lib/time";
 
@@ -21,24 +21,17 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     redirect("/login");
   }
 
-  let authorizedSession: AuthorizedSession;
-
-  try {
-    authorizedSession = await getAuthorizedSession(session);
-  } catch (error) {
-    if (isSessionRefreshFailure(error)) {
-      redirect("/login?error=session_refresh_failed");
-    }
-
-    throw error;
-  }
-
   const { playlistId } = await params;
-  const detail = await getPlaylistDetail(authorizedSession.accessToken, authorizedSession.spotifyUserId, playlistId);
+  const detail = await getPlaylistDetailFromHistory(session.spotifyUserId, playlistId);
 
   if (!detail) {
     notFound();
   }
+
+  const isAnalysisPending =
+    detail.uniqueArtistCount === 0 ||
+    detail.uniqueAlbumCount === 0 ||
+    detail.mood.toLowerCase().includes("analysis pending");
 
   return (
     <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
@@ -91,6 +84,16 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             <p className="mt-4 font-display text-2xl text-white">{detail.mood}</p>
           </div>
         </div>
+
+        {isAnalysisPending ? (
+          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-ink/85">
+            This playlist page is loading from stored cache only. Deeper analysis has not been computed yet, so some sections may stay minimal until you refresh SoundScope&apos;s stored playlist data.
+          </div>
+        ) : (
+          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-ink/85">
+            This playlist page is using stored playlist analysis so it can load without waiting on live Spotify requests.
+          </div>
+        )}
 
         <PlaylistDetailView detail={detail} />
       </div>
