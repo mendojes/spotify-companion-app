@@ -1,5 +1,5 @@
 import { getCurrentPlaybackSource, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
-import { spotifyFetch } from "@/lib/spotify";
+import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import {
@@ -552,8 +552,18 @@ async function fetchArtists(accessToken: string, artistIds: string[]) {
     return [] as SpotifyArtist[];
   }
 
-  const response = await spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${uniqueArtistIds.join(",")}`, accessToken);
-  return response.artists;
+  try {
+    const response = await spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${uniqueArtistIds.join(",")}`, accessToken);
+    return response.artists;
+  } catch {
+    try {
+      const clientToken = await getSpotifyClientCredentialsToken();
+      const response = await spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${uniqueArtistIds.join(",")}`, clientToken, { allowRetry: true });
+      return response.artists;
+    } catch {
+      return [] as SpotifyArtist[];
+    }
+  }
 }
 
 async function fetchAudioFeatures(accessToken: string, tracks: SpotifyTrack[]) {
