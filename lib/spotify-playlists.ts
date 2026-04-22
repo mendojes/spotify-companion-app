@@ -34,6 +34,8 @@ const PLAYLIST_LIBRARY_COLLECTION = "spotify_playlist_library";
 const PLAYLIST_DETAIL_REFRESH_LIMIT = 6;
 const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( playlist genre fallback )";
 const PLAYLIST_PUBLIC_TAG_FETCH_LIMIT = 30;
+const PLAYLIST_ARTIST_METADATA_LIMIT = 150;
+const PLAYLIST_AUDIO_FEATURE_SAMPLE_LIMIT = 200;
 
 const lastGoodPlaylistInsights = new Map<string, PlaylistInsight[]>();
 
@@ -619,8 +621,27 @@ async function fetchArtists(accessToken: string, artistIds: string[]) {
   }
 }
 
+function getTopArtistIdsByFrequency(tracks: SpotifyTrack[], limit = PLAYLIST_ARTIST_METADATA_LIMIT) {
+  const artistCounts = new Map<string, number>();
+
+  tracks.forEach((track) => {
+    track.artists.forEach((artist) => {
+      if (!artist.id) {
+        return;
+      }
+
+      artistCounts.set(artist.id, (artistCounts.get(artist.id) ?? 0) + 1);
+    });
+  });
+
+  return [...artistCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([artistId]) => artistId);
+}
+
 async function fetchAudioFeatures(accessToken: string, tracks: SpotifyTrack[]) {
-  const trackIds = uniqueById(tracks).map((track) => track.id);
+  const trackIds = uniqueById(tracks).map((track) => track.id).slice(0, PLAYLIST_AUDIO_FEATURE_SAMPLE_LIMIT);
 
   if (trackIds.length === 0) {
     return [] as SpotifyAudioFeature[];
@@ -1103,7 +1124,7 @@ async function analyzePlaylist(
     if (trackItems.length === 0) return null;
 
     const tracks = trackItems.map((item) => item.track);
-    const artistIds = tracks.flatMap((track) => track.artists.map((artist) => artist.id).filter(Boolean)) as string[];
+    const artistIds = getTopArtistIdsByFrequency(tracks);
     const [artists, features] = await Promise.all([
       fetchArtists(accessToken, artistIds).catch(() => [] as SpotifyArtist[]),
       fetchAudioFeatures(accessToken, tracks).catch(() => [] as SpotifyAudioFeature[]),
