@@ -188,7 +188,7 @@ function TabPill({ active, children, href }: { active: boolean; children: ReactN
   const className = `rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.16em] transition ${
     active
       ? "neon-outline bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] text-[#170718]"
-      : "chrome-line bg-white/[0.05] text-ink/82 hover:border-cyan/40 hover:text-white"
+      : "chrome-line bg-white/[0.18] text-[var(--theme-text)] hover:border-cyan/40 hover:text-[var(--theme-title)]"
   }`;
 
   if (!href) {
@@ -236,19 +236,21 @@ function getAdaptiveValueClass(value: string) {
 }
 
 function getAdaptivePlaylistTitleClass(value: string) {
-  if (value.length > 24) {
-    return "text-sm leading-none tracking-[0.01em] whitespace-nowrap";
+  const base = "whitespace-normal break-normal [overflow-wrap:normal] [word-break:keep-all] [text-wrap:balance]";
+
+  if (value.length > 44) {
+    return `${base} text-lg leading-[1.1] tracking-[0.02em]`;
+  }
+
+  if (value.length > 28) {
+    return `${base} text-xl leading-[1.08] tracking-[0.03em]`;
   }
 
   if (value.length > 18) {
-    return "text-lg leading-none tracking-[0.015em] whitespace-nowrap";
+    return `${base} text-[1.65rem] leading-[1.05] tracking-[0.04em]`;
   }
 
-  if (value.length > 12) {
-    return "text-[1.65rem] leading-none tracking-[0.03em] whitespace-nowrap";
-  }
-
-  return "text-3xl leading-[1] tracking-[0.08em]";
+  return `${base} text-3xl leading-[1] tracking-[0.08em]`;
 }
 
 function MetricWindow({
@@ -661,7 +663,7 @@ export function DashboardView({
                               className={`rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.16em] transition ${
                                 active
                                   ? "neon-outline bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] text-[#170718]"
-                                  : "chrome-line bg-white/[0.05] text-ink/82 hover:border-cyan/40 hover:text-white"
+                                  : "chrome-line bg-white/[0.18] text-[var(--theme-text)] hover:border-cyan/40 hover:text-[var(--theme-title)]"
                               }`}
                             >
                               {tab.label}
@@ -1177,7 +1179,7 @@ export function DashboardView({
                     )}
                     <div className="desktop-card min-h-[9rem] p-4 md:min-h-[10rem]">
                       <p className="section-kicker">Playlist insight</p>
-                      <h3 className={`mt-3 overflow-hidden font-display uppercase text-[var(--theme-title)] ${getAdaptivePlaylistTitleClass(playlistCard.name)}`}>
+                      <h3 className={`mt-3 font-display uppercase text-[var(--theme-title)] ${getAdaptivePlaylistTitleClass(playlistCard.name)}`}>
                         {playlistCard.name}
                       </h3>
                     </div>

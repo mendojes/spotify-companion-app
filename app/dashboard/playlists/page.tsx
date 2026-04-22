@@ -62,7 +62,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Playlist Lab</p>
-            <h1 className="mt-3 font-display text-4xl text-white md:text-5xl">All playlist breakdowns</h1>
+            <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">All playlist breakdowns</h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-ink/80">
               Browse every playlist we can access, sort them by timeline signals, and open any one for deeper mood, top-genre, and listening-cadence analysis.
             </p>
@@ -75,13 +75,13 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
             </div>
           </div>
           <div className="flex gap-3">
-            <Link href="/dashboard" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white">
+            <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               Back to dashboard
             </Link>
             <a href="/api/dashboard/playlists/refresh" className="rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-sm text-cyan">
               Refresh playlists
             </a>
-            <a href="/api/auth/logout" className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm text-white">
+            <a href="/api/auth/logout" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               Log out
             </a>
           </div>
@@ -95,7 +95,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
                 key={option.key}
                 href={`/dashboard/playlists?sort=${option.key}`}
                 className={`rounded-full px-4 py-2 text-sm transition ${
-                  active ? "bg-white text-slate-950" : "border border-white/10 bg-white/5 text-ink/80"
+                  active ? "bg-white text-slate-950" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"
                 }`}
               >
                 {option.label}
@@ -147,7 +147,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <h2 className="font-display text-2xl text-white">{playlist.name}</h2>
+                    <h2 className="font-display text-2xl text-[var(--theme-title)]">{playlist.name}</h2>
                     {playlist.trackCount ? <p className="mt-2 text-sm text-cyan">{playlist.trackCount} tracks analyzed</p> : null}
                     <div className="mt-4 space-y-1 text-xs text-ink/60">
                       <p>Created: {formatDateLabel(playlist.createdAt)}</p>
@@ -158,15 +158,15 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
                 <div className="mt-6 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <p className="text-sm text-ink/60">Mood</p>
-                    <p className="mt-2 text-white">{playlist.mood}</p>
+                    <p className="mt-2 text-[var(--theme-text)]">{playlist.mood}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <p className="text-sm text-ink/60">Top genres</p>
-                    <p className="mt-2 text-white">{playlist.topGenresSummary ?? playlist.diversity}</p>
+                    <p className="mt-2 text-[var(--theme-text)]">{playlist.topGenresSummary ?? playlist.diversity}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <p className="text-sm text-ink/60">Listening cadence</p>
-                    <p className="mt-2 text-white">{playlist.listeningCadence ?? playlist.overlap}</p>
+                    <p className="mt-2 text-[var(--theme-text)]">{playlist.listeningCadence ?? playlist.overlap}</p>
                   </div>
                 </div>
               </Link>

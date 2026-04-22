@@ -123,16 +123,16 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
     <div className="space-y-6">
       <div className="grid gap-4 xl:grid-cols-3">
         {extraInsights.map((insight) => (
-          <div key={insight.label} className="glass-panel rounded-[30px] p-6 text-white">
+          <div key={insight.label} className="glass-panel rounded-[30px] p-6 text-[var(--theme-text)]">
             <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">{insight.label}</p>
-            <p className="mt-4 font-display text-3xl leading-tight text-white">{insight.value}</p>
+            <p className="mt-4 font-display text-3xl leading-tight text-[var(--theme-title)]">{insight.value}</p>
             <p className="mt-3 text-sm leading-7 text-ink/75">{insight.detail}</p>
           </div>
         ))}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="glass-panel rounded-[32px] p-6 text-white">
+        <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
           <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Genre composition</p>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/75">
             {hasGenres ? "A genre-share view of the artists driving this playlist right now." : "Spotify did not return enough artist genre metadata to build a genre share chart yet."}
@@ -165,7 +165,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <span className="h-3 w-3 rounded-full" style={{ backgroundColor: genreColors[index % genreColors.length] }} />
-                      <p className="text-white">{genre.genre}</p>
+                      <p className="text-[var(--theme-text)]">{genre.genre}</p>
                     </div>
                     <p className="text-sm text-cyan">{genre.share}%</p>
                   </div>
@@ -176,7 +176,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
           </div>
         </div>
 
-        <div className="glass-panel rounded-[32px] p-6 text-white">
+        <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
           <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Listening timeline</p>
           <p className="mt-3 text-sm leading-7 text-ink/75">{detail.listeningCadence}</p>
           <div className="mt-6 h-[320px] rounded-[26px] border border-white/10 bg-white/[0.04] p-3">
@@ -211,11 +211,11 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="glass-panel rounded-[30px] p-6">
           <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Genre diversity</p>
-          <p className="mt-3 text-white">{detail.diversity}</p>
+          <p className="mt-3 text-[var(--theme-text)]">{detail.diversity}</p>
           <div className="mt-6 space-y-3">
             {detail.topGenres.map((genre) => (
               <div key={genre.genre} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <p className="text-white">{genre.genre}</p>
+                <p className="text-[var(--theme-text)]">{genre.genre}</p>
                 <p className="text-sm text-cyan">{genre.count}</p>
               </div>
             ))}
@@ -224,11 +224,11 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
 
         <div className="glass-panel rounded-[30px] p-6">
           <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Artist concentration</p>
-          <p className="mt-3 text-white">{detail.overlap}</p>
+          <p className="mt-3 text-[var(--theme-text)]">{detail.overlap}</p>
           <div className="mt-6 space-y-3">
             {detail.topArtists.map((artist) => (
               <div key={artist.artist} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <p className="text-white">{artist.artist}</p>
+                <p className="text-[var(--theme-text)]">{artist.artist}</p>
                 <p className="text-sm text-cyan">{artist.count}</p>
               </div>
             ))}
@@ -237,7 +237,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
 
         <div className="glass-panel rounded-[30px] p-6">
           <p className="text-sm uppercase tracking-[0.24em] text-cyan/70">Repeated tracks</p>
-          <p className="mt-3 text-white">
+          <p className="mt-3 text-[var(--theme-text)]">
             {detail.repeatedTracks.length > 0 ? "Tracks that appear more than once in this playlist." : "No duplicate tracks detected in the analyzed slice."}
           </p>
           <div className="mt-6 space-y-3">
@@ -249,7 +249,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
                   </div>
                 ) : null}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-white">{track.title}</p>
+                  <p className="truncate text-[var(--theme-text)]">{track.title}</p>
                   <p className="truncate text-sm text-ink/65">{track.artist}</p>
                 </div>
               </div>
@@ -263,7 +263,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
         <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/75">The strongest tracks in this playlist by Spotify popularity, useful as a quick proxy for its current anchors.</p>
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {(detail.topTracks.length > 0 ? detail.topTracks : detail.sampleTracks).map((track, index) => (
-            <div key={track.id} className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4 text-white">
+            <div key={track.id} className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4 text-[var(--theme-text)]">
               <div className="flex items-start gap-4">
                 {track.imageUrl ? (
                   <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[20px] border border-white/10 bg-white/5">
@@ -272,7 +272,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
                 ) : null}
                 <div className="min-w-0 flex-1">
                   <p className="text-xs uppercase tracking-[0.18em] text-cyan/70">#{index + 1}</p>
-                  <p className="mt-2 break-words font-display text-xl leading-tight text-white">{track.title}</p>
+                  <p className="mt-2 break-words font-display text-xl leading-tight text-[var(--theme-title)]">{track.title}</p>
                   <p className="mt-2 break-words text-sm text-ink/65">{track.artist}</p>
                   <p className="mt-2 break-words text-xs uppercase tracking-[0.16em] text-ink/55">{track.album}</p>
                 </div>

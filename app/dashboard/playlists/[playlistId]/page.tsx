@@ -41,7 +41,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             ) : null}
             <div>
               <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Playlist Lab</p>
-              <h1 className="mt-3 font-display text-4xl text-white md:text-5xl">{detail.name}</h1>
+              <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">{detail.name}</h1>
               <p className="mt-3 max-w-2xl text-base leading-7 text-ink/80">
                 {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
                 This view breaks down the playlist&apos;s mood center, genre composition, repeat patterns, top tracks, and listening timeline.
@@ -53,10 +53,10 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             </div>
           </div>
           <div className="flex gap-3">
-            <Link href="/dashboard/playlists" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white">
+            <Link href="/dashboard/playlists" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               All playlists
             </Link>
-            <Link href="/dashboard" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white">
+            <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               Dashboard
             </Link>
           </div>
@@ -65,19 +65,19 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="glass-panel rounded-[28px] p-5">
             <p className="text-sm text-ink/60">Tracks analyzed</p>
-            <p className="mt-4 font-display text-3xl text-white">{detail.trackCount}</p>
+            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.trackCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
             <p className="text-sm text-ink/60">Unique artists</p>
-            <p className="mt-4 font-display text-3xl text-white">{detail.uniqueArtistCount}</p>
+            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueArtistCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
             <p className="text-sm text-ink/60">Unique albums</p>
-            <p className="mt-4 font-display text-3xl text-white">{detail.uniqueAlbumCount}</p>
+            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueAlbumCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
             <p className="text-sm text-ink/60">Mood center</p>
-            <p className="mt-4 font-display text-2xl text-white">{detail.mood}</p>
+            <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">{detail.mood}</p>
           </div>
         </div>
 

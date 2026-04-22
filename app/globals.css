@@ -20,9 +20,9 @@
   --gold: #ffe48f;
   --theme-title: #35164f;
   --theme-text: #4f1f77;
-  --theme-body: #5d3383;
-  --theme-muted: #6a3e94;
-  --theme-faint: #7c62a0;
+  --theme-body: #522970;
+  --theme-muted: #4a236c;
+  --theme-faint: #654783;
   --theme-badge: #4c1d73;
   --theme-accent: #b5348d;
   --theme-highlight: #1188a8;
@@ -226,7 +226,7 @@ body::-webkit-scrollbar-thumb {
   font-size: 1rem;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(93, 33, 131, 0.82);
+  color: rgba(74, 35, 108, 0.92);
 }
 
 .scan-lines {

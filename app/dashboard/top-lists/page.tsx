@@ -83,7 +83,7 @@ function ArtistsList({ items }: { items: TopListArtist[] }) {
           <Artwork src={item.imageUrl} alt={item.name} />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
-              <p className="font-display text-3xl text-white">{item.name}</p>
+              <p className="font-display text-3xl text-[var(--theme-title)]">{item.name}</p>
               <p className="text-sm text-cyan">#{item.rank}</p>
             </div>
             <p className="mt-2 text-base text-ink/80">{item.genres.length > 0 ? item.genres.join(" - ") : "Genres unavailable"}</p>
@@ -102,7 +102,7 @@ function TracksList({ items }: { items: TopListTrack[] }) {
           <Artwork src={item.imageUrl} alt={item.title} />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
-              <p className="font-display text-3xl text-white">{item.title}</p>
+              <p className="font-display text-3xl text-[var(--theme-title)]">{item.title}</p>
               <p className="text-sm text-gold">#{item.rank}</p>
             </div>
             <p className="mt-2 text-base text-ink/80">{item.artist}</p>
@@ -122,7 +122,7 @@ function AlbumsList({ items }: { items: TopListAlbum[] }) {
           <Artwork src={item.imageUrl} alt={item.name} />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
-              <p className="font-display text-3xl text-white">{item.name}</p>
+              <p className="font-display text-3xl text-[var(--theme-title)]">{item.name}</p>
               <p className="text-sm text-mint">#{item.rank}</p>
             </div>
             <p className="mt-2 text-base text-ink/80">{item.artist}</p>
@@ -203,7 +203,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-3xl space-y-3">
             <p className="text-sm uppercase tracking-[0.3em] text-gold/75">Top Lists</p>
-            <h1 className="font-display text-5xl text-white md:text-6xl">Your full ranking shelves.</h1>
+            <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">Your full ranking shelves.</h1>
             <p className="text-base leading-7 text-ink/80">Browse your rankings over 1 week, 1 month, 1 year, all time, or a custom window.</p>
           </div>
           <Link href={`/dashboard?topRange=${selectedRange}${customQuery ? `&topFrom=${selectedFrom}&topTo=${selectedTo}` : ""}`} className="rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm text-ink transition hover:border-gold/25 hover:text-gold">
@@ -260,7 +260,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-gold/70">{tabs.find((item) => item.key === selectedTab)?.label}</p>
-              <h2 className="mt-2 font-display text-3xl text-white">{data.sourceLabel}</h2>
+              <h2 className="mt-2 font-display text-3xl text-[var(--theme-title)]">{data.sourceLabel}</h2>
             </div>
             <p className="text-sm text-ink/70">Showing {selectedItems.length === 0 ? 0 : startIndex + 1}-{Math.min(startIndex + pageSize, selectedItems.length)} of {selectedItems.length}</p>
           </div>

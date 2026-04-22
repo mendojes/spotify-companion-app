@@ -27,7 +27,7 @@ export function DashboardSectionNav() {
             className={`rounded-full px-4 py-2 font-mono text-sm uppercase tracking-[0.16em] transition ${
               active
                 ? "neon-outline bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] text-[#170718]"
-                : "chrome-line bg-white/[0.05] text-ink/82 hover:border-cyan/40 hover:text-white"
+                : "chrome-line bg-white/[0.18] text-[var(--theme-text)] hover:border-cyan/40 hover:text-[var(--theme-title)]"
             }`}
           >
             {section.label}
