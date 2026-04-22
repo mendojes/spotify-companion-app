@@ -399,7 +399,31 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
             </div>
           </section>
 
-          <section className={`grid gap-6 ${spotifyConnected ? "xl:grid-cols-3" : "xl:grid-cols-2"}`}>
+          <section className="space-y-6">
+            <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+              <div className="flex items-center gap-3">
+                <Link2 className="h-5 w-5 text-[var(--theme-highlight)]" />
+                <div>
+                  <p className="section-kicker">Paste a link</p>
+                  <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Add a direct Spotify target</h2>
+                </div>
+              </div>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <input
+                  value={pastedInput}
+                  onChange={(event) => setPastedInput(event.target.value)}
+                  placeholder="https://open.spotify.com/playlist/... or album/artist"
+                  className="w-full rounded-[18px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/70 px-4 py-3 text-base text-[var(--theme-text)]"
+                />
+                <button
+                  onClick={addPastedTarget}
+                  className="pixel-chip inline-flex items-center justify-center px-5 py-3 text-[var(--theme-text)] transition hover:text-[#2d0d46]"
+                >
+                  Add link
+                </button>
+              </div>
+            </div>
+
             <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
               <div className="flex items-center gap-3">
                 <Search className="h-5 w-5 text-[var(--theme-accent)]" />
@@ -443,30 +467,6 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
                     Search for any public Spotify playlist, album, or artist and add several at once before starting.
                   </div>
                 )}
-              </div>
-            </div>
-
-            <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
-              <div className="flex items-center gap-3">
-                <Link2 className="h-5 w-5 text-[var(--theme-highlight)]" />
-                <div>
-                  <p className="section-kicker">Paste a link</p>
-                  <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Add a direct Spotify target</h2>
-                </div>
-              </div>
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <input
-                  value={pastedInput}
-                  onChange={(event) => setPastedInput(event.target.value)}
-                  placeholder="https://open.spotify.com/playlist/... or album/artist"
-                  className="w-full rounded-[18px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/70 px-4 py-3 text-base text-[var(--theme-text)]"
-                />
-                <button
-                  onClick={addPastedTarget}
-                  className="pixel-chip inline-flex items-center justify-center px-5 py-3 text-[var(--theme-text)] transition hover:text-[#2d0d46]"
-                >
-                  Add link
-                </button>
               </div>
             </div>
 

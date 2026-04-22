@@ -52,13 +52,13 @@ type SpotifyArtistAlbumsResponse = {
 
 type SpotifySearchResponse = {
   artists?: {
-    items: SpotifyArtistSummary[];
+    items: Array<SpotifyArtistSummary | null>;
   };
   albums?: {
-    items: SpotifyAlbum[];
+    items: Array<SpotifyAlbum | null>;
   };
   playlists?: {
-    items: Array<SpotifyPlaylist & { external_urls?: { spotify?: string } }>;
+    items: Array<(SpotifyPlaylist & { external_urls?: { spotify?: string } }) | null>;
   };
 };
 
@@ -88,6 +88,20 @@ function uniqueById<T extends { id: string }>(items: T[]) {
 
 function normalizeInput(value: string) {
   return value.trim();
+}
+
+function isSearchArtistResult(value: SpotifyArtistSummary | null | undefined): value is SpotifyArtistSummary {
+  return Boolean(value?.id && value?.name);
+}
+
+function isSearchAlbumResult(value: SpotifyAlbum | null | undefined): value is SpotifyAlbum {
+  return Boolean(value?.id && value?.name && Array.isArray(value.artists));
+}
+
+function isSearchPlaylistResult(
+  value: (SpotifyPlaylist & { external_urls?: { spotify?: string } }) | null | undefined,
+): value is SpotifyPlaylist & { external_urls?: { spotify?: string } } {
+  return Boolean(value?.id && value?.name);
 }
 
 function getTrackDedupKey(track: SpotifyTrack | SpotifyAlbumTrack) {
@@ -336,7 +350,9 @@ export async function getFavoritePickerSearchResults(session: AuthSession | null
 
   const response = await spotifyFetch<SpotifySearchResponse>(`/search?${searchParams.toString()}`, accessToken);
 
-  const artistResults = (response.artists?.items ?? []).map((artist) => toTargetSummary({
+  const artistResults = (response.artists?.items ?? [])
+    .filter(isSearchArtistResult)
+    .map((artist) => toTargetSummary({
     id: artist.id,
     type: "artist",
     name: artist.name,
@@ -345,7 +361,9 @@ export async function getFavoritePickerSearchResults(session: AuthSession | null
     spotifyUrl: artist.external_urls?.spotify,
   }));
 
-  const albumResults = (response.albums?.items ?? []).map((album) => toTargetSummary({
+  const albumResults = (response.albums?.items ?? [])
+    .filter(isSearchAlbumResult)
+    .map((album) => toTargetSummary({
     id: album.id,
     type: "album",
     name: album.name,
@@ -355,7 +373,9 @@ export async function getFavoritePickerSearchResults(session: AuthSession | null
     trackCount: album.total_tracks,
   }));
 
-  const playlistResults = (response.playlists?.items ?? []).map((playlist) => toTargetSummary({
+  const playlistResults = (response.playlists?.items ?? [])
+    .filter(isSearchPlaylistResult)
+    .map((playlist) => toTargetSummary({
     id: playlist.id,
     type: "playlist",
     name: playlist.name,
