@@ -329,15 +329,50 @@ function reorderPlaylistInsightsFromRecentPlay(
   return { playlistInsights: reordered, changed: true };
 }
 
+function hydrateStoredInsightsFromCachedDetails(
+  storedInsights: PlaylistInsight[],
+  storedPlaylists: SpotifyPlaylist[],
+  cachedDetails: CachedPlaylistDetail[],
+  recentPlays: StoredRecentPlay[],
+) {
+  const cachedDetailMap = new Map(cachedDetails.map((detail) => [detail.id, detail]));
+  const cachedInsights = storedPlaylists.length > 0
+    ? buildCachedPlaylistInsights(storedPlaylists, cachedDetails, recentPlays, "last_listened_desc")
+    : [];
+
+  const hydratedStoredInsights = storedInsights.map((insight) => {
+    if (!insight.id) {
+      return insight;
+    }
+
+    const cachedDetail = cachedDetailMap.get(insight.id);
+    if (!cachedDetail || isPlaylistDetailIncomplete(cachedDetail)) {
+      return insight;
+    }
+
+    return {
+      ...toInsight(cachedDetail, recentPlays),
+      lastListenedAt: insight.lastListenedAt ?? cachedDetail.lastListenedAt,
+    };
+  });
+
+  return uniqueById([...hydratedStoredInsights, ...cachedInsights]);
+}
+
 export async function getDashboardPlaylistInsights(spotifyUserId: string): Promise<PlaylistInsight[]> {
-  const [storedInsights, recentPlays] = await Promise.all([
+  const [storedInsights, recentPlays, storedPlaylists, cachedDetails] = await Promise.all([
     getStoredPlaylistInsights(spotifyUserId),
     getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
+    getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
+    getCachedPlaylistDetails(spotifyUserId).catch(() => [] as CachedPlaylistDetail[]),
   ]);
 
-  const { playlistInsights, changed } = reorderPlaylistInsightsFromRecentPlay(storedInsights, recentPlays);
+  const hydratedInsights = hydrateStoredInsightsFromCachedDetails(storedInsights, storedPlaylists, cachedDetails, recentPlays);
+  const sourceInsights = hydratedInsights.length > 0 ? hydratedInsights : storedInsights;
+  const { playlistInsights, changed } = reorderPlaylistInsightsFromRecentPlay(sourceInsights, recentPlays);
+  const hydratedChanged = JSON.stringify(sourceInsights) !== JSON.stringify(storedInsights);
 
-  if (changed && playlistInsights.length > 0) {
+  if ((changed || hydratedChanged) && playlistInsights.length > 0) {
     await writeStoredPlaylistInsights(spotifyUserId, playlistInsights);
   }
 
@@ -1347,10 +1382,11 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
 }
 
 export async function getPlaylistDetail(accessToken: string, spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {
-  const [storedLibrary, cachedDetails, recentPlays] = await Promise.all([
+  const [storedLibrary, cachedDetails, recentPlays, storedInsights] = await Promise.all([
     getStoredPlaylistLibrary(spotifyUserId),
     getCachedPlaylistDetails(spotifyUserId, [playlistId]),
     getRecentHistory(accessToken, spotifyUserId),
+    getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
   ]);
 
   try {
@@ -1360,6 +1396,16 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
 
     if (detail) {
       await writeCachedPlaylistDetails(spotifyUserId, [detail]);
+      const nextInsights = uniqueById([
+        {
+          ...toInsight(detail, recentPlays),
+          lastListenedAt: storedInsights.find((entry) => entry.id === detail.id)?.lastListenedAt ?? detail.lastListenedAt,
+        },
+        ...storedInsights,
+      ]);
+      if (nextInsights.length > 0) {
+        await writeStoredPlaylistInsights(spotifyUserId, nextInsights);
+      }
       return detail;
     }
   } catch {
