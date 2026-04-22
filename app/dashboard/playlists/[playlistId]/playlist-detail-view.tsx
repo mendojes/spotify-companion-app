@@ -216,7 +216,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
             {detail.topGenres.map((genre) => (
               <div key={genre.genre} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
                 <p className="text-[var(--theme-text)]">{genre.genre}</p>
-                <p className="text-sm text-cyan">{genre.count}</p>
+                <p className="text-sm text-[#2b7f97]">{genre.count}</p>
               </div>
             ))}
           </div>
@@ -229,7 +229,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
             {detail.topArtists.map((artist) => (
               <div key={artist.artist} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
                 <p className="text-[var(--theme-text)]">{artist.artist}</p>
-                <p className="text-sm text-cyan">{artist.count}</p>
+                <p className="text-sm text-[#2b7f97]">{artist.count}</p>
               </div>
             ))}
           </div>
@@ -271,7 +271,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
                   </div>
                 ) : null}
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs uppercase tracking-[0.18em] text-cyan/70">#{index + 1}</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#2b7f97]">#{index + 1}</p>
                   <p className="mt-2 break-words font-display text-xl leading-tight text-[var(--theme-title)]">{track.title}</p>
                   <p className="mt-2 break-words text-sm text-[var(--theme-muted)]">{track.artist}</p>
                   <p className="mt-2 break-words text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">{track.album}</p>

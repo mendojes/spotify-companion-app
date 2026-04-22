@@ -32,6 +32,8 @@ const PLAYLIST_INSIGHTS_COLLECTION = "spotify_playlist_insights";
 const PLAYLIST_DETAIL_CACHE_COLLECTION = "spotify_playlist_detail_cache";
 const PLAYLIST_LIBRARY_COLLECTION = "spotify_playlist_library";
 const PLAYLIST_DETAIL_REFRESH_LIMIT = 6;
+const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( playlist genre fallback )";
+const PLAYLIST_PUBLIC_TAG_FETCH_LIMIT = 12;
 
 const lastGoodPlaylistInsights = new Map<string, PlaylistInsight[]>();
 
@@ -630,6 +632,65 @@ function buildGenreSummary(artists: SpotifyArtist[]): PlaylistGenreSummary[] {
     .map(([genre, count]) => ({ genre, count }));
 }
 
+function buildGenreSummaryFromArtistTags(tracks: SpotifyTrack[], artistTags: Map<string, string[]>) {
+  const genreCounts = new Map<string, number>();
+
+  tracks.forEach((track) => {
+    const trackGenres = new Set<string>();
+
+    track.artists.forEach((artist) => {
+      (artistTags.get(artist.name.toLowerCase()) ?? []).forEach((genre) => trackGenres.add(genre));
+    });
+
+    trackGenres.forEach((genre) => {
+      genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
+    });
+  });
+
+  return [...genreCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([genre, count]) => ({ genre, count }));
+}
+
+async function fetchMusicBrainzArtistTags(artistNames: string[]) {
+  const uniqueNames = [...new Set(artistNames.map((name) => name.trim()).filter(Boolean))].slice(0, PLAYLIST_PUBLIC_TAG_FETCH_LIMIT);
+  const tagMap = new Map<string, string[]>();
+
+  await Promise.all(uniqueNames.map(async (artistName) => {
+    try {
+      const response = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(artistName)}&fmt=json&limit=1`, {
+        headers: {
+          "User-Agent": MUSICBRAINZ_USER_AGENT,
+        },
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = await response.json() as {
+        artists?: Array<{ score?: number | string; tags?: Array<{ name?: string }> }>;
+      };
+      const match = payload.artists?.[0];
+      const score = Number(match?.score ?? 0);
+      const tags = (match?.tags ?? [])
+        .map((tag) => tag.name?.trim().toLowerCase() ?? "")
+        .filter((tag) => tag.length > 2)
+        .slice(0, 5);
+
+      if (score >= 80 && tags.length > 0) {
+        tagMap.set(artistName.toLowerCase(), tags);
+      }
+    } catch {
+      return;
+    }
+  }));
+
+  return tagMap;
+}
+
 function formatTopGenresSummary(topGenres: PlaylistGenreSummary[]) {
   if (topGenres.length === 0) {
     return "Genre metadata is sparse here";
@@ -849,7 +910,17 @@ async function analyzePlaylist(
     const uniqueArtists = new Set(tracks.flatMap((track) => track.artists.map((artist) => artist.name)));
     const uniqueAlbums = new Set(tracks.map((track) => track.album.name));
 
-        const topGenres = buildGenreSummary(artists);
+    let topGenres = buildGenreSummary(artists);
+
+    if (topGenres.length === 0) {
+      const artistTags = await fetchMusicBrainzArtistTags(
+        [...new Set(tracks.flatMap((track) => track.artists.map((artist) => artist.name)))],
+      ).catch(() => new Map<string, string[]>());
+
+      if (artistTags.size > 0) {
+        topGenres = buildGenreSummaryFromArtistTags(tracks, artistTags);
+      }
+    }
 
     const sampleTracks = buildSampleTracks(tracks);
     const topTracks = buildTopTracks(tracks);
