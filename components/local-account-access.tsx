@@ -45,7 +45,7 @@ export function LocalAccountAccess({
       </button>
 
       {isOpen ? (
-        <div className="grid gap-5 xl:grid-cols-2">
+        <div className="space-y-5">
           <form action="/api/auth/local/login" method="post" className="desktop-card space-y-4 p-5 text-[var(--theme-text)]">
             <div>
               <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Login without connecting</p>

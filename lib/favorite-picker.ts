@@ -29,10 +29,7 @@ type FavoritePickerSongState = FavoritePickerTrack & {
 };
 
 export type FavoritePickerHistoryEntry = {
-  winnerId: string;
-  loserId: string;
-  pairIndex: number;
-  eliminationCountdown: number;
+  snapshot: Omit<FavoritePickerState, "history">;
 };
 
 export type FavoritePickerState = {
@@ -87,6 +84,43 @@ function getNextAliveSongId(state: FavoritePickerState, startIndex: number) {
   return null;
 }
 
+function getChoiceDescriptor(state: FavoritePickerState) {
+  if (state.activeSongIds.length <= 1) {
+    return null;
+  }
+
+  let first = getNextAliveSongId(state, state.pairIndex);
+  if (!first) {
+    first = getNextAliveSongId(state, 0);
+  }
+
+  if (!first) {
+    return null;
+  }
+
+  let second = getNextAliveSongId(state, first.nextIndex);
+  if (!second) {
+    second = getNextAliveSongId(state, 0);
+  }
+
+  if (!second || second.songId === first.songId) {
+    return null;
+  }
+
+  const left = getSongById(state, first.songId);
+  const right = getSongById(state, second.songId);
+
+  if (!left || !right) {
+    return null;
+  }
+
+  return {
+    left,
+    right,
+    nextPairIndex: second.nextIndex,
+  };
+}
+
 function finalizeRounds(state: FavoritePickerState): FavoritePickerState {
   let nextState = state;
 
@@ -105,7 +139,6 @@ function finalizeRounds(state: FavoritePickerState): FavoritePickerState {
         rankedSongIds: [...nextState.rankedSongIds, nextState.activeSongIds[0]],
         activeSongIds: [],
         currentFavoriteId: nextState.activeSongIds[0],
-        pairIndex: 0,
         eliminationCountdown: 0,
       };
     }
@@ -113,11 +146,7 @@ function finalizeRounds(state: FavoritePickerState): FavoritePickerState {
     const aliveSongIds = getAliveSongIds(nextState);
 
     if (aliveSongIds.length > 1) {
-      return {
-        ...nextState,
-        pairIndex: 0,
-        eliminationCountdown: aliveSongIds.length - 1,
-      };
+      return nextState;
     }
 
     const currentFavoriteId = aliveSongIds[0];
@@ -147,7 +176,21 @@ function finalizeRounds(state: FavoritePickerState): FavoritePickerState {
       activeSongIds: nextState.activeSongIds.filter((songId) => songId !== currentFavoriteId),
       currentFavoriteId,
       pairIndex: 0,
+      eliminationCountdown: 0,
     };
+
+    const remainingSongs = nextState.activeSongIds
+      .map((songId) => getSongById(nextState, songId))
+      .filter((song): song is FavoritePickerSongState => Boolean(song));
+    const resumedRoundSongCount = remainingSongs.filter((song) => song.eliminators.at(-1) === currentFavoriteId).length;
+
+    if (resumedRoundSongCount >= 2) {
+      nextState = {
+        ...nextState,
+        pairIndex: 0,
+        eliminationCountdown: resumedRoundSongCount - 1,
+      };
+    }
   }
 }
 
@@ -169,28 +212,16 @@ export function createFavoritePickerState(tracks: FavoritePickerTrack[]) {
 }
 
 export function getFavoritePickerChoice(state: FavoritePickerState): FavoritePickerChoice | null {
-  if (state.activeSongIds.length <= 1) {
+  const descriptor = getChoiceDescriptor(state);
+
+  if (!descriptor) {
     return null;
   }
 
-  const first = getNextAliveSongId(state, state.pairIndex) ?? getNextAliveSongId(state, 0);
-  if (!first) {
-    return null;
-  }
-
-  const second = getNextAliveSongId(state, first.nextIndex) ?? getNextAliveSongId(state, 0);
-  if (!second || second.songId === first.songId) {
-    return null;
-  }
-
-  const left = getSongById(state, first.songId);
-  const right = getSongById(state, second.songId);
-
-  if (!left || !right) {
-    return null;
-  }
-
-  return { left, right };
+  return {
+    left: descriptor.left,
+    right: descriptor.right,
+  };
 }
 
 export function chooseFavoritePickerSong(
@@ -198,7 +229,7 @@ export function chooseFavoritePickerSong(
   winnerId: string,
   loserId: string,
 ) {
-  const choice = getFavoritePickerChoice(state);
+  const choice = getChoiceDescriptor(state);
 
   if (!choice) {
     return state;
@@ -219,15 +250,25 @@ export function chooseFavoritePickerSong(
   const nextState: FavoritePickerState = {
     ...state,
     songs: nextSongs,
-    pairIndex: 0,
+    pairIndex: choice.nextPairIndex,
     eliminationCountdown: Math.max(0, state.eliminationCountdown - 1),
     history: [
       ...state.history,
       {
-        winnerId,
-        loserId,
-        pairIndex: state.pairIndex,
-        eliminationCountdown: state.eliminationCountdown,
+        snapshot: {
+          songs: state.songs.map((song) => ({
+            ...song,
+            eliminators: [...song.eliminators],
+            artists: [...song.artists],
+            sourceTargetIds: [...song.sourceTargetIds],
+            sourceLabels: [...song.sourceLabels],
+          })),
+          activeSongIds: [...state.activeSongIds],
+          rankedSongIds: [...state.rankedSongIds],
+          pairIndex: state.pairIndex,
+          eliminationCountdown: state.eliminationCountdown,
+          currentFavoriteId: state.currentFavoriteId,
+        },
       },
     ],
   };
@@ -251,22 +292,7 @@ export function goBackFavoritePickerChoice(state: FavoritePickerState) {
   }
 
   return {
-    ...state,
-    songs: state.songs.map((song) => {
-      if (song.id !== previous.loserId) {
-        return song;
-      }
-
-      return {
-        ...song,
-        eliminated: false,
-        eliminators: song.eliminators.slice(0, -1),
-      };
-    }),
-    rankedSongIds: [...state.rankedSongIds],
-    currentFavoriteId: undefined,
-    pairIndex: previous.pairIndex,
-    eliminationCountdown: previous.eliminationCountdown,
+    ...previous.snapshot,
     history: state.history.slice(0, -1),
   };
 }

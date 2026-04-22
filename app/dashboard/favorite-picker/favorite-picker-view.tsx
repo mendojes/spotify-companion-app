@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { startTransition, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, LibraryBig, Link2, Search, Shuffle, Sparkles, Trophy } from "lucide-react";
+import { LibraryBig, Link2, Search, Shuffle, Sparkles, Trophy } from "lucide-react";
 import {
   chooseFavoritePickerSong,
   createFavoritePickerState,
@@ -118,6 +118,7 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
   const [searchResults, setSearchResults] = useState<FavoritePickerTargetSummary[]>([]);
   const [selectedTargets, setSelectedTargets] = useState<FavoritePickerTargetSummary[]>([]);
   const [libraryTargets, setLibraryTargets] = useState<FavoritePickerTargetSummary[]>([]);
+  const [libraryQuery, setLibraryQuery] = useState("");
   const [pastedInput, setPastedInput] = useState("");
   const [pickerState, setPickerState] = useState<FavoritePickerState | null>(null);
   const [pickerTracks, setPickerTracks] = useState<FavoritePickerTrack[]>([]);
@@ -151,6 +152,18 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
 
   const currentChoice = useMemo(() => (pickerState ? getFavoritePickerChoice(pickerState) : null), [pickerState]);
   const rankedTracks = useMemo(() => (pickerState ? getFavoritePickerRankedTracks(pickerState) : []), [pickerState]);
+  const filteredLibraryTargets = useMemo(() => {
+    const query = libraryQuery.trim().toLowerCase();
+
+    if (!query) {
+      return libraryTargets;
+    }
+
+    return libraryTargets.filter((target) => {
+      const haystack = `${target.name} ${target.subtitle}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [libraryQuery, libraryTargets]);
 
   useEffect(() => {
     if (pickerState && isFavoritePickerComplete(pickerState)) {
@@ -308,7 +321,7 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
           </div>
           <div className="desktop-card p-4">
             <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">Tournament logic</p>
-            <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">The ranking follows the same elimination-style flow as your Python picker, not a simple sort.</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">The ranking works through elimination rounds instead of doing a simple sort.</p>
           </div>
           <div className="desktop-card p-4">
             <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">Control the run</p>
@@ -324,8 +337,69 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
       ) : null}
 
       {phase === "build" ? (
-        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <section className="space-y-6">
+        <div className="space-y-6">
+          <section className="window-panel rounded-[32px] p-6 pt-14 text-[var(--theme-text)]">
+            <div className="max-w-3xl">
+              <div className="flex items-center gap-3">
+                <Sparkles className="h-5 w-5 text-[var(--theme-accent)]" />
+                <div>
+                  <p className="section-kicker">Selected targets</p>
+                  <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Build your song pool</h2>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <div className="desktop-card p-4">
+                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">Targets</p>
+                  <p className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{selectedTargets.length}</p>
+                </div>
+                <div className="desktop-card p-4">
+                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">Mode</p>
+                  <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{spotifyConnected ? "Private playlists + public Spotify targets" : "Public Spotify targets"}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {selectedTargets.length > 0 ? selectedTargets.map((target) => (
+                  <TargetCard
+                    key={`${target.type}-${target.id}`}
+                    target={target}
+                    action={(
+                      <button
+                        onClick={() => removeTarget(target)}
+                        className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  />
+                )) : (
+                  <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
+                    Add one or more sources on the left. You can mix playlists, albums, and artists in the same run.
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  onClick={startPicker}
+                  disabled={loadingPicker || selectedTargets.length === 0}
+                  className="neon-outline inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-medium uppercase tracking-[0.18em] text-[#170718] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loadingPicker ? "Loading songs" : "Start picking"}
+                </button>
+                <button
+                  onClick={() => setSelectedTargets([])}
+                  disabled={selectedTargets.length === 0}
+                  className="pixel-chip inline-flex items-center justify-center px-5 py-3 text-[var(--theme-text)] transition hover:text-[#2d0d46] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Clear targets
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className={`grid gap-6 ${spotifyConnected ? "xl:grid-cols-3" : "xl:grid-cols-2"}`}>
             <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
               <div className="flex items-center gap-3">
                 <Search className="h-5 w-5 text-[var(--theme-accent)]" />
@@ -405,10 +479,18 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
                     <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Pull from your own playlists</h2>
                   </div>
                 </div>
+                <div className="mt-5">
+                  <input
+                    value={libraryQuery}
+                    onChange={(event) => setLibraryQuery(event.target.value)}
+                    placeholder="Search your playlists"
+                    className="w-full rounded-[18px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/70 px-4 py-3 text-base text-[var(--theme-text)]"
+                  />
+                </div>
                 <div className="mt-5 space-y-3">
                   {loadingLibrary ? (
                     <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">Loading your playlists...</div>
-                  ) : libraryTargets.length > 0 ? libraryTargets.slice(0, 18).map((target) => (
+                  ) : filteredLibraryTargets.length > 0 ? filteredLibraryTargets.slice(0, 18).map((target) => (
                     <TargetCard
                       key={`${target.type}-${target.id}`}
                       target={target}
@@ -423,73 +505,12 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
                     />
                   )) : (
                     <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
-                      No playlists were available from your Spotify account yet.
+                      {libraryTargets.length > 0 ? "No playlists matched that search." : "No playlists were available from your Spotify account yet."}
                     </div>
                   )}
                 </div>
               </div>
             ) : null}
-          </section>
-
-          <section className="space-y-6">
-            <div className="window-panel rounded-[32px] p-6 pt-14 text-[var(--theme-text)]">
-              <div className="flex items-center gap-3">
-                <Sparkles className="h-5 w-5 text-[var(--theme-accent)]" />
-                <div>
-                  <p className="section-kicker">Selected targets</p>
-                  <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Build your song pool</h2>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <div className="desktop-card p-4">
-                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">Targets</p>
-                  <p className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{selectedTargets.length}</p>
-                </div>
-                <div className="desktop-card p-4">
-                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">Mode</p>
-                  <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{spotifyConnected ? "Private playlists + public Spotify targets" : "Public Spotify targets"}</p>
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                {selectedTargets.length > 0 ? selectedTargets.map((target) => (
-                  <TargetCard
-                    key={`${target.type}-${target.id}`}
-                    target={target}
-                    action={(
-                      <button
-                        onClick={() => removeTarget(target)}
-                        className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  />
-                )) : (
-                  <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
-                    Add one or more sources on the left. You can mix playlists, albums, and artists in the same run.
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  onClick={startPicker}
-                  disabled={loadingPicker || selectedTargets.length === 0}
-                  className="neon-outline inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-medium uppercase tracking-[0.18em] text-[#170718] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loadingPicker ? "Loading songs" : "Start picking"}
-                </button>
-                <button
-                  onClick={() => setSelectedTargets([])}
-                  disabled={selectedTargets.length === 0}
-                  className="pixel-chip inline-flex items-center justify-center px-5 py-3 text-[var(--theme-text)] transition hover:text-[#2d0d46] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Clear targets
-                </button>
-              </div>
-            </div>
           </section>
         </div>
       ) : null}

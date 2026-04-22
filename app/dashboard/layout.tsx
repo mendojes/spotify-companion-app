@@ -55,14 +55,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <div className="mx-auto max-w-7xl space-y-4">
           {spotifyConnected ? (
             <>
-              <div className="flex flex-wrap items-center gap-3 text-[var(--theme-text)]">
-                <div className="sticker-badge inline-flex items-center gap-2 px-4 py-2 font-mono text-sm uppercase tracking-[0.16em]">
-                  <Sparkles className="h-4 w-4 text-[var(--theme-highlight)]" /> sectioned dashboard
-                </div>
-                <div className="sticker-badge inline-flex items-center gap-2 px-4 py-2 font-mono text-sm uppercase tracking-[0.16em]">
-                  <RefreshCcw className="h-4 w-4 text-[var(--theme-accent)]" /> one section at a time
-                </div>
-              </div>
               <DashboardSectionNav spotifyConnected />
             </>
           ) : (

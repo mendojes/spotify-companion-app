@@ -3,22 +3,13 @@
 import { Fragment } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
-import { ArrowRight, Heart, ImageIcon, Music4, Play, Search, SmilePlus, Sparkles, Star, Waves, Zap } from "lucide-react";
-import { heroStats, playlistInsights, previewTopLists } from "@/lib/mock-data";
+import { Heart, Music4, SmilePlus, Star, Waves, Zap } from "lucide-react";
+import { heroStats } from "@/lib/mock-data";
 import { Button } from "@/components/ui/button";
 
 type HeroProps = {
   isAuthenticated?: boolean;
 };
-
-const featuredTracks = previewTopLists.tracks.slice(0, 3);
-const featuredPlaylist = playlistInsights[0];
-const desktopShortcuts = [
-  { label: "mood map", icon: Heart },
-  { label: "cover wall", icon: ImageIcon },
-  { label: "play now", icon: Play },
-  { label: "search", icon: Search },
-];
 
 export function Hero({ isAuthenticated = false }: HeroProps) {
   return (
@@ -43,7 +34,7 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
         </div>
 
         <div className="glass-panel scan-lines rounded-[42px] px-6 py-8 md:px-10 md:py-10 xl:px-12">
-          <div className="grid gap-10 xl:grid-cols-[1.02fr_0.98fr]">
+          <div>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -63,10 +54,10 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
 
               <div className="space-y-5">
                 <p className="section-kicker">Desktop fantasy mode</p>
-                <h1 className="max-w-4xl font-display text-5xl font-black uppercase leading-[0.9] tracking-[0.08em] text-[var(--theme-title)] md:text-7xl xl:text-[5.5rem]">
+                <h1 className="max-w-[72rem] font-display text-5xl font-black uppercase leading-[0.9] tracking-[0.08em] text-[var(--theme-title)] md:text-7xl xl:text-[6.25rem]">
                   Turn your listening history into a <span className="gradient-text">pink little internet bedroom</span>.
                 </h1>
-                <p className="max-w-2xl text-lg leading-8 text-[var(--theme-body)] md:text-xl">
+                <p className="max-w-3xl text-lg leading-8 text-[var(--theme-body)] md:text-xl">
                   Connect Spotify to see your recent plays, top lists, playlists, and rediscovery picks in one place.
                 </p>
               </div>
@@ -78,7 +69,7 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
                 </Button>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
+              <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
                 <div className="window-panel p-5 pt-14 text-[#441a68]">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -102,7 +93,7 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
                   </div>
                 </div>
 
-                <div className="grid gap-4">
+                <div className="grid gap-4 md:grid-cols-2">
                   {heroStats.slice(0, 2).map((stat, index) => {
                     const Icon = index === 0 ? Music4 : Heart;
                     return (
@@ -118,105 +109,6 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
                       </div>
                     );
                   })}
-                </div>
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, ease: "easeOut", delay: 0.12 }}
-              className="relative min-h-[620px]"
-            >
-              <div className="absolute -left-2 top-6 sticker-badge rotate-[-8deg] px-4 py-2 font-mono text-sm uppercase tracking-[0.2em] text-[var(--theme-badge)]">
-                hello playlist!
-              </div>
-              <div className="absolute right-2 top-2 sticker-badge rotate-[6deg] px-4 py-2 font-mono text-sm uppercase tracking-[0.2em] text-[var(--theme-badge)]">
-                cover overload
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
-                <div className="space-y-4 pt-10">
-                  <div className="window-panel p-4 pt-14">
-                    <div className="mb-4 flex items-center justify-between gap-3 text-[var(--theme-text)]">
-                      <div className="flex items-center gap-2 rounded-full border-2 border-[rgba(57,18,98,0.26)] bg-white/60 px-3 py-1.5 font-mono text-sm uppercase tracking-[0.14em]">
-                        <Search className="h-4 w-4 text-[var(--theme-highlight)]" />
-                        search your moodboard
-                      </div>
-                      <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
-                        <Sparkles className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <div className="media-frame relative h-[300px] p-2">
-                      <Image src={featuredTracks[0].imageUrl!} alt={featuredTracks[0].title} fill sizes="(max-width: 1280px) 100vw, 420px" className="rounded-[18px] object-cover p-1.5" />
-                      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(58,19,89,0.14)_40%,rgba(58,19,89,0.74))]" />
-                      <div className="absolute bottom-5 left-5 right-5 rounded-[22px] border-2 border-white/35 bg-[rgba(255,245,255,0.72)] p-4 text-[#441a68] backdrop-blur-sm">
-                        <p className="section-kicker">featured now</p>
-                        <p className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{featuredTracks[0].title}</p>
-                        <p className="mt-1 font-mono text-base uppercase tracking-[0.16em] text-[var(--theme-muted)]">{featuredTracks[0].artist}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {featuredTracks.slice(1).map((track) => (
-                      <div key={track.id} className="desktop-card overflow-hidden p-3 text-[var(--theme-text)]">
-                        <div className="media-frame relative h-40 p-1.5">
-                          <Image src={track.imageUrl!} alt={track.title} fill sizes="(max-width: 1280px) 50vw, 220px" className="rounded-[16px] object-cover p-1" />
-                        </div>
-                        <div className="mt-3 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{track.title}</p>
-                            <p className="mt-1 text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">{track.artist}</p>
-                          </div>
-                          <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-[var(--theme-accent)]" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-                    {desktopShortcuts.map((item, index) => (
-                      <div key={item.label} className={`desktop-card flex items-center gap-3 p-4 text-[var(--theme-text)] ${index % 2 === 0 ? "rotate-[-2deg]" : "rotate-[2deg]"}`}>
-                        <div className="icon-bubble h-12 w-12 text-[var(--theme-accent)]">
-                          <item.icon className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{item.label}</p>
-                          <p className="text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">open widget</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="window-panel p-5 pt-14 text-[var(--theme-text)]">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="section-kicker">Playlist window</p>
-                        <h3 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{featuredPlaylist.name}</h3>
-                      </div>
-                      <div className="icon-bubble h-11 w-11 text-[var(--theme-highlight)]">
-                        <Music4 className="h-5 w-5" />
-                      </div>
-                    </div>
-                    <div className="mt-5 grid gap-4">
-                      <div className="media-frame relative h-44 p-2">
-                        <Image src={featuredPlaylist.imageUrl!} alt={featuredPlaylist.name} fill sizes="(max-width: 1280px) 100vw, 300px" className="rounded-[18px] object-cover p-1.5" />
-                      </div>
-                      <div className="grid gap-3">
-                        <div className="soft-panel rounded-[20px] px-4 py-3">
-                          <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">mood</p>
-                          <p className="mt-1 text-[var(--theme-title)]">{featuredPlaylist.mood}</p>
-                        </div>
-                        <div className="soft-panel rounded-[20px] px-4 py-3">
-                          <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">diversity</p>
-                          <p className="mt-1 text-[var(--theme-title)]">{featuredPlaylist.diversity}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </motion.div>

@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { Bolt, Disc3, Heart, ImageIcon, Sparkles } from "lucide-react";
+import { Disc3, Heart, ImageIcon, Sparkles } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { hasSpotifyAuthConfig } from "@/lib/env";
 import { hasMongoConfig } from "@/lib/mongodb";
-import { getSpotifyRedirectUri } from "@/lib/spotify";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -18,15 +17,14 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const { error, deleted, local_error: localError } = await searchParams;
   const isConfigured = hasSpotifyAuthConfig();
   const hasLocalAccounts = hasMongoConfig();
-  const configuredRedirectUri = getSpotifyRedirectUri();
 
   return (
     <main className="city-pop-shell flex min-h-screen items-center justify-center px-6 py-10 md:px-10">
-      <div className="glass-panel neon-outline w-full max-w-6xl overflow-hidden rounded-[42px]">
-        <div className="grid gap-0 lg:grid-cols-[1.08fr_0.92fr]">
-          <div className="relative overflow-hidden border-b-[3px] border-[rgba(44,12,70,0.9)] p-8 lg:border-b-0 lg:border-r lg:p-12">
-            <div className="dashboard-mesh" />
-            <div className="relative z-10 space-y-6 text-[var(--theme-text)]">
+      <div className="glass-panel neon-outline w-full max-w-4xl overflow-hidden rounded-[42px] p-8 md:p-10 lg:p-12">
+        <div className="dashboard-mesh" />
+        <div className="relative z-10">
+          <div className="space-y-6 text-[var(--theme-text)]">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex flex-wrap gap-3">
                 <div className="sticker-badge inline-flex items-center gap-2 px-4 py-2 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-badge)]">
                   <Sparkles className="h-4 w-4 text-[var(--theme-accent)]" /> access pass
@@ -35,52 +33,20 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                   <Heart className="h-4 w-4 text-[var(--theme-highlight)]" /> soft chrome mode
                 </div>
               </div>
-
-              <div>
-                <p className="section-kicker">Access pass</p>
-                <h1 className="mt-4 font-display text-5xl font-bold uppercase leading-[0.92] tracking-[0.08em] text-[var(--theme-title)] md:text-6xl">
-                  Start with Spotify or use the public-profile dashboard.
-                </h1>
-                <p className="mt-5 max-w-lg text-base leading-8 text-[var(--theme-body)]">
-                  People who can&apos;t connect Spotify can still sign in with a SoundScope account and get the experience built from public profile data.
-                </p>
-              </div>
-
-              <div className="grid gap-4">
-                <div className="window-panel p-5 pt-14 text-[var(--theme-text)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Public mode can read</p>
-                    <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
-                      <ImageIcon className="h-4 w-4" />
-                    </div>
-                  </div>
-                  <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
-                    Public profile identity, recently played artists when Spotify shows them publicly, and insights from public playlists.
-                  </p>
-                </div>
-                <div className="desktop-card p-5 text-[var(--theme-text)]">
-                  <div className="flex items-center gap-3">
-                    <div className="icon-bubble h-10 w-10 text-[var(--theme-highlight)]">
-                      <Bolt className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">redirect uri</p>
-                      <p className="mt-1 break-all text-sm text-[var(--theme-title)]">
-                        {configuredRedirectUri || "Auto-detected from the current deploy URL"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <ThemeToggle />
             </div>
-          </div>
 
-          <div className="p-8 md:p-10 lg:p-12">
-            <div className="space-y-5 text-[var(--theme-text)]">
-              <div className="flex justify-end">
-                <ThemeToggle />
-              </div>
+            <div>
               <p className="section-kicker">Account access</p>
+              <h1 className="mt-4 font-display text-5xl font-bold uppercase leading-[0.92] tracking-[0.08em] text-[var(--theme-title)] md:text-6xl">
+                Start with Spotify or use the public-profile dashboard.
+              </h1>
+              <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
+                People who can&apos;t connect Spotify can still sign in with a SoundScope account and get the experience built from public profile data.
+              </p>
+            </div>
+
+            <div className="space-y-5 text-[var(--theme-text)]">
               <h2 className="font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">Start the session.</h2>
               <p className="max-w-xl text-base leading-7 text-[var(--theme-body)]">
                 Continue with Spotify if available, or continue without connecting to use the public-profile version of SoundScope.
@@ -110,15 +76,6 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 Missing one or more auth settings in `.env.local`. Spotify OAuth still needs `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `AUTH_SECRET`.
               </div>
             ) : null}
-
-            <div className="mt-6 grid gap-4 xl:grid-cols-2">
-              <div className="desktop-card p-5 text-sm text-[var(--theme-text)]">
-                Spotify requires the redirect URI to exactly match one allowlisted value. On Vercel, add your deployed callback URL to Spotify, or set `SPOTIFY_REDIRECT_URI` to that exact production callback.
-              </div>
-              <div className="desktop-card p-5 text-sm text-[var(--theme-text)]">
-                No-connect accounts use MongoDB storage for sign-in. They save your display name, email, password hash, and pasted Spotify profile link.
-              </div>
-            </div>
 
             <div className="mt-6">
               <SpotifyComplianceNote />
