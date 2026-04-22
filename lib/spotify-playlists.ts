@@ -512,7 +512,7 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
 
     const pageTracks = response.items
       .map((item: SpotifyPlaylistTrackItem): PlaylistTrackWithMeta | null => {
-        if (!item.track) {
+        if (!isUsablePlaylistTrack(item.track)) {
           return null;
         }
 
@@ -831,6 +831,9 @@ async function analyzePlaylist(
 
         const topGenres = buildGenreSummary(artists);
 
+    const sampleTracks = buildSampleTracks(tracks);
+    const topTracks = buildTopTracks(tracks);
+
     return {
       id: playlist.id,
       name: playlist.name,
@@ -848,8 +851,8 @@ async function analyzePlaylist(
       topGenres,
       topArtists: buildArtistSummary(tracks),
       repeatedTracks: buildRepeatedTracks(tracks),
-      sampleTracks: buildSampleTracks(tracks),
-      topTracks: buildTopTracks(tracks),
+      sampleTracks,
+      topTracks,
       listenTimeline: buildListenTimeline(playlist.id, recentPlays),
     };
   } catch {
