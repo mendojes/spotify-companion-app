@@ -1,8 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { requireSpotifySession } from "@/lib/auth";
-import { getPlaylistDetailFromHistory } from "@/lib/spotify-playlists";
+import { getAuthorizedSession, isSessionRefreshFailure, requireSpotifySession } from "@/lib/auth";
+import { getPlaylistDetail } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { formatPstDateTime } from "@/lib/time";
 
@@ -16,9 +16,16 @@ function formatDateLabel(value?: string) {
 
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {
   const session = await requireSpotifySession("/dashboard/playlists");
+  const activeSession = await getAuthorizedSession(session).catch((error) => {
+    if (isSessionRefreshFailure(error)) {
+      redirect("/login?error=session_refresh_failed");
+    }
+
+    throw error;
+  });
 
   const { playlistId } = await params;
-  const detail = await getPlaylistDetailFromHistory(session.spotifyUserId, playlistId);
+  const detail = await getPlaylistDetail(activeSession.accessToken, activeSession.spotifyUserId, playlistId);
 
   if (!detail) {
     notFound();
@@ -42,11 +49,11 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             <div>
               <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Playlist Lab</p>
               <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">{detail.name}</h1>
-              <p className="mt-3 max-w-2xl text-base leading-7 text-ink/80">
+              <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
                 {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
                 This view breaks down the playlist&apos;s mood center, genre composition, repeat patterns, top tracks, and listening timeline.
               </p>
-              <div className="mt-4 space-y-1 text-sm text-ink/65">
+              <div className="mt-4 space-y-1 text-sm text-[var(--theme-muted)]">
                 <p>Created estimate: {formatDateLabel(detail.createdAt)}</p>
                 <p>Last listened estimate: {formatDateLabel(detail.lastListenedAt)}</p>
               </div>
@@ -64,30 +71,30 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="glass-panel rounded-[28px] p-5">
-            <p className="text-sm text-ink/60">Tracks analyzed</p>
+            <p className="text-sm text-[var(--theme-muted)]">Tracks analyzed</p>
             <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.trackCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
-            <p className="text-sm text-ink/60">Unique artists</p>
+            <p className="text-sm text-[var(--theme-muted)]">Unique artists</p>
             <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueArtistCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
-            <p className="text-sm text-ink/60">Unique albums</p>
+            <p className="text-sm text-[var(--theme-muted)]">Unique albums</p>
             <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueAlbumCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
-            <p className="text-sm text-ink/60">Mood center</p>
+            <p className="text-sm text-[var(--theme-muted)]">Mood center</p>
             <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">{detail.mood}</p>
           </div>
         </div>
 
         {isAnalysisPending ? (
-          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-ink/85">
-            This playlist page is loading from stored cache only. Deeper analysis has not been computed yet, so some sections may stay minimal until you refresh SoundScope&apos;s stored playlist data.
+          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
+            SoundScope tried to refresh this playlist from Spotify, but only partial stored analysis is available right now. Some sections may stay minimal until Spotify returns enough playlist metadata or you refresh the playlist snapshot again.
           </div>
         ) : (
-          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-ink/85">
-            This playlist page is using stored playlist analysis so it can load without waiting on live Spotify requests.
+          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
+            This playlist page is using refreshed playlist analysis with stored fallback so it can stay populated even if Spotify is slow.
           </div>
         )}
 
