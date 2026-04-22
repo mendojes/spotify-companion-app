@@ -23,7 +23,6 @@ import {
 import { PST_TIME_ZONE } from "@/lib/time";
 
 const PLAYLIST_PAGE_LIMIT = 50;
-const PLAYLIST_TRACK_LIMIT = 100;
 const DASHBOARD_PLAYLIST_COUNT = 3;
 const PLAYLIST_ANALYSIS_CONCURRENCY = 3;
 const PLAYLIST_INSIGHTS_TTL_MS = 1000 * 60 * 5;
@@ -549,7 +548,7 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
   const tracks: PlaylistTrackWithMeta[] = [];
   let offset = 0;
 
-  while (tracks.length < PLAYLIST_TRACK_LIMIT) {
+  while (true) {
     const response = await spotifyFetch<SpotifyPlaylistTracksResponse>(
       `/playlists/${playlistId}/items?limit=100&offset=${offset}`,
       accessToken,
@@ -579,24 +578,35 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
     offset += response.items.length;
   }
 
-  return tracks.slice(0, PLAYLIST_TRACK_LIMIT);
+  return tracks;
 }
 
 async function fetchArtists(accessToken: string, artistIds: string[]) {
-  const uniqueArtistIds = [...new Set(artistIds)].slice(0, 50);
+  const uniqueArtistIds = [...new Set(artistIds)];
 
   if (uniqueArtistIds.length === 0) {
     return [] as SpotifyArtist[];
   }
 
+  const artistChunks = Array.from(
+    { length: Math.ceil(uniqueArtistIds.length / 50) },
+    (_, index) => uniqueArtistIds.slice(index * 50, index * 50 + 50),
+  );
+
   try {
-    const response = await spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${uniqueArtistIds.join(",")}`, accessToken);
-    return response.artists;
+    const responses = await Promise.all(
+      artistChunks.map((chunk) => spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${chunk.join(",")}`, accessToken)),
+    );
+    return responses.flatMap((response) => response.artists ?? []);
   } catch {
     try {
       const clientToken = await getSpotifyClientCredentialsToken();
-      const response = await spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${uniqueArtistIds.join(",")}`, clientToken, { allowRetry: true });
-      return response.artists;
+      const responses = await Promise.all(
+        artistChunks.map((chunk) =>
+          spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${chunk.join(",")}`, clientToken, { allowRetry: true }),
+        ),
+      );
+      return responses.flatMap((response) => response.artists ?? []);
     } catch {
       return [] as SpotifyArtist[];
     }
@@ -604,15 +614,23 @@ async function fetchArtists(accessToken: string, artistIds: string[]) {
 }
 
 async function fetchAudioFeatures(accessToken: string, tracks: SpotifyTrack[]) {
-  const trackIds = uniqueById(tracks).map((track) => track.id).slice(0, 50);
+  const trackIds = uniqueById(tracks).map((track) => track.id);
 
   if (trackIds.length === 0) {
     return [] as SpotifyAudioFeature[];
   }
 
   try {
-    const response = await spotifyFetch<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${trackIds.join(",")}`, accessToken);
-    return response.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature));
+    const trackChunks = Array.from(
+      { length: Math.ceil(trackIds.length / 50) },
+      (_, index) => trackIds.slice(index * 50, index * 50 + 50),
+    );
+    const responses = await Promise.all(
+      trackChunks.map((chunk) => spotifyFetch<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${chunk.join(",")}`, accessToken)),
+    );
+    return responses.flatMap((response) =>
+      response.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)),
+    );
   } catch {
     return [] as SpotifyAudioFeature[];
   }
