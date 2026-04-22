@@ -1,9 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getAuthorizedSession, isSessionRefreshFailure, requireSpotifySession } from "@/lib/auth";
-import { getPlaylistDetail } from "@/lib/spotify-playlists";
+import { requireSpotifySession } from "@/lib/auth";
+import { getPlaylistDetailFromHistory } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
+import { PlaylistDetailSync } from "./playlist-detail-sync";
 import { formatPstDateTime } from "@/lib/time";
 
 type PlaylistDetailPageProps = {
@@ -16,16 +17,9 @@ function formatDateLabel(value?: string) {
 
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {
   const session = await requireSpotifySession("/dashboard/playlists");
-  const activeSession = await getAuthorizedSession(session).catch((error) => {
-    if (isSessionRefreshFailure(error)) {
-      redirect("/login?error=session_refresh_failed");
-    }
-
-    throw error;
-  });
 
   const { playlistId } = await params;
-  const detail = await getPlaylistDetail(activeSession.accessToken, activeSession.spotifyUserId, playlistId);
+  const detail = await getPlaylistDetailFromHistory(session.spotifyUserId, playlistId);
 
   if (!detail) {
     notFound();
@@ -38,6 +32,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
   return (
     <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
+      <PlaylistDetailSync playlistId={playlistId} />
       <div className="mx-auto max-w-7xl space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-6">

@@ -815,6 +815,7 @@ async function syncPlaylistTrackCache(
     completed,
     fetchedCount,
     nextOffset: completed ? 0 : offset,
+    totalTracks,
   };
 }
 
@@ -1936,6 +1937,58 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
   }
 
   return null;
+}
+
+export async function syncPlaylistDetail(accessToken: string, spotifyUserId: string, playlistId: string) {
+  const [recentPlays, storedInsights, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
+    getRecentHistory(accessToken, spotifyUserId),
+    getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
+    getAllTimeTrackAffinityMap(spotifyUserId),
+    getAllTimeArtistGenreMap(spotifyUserId),
+  ]);
+
+  const playlist = await fetchPlaylistById(accessToken, playlistId);
+  await upsertStoredPlaylist(spotifyUserId, playlist);
+
+  const isLargePlaylist = (playlist.tracks?.total ?? 0) >= PLAYLIST_LARGE_SYNC_THRESHOLD;
+  const syncState = isLargePlaylist
+    ? await syncPlaylistTrackCache(accessToken, spotifyUserId, playlist, { maxPages: PLAYLIST_LARGE_SYNC_PAGES_PER_REQUEST })
+    : { completed: true, fetchedCount: playlist.tracks?.total ?? 0, nextOffset: 0, totalTracks: playlist.tracks?.total ?? 0 };
+
+  const trackItems = isLargePlaylist
+    ? await getStoredPlaylistTrackItems(spotifyUserId, playlist.id)
+    : await fetchPlaylistTrackItems(accessToken, playlist.id);
+
+  const detail = await analyzePlaylistFromTrackItems(
+    playlist,
+    trackItems,
+    recentPlays,
+    allTimeTrackAffinity,
+    allTimeArtistGenres,
+    accessToken,
+  );
+
+  if (detail) {
+    await writeCachedPlaylistDetails(spotifyUserId, [detail]);
+    const nextInsights = uniqueById([
+      {
+        ...toInsight(detail, recentPlays),
+        lastListenedAt: storedInsights.find((entry) => entry.id === detail.id)?.lastListenedAt ?? detail.lastListenedAt,
+      },
+      ...storedInsights,
+    ]);
+
+    if (nextInsights.length > 0) {
+      await writeStoredPlaylistInsights(spotifyUserId, nextInsights);
+    }
+  }
+
+  return {
+    detail,
+    completed: syncState.completed,
+    fetchedCount: syncState.fetchedCount,
+    totalTracks: syncState.totalTracks,
+  };
 }
 
 export function invalidatePlaylistInsightsCache(spotifyUserId: string) {
