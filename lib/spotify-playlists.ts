@@ -1,5 +1,6 @@
 import { getCurrentPlaybackSource, getStoredRecentPlays, syncRecentPlays } from "@/lib/spotify-activity";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
+import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import {
@@ -18,6 +19,7 @@ import {
   SpotifyPlaylistTrackItem,
   SpotifyPlaylistTracksResponse,
   SpotifyTrack,
+  TopListTrack,
   StoredRecentPlay,
 } from "@/lib/types";
 import { PST_TIME_ZONE } from "@/lib/time";
@@ -32,7 +34,7 @@ const PLAYLIST_DETAIL_CACHE_COLLECTION = "spotify_playlist_detail_cache";
 const PLAYLIST_LIBRARY_COLLECTION = "spotify_playlist_library";
 const PLAYLIST_DETAIL_REFRESH_LIMIT = 6;
 const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( playlist genre fallback )";
-const PLAYLIST_PUBLIC_TAG_FETCH_LIMIT = 12;
+const PLAYLIST_PUBLIC_TAG_FETCH_LIMIT = 30;
 
 const lastGoodPlaylistInsights = new Map<string, PlaylistInsight[]>();
 
@@ -706,6 +708,27 @@ function buildGenreSummaryFromArtistTags(tracks: SpotifyTrack[], artistTags: Map
     .map(([genre, count]) => ({ genre, count }));
 }
 
+function buildGenreSummaryFromArtistGenreMap(tracks: SpotifyTrack[], artistGenres: Map<string, string[]>) {
+  const genreCounts = new Map<string, number>();
+
+  tracks.forEach((track) => {
+    const trackGenres = new Set<string>();
+
+    track.artists.forEach((artist) => {
+      (artistGenres.get(artist.name.toLowerCase()) ?? []).forEach((genre) => trackGenres.add(genre));
+    });
+
+    trackGenres.forEach((genre) => {
+      genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
+    });
+  });
+
+  return [...genreCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([genre, count]) => ({ genre, count }));
+}
+
 async function fetchMusicBrainzArtistTags(artistNames: string[]) {
   const uniqueNames = [...new Set(artistNames.map((name) => name.trim()).filter(Boolean))].slice(0, PLAYLIST_PUBLIC_TAG_FETCH_LIMIT);
   const tagMap = new Map<string, string[]>();
@@ -742,6 +765,26 @@ async function fetchMusicBrainzArtistTags(artistNames: string[]) {
   }));
 
   return tagMap;
+}
+
+function getTopArtistNamesByFrequency(tracks: SpotifyTrack[], limit = PLAYLIST_PUBLIC_TAG_FETCH_LIMIT) {
+  const artistCounts = new Map<string, number>();
+
+  tracks.forEach((track) => {
+    track.artists.forEach((artist) => {
+      const name = artist.name.trim();
+      if (!name) {
+        return;
+      }
+
+      artistCounts.set(name, (artistCounts.get(name) ?? 0) + 1);
+    });
+  });
+
+  return [...artistCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([name]) => name);
 }
 
 function formatTopGenresSummary(topGenres: PlaylistGenreSummary[]) {
@@ -866,9 +909,26 @@ function buildSampleTracks(tracks: SpotifyTrack[]): PlaylistTrackSummary[] {
     }));
 }
 
-function buildTopTracks(tracks: SpotifyTrack[]): PlaylistTrackSummary[] {
+function buildTopTracks(tracks: SpotifyTrack[], allTimeTopTracks = new Map<string, TopListTrack>()): PlaylistTrackSummary[] {
   return uniqueById(tracks)
-    .sort((a, b) => b.popularity - a.popularity)
+    .sort((a, b) => {
+      const aTopTrack = allTimeTopTracks.get(a.id);
+      const bTopTrack = allTimeTopTracks.get(b.id);
+
+      if (aTopTrack && bTopTrack) {
+        return aTopTrack.rank - bTopTrack.rank;
+      }
+
+      if (aTopTrack) {
+        return -1;
+      }
+
+      if (bTopTrack) {
+        return 1;
+      }
+
+      return b.popularity - a.popularity || a.name.localeCompare(b.name);
+    })
     .slice(0, 8)
     .map((track) => ({
       id: track.id,
@@ -877,6 +937,28 @@ function buildTopTracks(tracks: SpotifyTrack[]): PlaylistTrackSummary[] {
       album: track.album.name,
       imageUrl: track.album.images?.[0]?.url,
     }));
+}
+
+async function getAllTimeTopTrackMap(spotifyUserId: string) {
+  try {
+    const topLists = await getSpotifyTopListsFromHistory(spotifyUserId, "all", FULL_TOP_LIST_LIMIT);
+    return new Map((topLists?.tracks ?? []).map((track) => [track.id, track]));
+  } catch {
+    return new Map<string, TopListTrack>();
+  }
+}
+
+async function getAllTimeArtistGenreMap(spotifyUserId: string) {
+  try {
+    const topLists = await getSpotifyTopListsFromHistory(spotifyUserId, "all", FULL_TOP_LIST_LIMIT);
+    return new Map(
+      (topLists?.artists ?? [])
+        .filter((artist) => artist.genres.length > 0)
+        .map((artist) => [artist.name.toLowerCase(), artist.genres]),
+    );
+  } catch {
+    return new Map<string, string[]>();
+  }
 }
 
 function buildListenTimeline(playlistId: string, recentPlays: StoredRecentPlay[]): PlaylistListenTimelinePoint[] {
@@ -948,6 +1030,8 @@ async function analyzePlaylist(
   accessToken: string,
   playlist: SpotifyPlaylist,
   recentPlays: StoredRecentPlay[] = [],
+  allTimeTopTracks = new Map<string, TopListTrack>(),
+  allTimeArtistGenres = new Map<string, string[]>(),
 ): Promise<PlaylistDetail | null> {
   try {
     const trackItems = await fetchPlaylistTrackItems(accessToken, playlist.id);
@@ -965,9 +1049,13 @@ async function analyzePlaylist(
 
     let topGenres = buildGenreSummary(artists);
 
+    if (topGenres.length === 0 && allTimeArtistGenres.size > 0) {
+      topGenres = buildGenreSummaryFromArtistGenreMap(tracks, allTimeArtistGenres);
+    }
+
     if (topGenres.length === 0) {
       const artistTags = await fetchMusicBrainzArtistTags(
-        [...new Set(tracks.flatMap((track) => track.artists.map((artist) => artist.name)))],
+        getTopArtistNamesByFrequency(tracks),
       ).catch(() => new Map<string, string[]>());
 
       if (artistTags.size > 0) {
@@ -976,7 +1064,7 @@ async function analyzePlaylist(
     }
 
     const sampleTracks = buildSampleTracks(tracks);
-    const topTracks = buildTopTracks(tracks);
+    const topTracks = buildTopTracks(tracks, allTimeTopTracks);
 
     return {
       id: playlist.id,
@@ -1008,12 +1096,16 @@ async function analyzeManyPlaylists(
   accessToken: string,
   playlists: SpotifyPlaylist[],
   recentPlays: StoredRecentPlay[] = [],
+  allTimeTopTracks = new Map<string, TopListTrack>(),
+  allTimeArtistGenres = new Map<string, string[]>(),
 ) {
   const results: PlaylistDetail[] = [];
 
   for (let index = 0; index < playlists.length; index += PLAYLIST_ANALYSIS_CONCURRENCY) {
     const batch = playlists.slice(index, index + PLAYLIST_ANALYSIS_CONCURRENCY);
-    const batchResults = await Promise.all(batch.map((playlist) => analyzePlaylist(accessToken, playlist, recentPlays)));
+    const batchResults = await Promise.all(
+      batch.map((playlist) => analyzePlaylist(accessToken, playlist, recentPlays, allTimeTopTracks, allTimeArtistGenres)),
+    );
     results.push(...batchResults.filter((detail): detail is PlaylistDetail => Boolean(detail)));
   }
 
@@ -1154,12 +1246,14 @@ function buildCachedPlaylistInsights(
 
 export async function getPlaylistInsights(accessToken: string, spotifyUserId: string): Promise<PlaylistInsight[]> {
   const inMemoryLastGood = lastGoodPlaylistInsights.get(spotifyUserId) ?? [];
-  const [storedLastGood, recentPlays, currentPlaybackSource, storedLibrary, cachedDetails] = await Promise.all([
+  const [storedLastGood, recentPlays, currentPlaybackSource, storedLibrary, cachedDetails, allTimeTopTracks, allTimeArtistGenres] = await Promise.all([
     getStoredPlaylistInsights(spotifyUserId),
     getRecentHistory(accessToken, spotifyUserId),
     getCurrentPlaybackSource(accessToken).catch(() => undefined),
     getStoredPlaylistLibrary(spotifyUserId),
     getCachedPlaylistDetails(spotifyUserId),
+    getAllTimeTopTrackMap(spotifyUserId),
+    getAllTimeArtistGenreMap(spotifyUserId),
   ]);
 
   const playbackPlaylist = playlistFromPlaybackSource(currentPlaybackSource);
@@ -1210,6 +1304,8 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
     accessToken,
     playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)),
     recentPlays,
+    allTimeTopTracks,
+    allTimeArtistGenres,
   );
 
   if (details.length > 0) {
@@ -1287,12 +1383,14 @@ export async function getAllPlaylistInsights(
   sort: PlaylistSortOption = "created_desc",
 ): Promise<PlaylistInsight[]> {
   try {
-    const [playlists, recentPlays, storedLastGood, currentPlaybackSource, storedPlaylists] = await Promise.all([
+    const [playlists, recentPlays, storedLastGood, currentPlaybackSource, storedPlaylists, allTimeTopTracks, allTimeArtistGenres] = await Promise.all([
       getPlaylistLibrary(accessToken, spotifyUserId),
       getRecentHistory(accessToken, spotifyUserId),
       getStoredPlaylistInsights(spotifyUserId),
       getCurrentPlaybackSource(accessToken).catch(() => undefined),
       getStoredPlaylistLibrary(spotifyUserId),
+      getAllTimeTopTrackMap(spotifyUserId),
+      getAllTimeArtistGenreMap(spotifyUserId),
     ]);
 
     const playbackPlaylist = playlistFromPlaybackSource(currentPlaybackSource);
@@ -1318,7 +1416,7 @@ export async function getAllPlaylistInsights(
     }).slice(0, PLAYLIST_DETAIL_REFRESH_LIMIT);
 
     const freshDetails = missingPlaylists.length > 0
-      ? await analyzeManyPlaylists(accessToken, missingPlaylists, recentPlays)
+      ? await analyzeManyPlaylists(accessToken, missingPlaylists, recentPlays, allTimeTopTracks, allTimeArtistGenres)
       : [];
 
     if (freshDetails.length > 0) {
@@ -1400,17 +1498,19 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
 }
 
 export async function getPlaylistDetail(accessToken: string, spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {
-  const [storedLibrary, cachedDetails, recentPlays, storedInsights] = await Promise.all([
+  const [storedLibrary, cachedDetails, recentPlays, storedInsights, allTimeTopTracks, allTimeArtistGenres] = await Promise.all([
     getStoredPlaylistLibrary(spotifyUserId),
     getCachedPlaylistDetails(spotifyUserId, [playlistId]),
     getRecentHistory(accessToken, spotifyUserId),
     getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
+    getAllTimeTopTrackMap(spotifyUserId),
+    getAllTimeArtistGenreMap(spotifyUserId),
   ]);
 
   try {
     const playlist = await fetchPlaylistById(accessToken, playlistId);
     await upsertStoredPlaylist(spotifyUserId, playlist);
-    const detail = await analyzePlaylist(accessToken, playlist, recentPlays);
+    const detail = await analyzePlaylist(accessToken, playlist, recentPlays, allTimeTopTracks, allTimeArtistGenres);
 
     if (detail) {
       await writeCachedPlaylistDetails(spotifyUserId, [detail]);

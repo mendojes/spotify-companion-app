@@ -260,7 +260,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
 
       <div className="glass-panel rounded-[32px] p-6">
         <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Top songs</p>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--theme-body)]">The strongest tracks in this playlist by Spotify popularity, useful as a quick proxy for its current anchors.</p>
+        <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--theme-body)]">Tracks from this playlist that rank highest against your all-time listening history, with Spotify popularity used only as a fallback when a song is absent from that history.</p>
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {(detail.topTracks.length > 0 ? detail.topTracks : detail.sampleTracks).map((track, index) => (
             <div key={track.id} className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4 text-[var(--theme-text)]">
