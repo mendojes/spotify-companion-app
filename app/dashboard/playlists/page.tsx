@@ -40,6 +40,24 @@ function getErrorMessage(error: unknown) {
   return "Unknown playlist error";
 }
 
+function getAdaptivePlaylistTitleClass(value: string) {
+  const base = "w-full whitespace-normal break-normal hyphens-none [overflow-wrap:normal] [word-break:keep-all] [text-wrap:balance]";
+
+  if (value.length > 44) {
+    return `${base} text-lg leading-[1.1] tracking-[0.02em]`;
+  }
+
+  if (value.length > 28) {
+    return `${base} text-xl leading-[1.08] tracking-[0.03em]`;
+  }
+
+  if (value.length > 18) {
+    return `${base} text-[1.65rem] leading-[1.05] tracking-[0.04em]`;
+  }
+
+  return `${base} text-3xl leading-[1] tracking-[0.08em]`;
+}
+
 export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps) {
   const session = await requireSpotifySession("/dashboard/playlists");
 
@@ -134,28 +152,36 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
               <Link
                 key={`${playlist.id ?? playlist.name}`}
                 href={playlist.id ? `/dashboard/playlists/${playlist.id}` : "/dashboard"}
-                className="glass-panel rounded-[30px] p-6 transition hover:border-cyan/40 hover:bg-white/[0.05]"
+                className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)] transition hover:border-cyan/40 hover:bg-white/[0.05]"
               >
-                <div className="flex items-start gap-5">
-                  {playlist.imageUrl ? (
-                    <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
-                      <Image src={playlist.imageUrl} alt={playlist.name} fill sizes="112px" className="object-contain bg-white/[0.2]" />
+                <div className="space-y-4">
+                  <div className="space-y-4">
+                    {playlist.imageUrl ? (
+                      <div className="media-frame relative aspect-square p-2">
+                        <Image src={playlist.imageUrl} alt={playlist.name} fill sizes="(max-width: 1280px) 100vw, 420px" className="rounded-[22px] object-cover" />
+                        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(72,24,110,0.12)_42%,rgba(72,24,110,0.3))]" />
+                      </div>
+                    ) : (
+                      <div className="media-frame flex aspect-square items-center justify-center p-3 font-mono text-xl uppercase tracking-[0.16em] text-[var(--theme-muted)]">
+                        Mix
+                      </div>
+                    )}
+                    <div className="desktop-card min-h-[9rem] p-4 md:min-h-[10rem]">
+                      <p className="section-kicker">Playlist insight</p>
+                      <h2 className={`mt-3 font-display uppercase text-[var(--theme-title)] ${getAdaptivePlaylistTitleClass(playlist.name)}`}>
+                        {playlist.name}
+                      </h2>
                     </div>
-                  ) : (
-                    <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] border border-dashed border-white/15 bg-white/[0.04] text-xs uppercase tracking-[0.2em] text-ink/50">
-                      Mix
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <h2 className="font-display text-2xl text-[var(--theme-title)]">{playlist.name}</h2>
-                    {playlist.trackCount ? <p className="mt-2 text-sm text-cyan">{playlist.trackCount} tracks analyzed</p> : null}
-                    <div className="mt-4 space-y-1 text-xs text-[var(--theme-muted)]">
-                      <p>Created: {formatDateLabel(playlist.createdAt)}</p>
-                      <p>Last listened: {formatDateLabel(playlist.lastListenedAt)}</p>
+                    <div className="desktop-card p-4">
+                      {playlist.trackCount ? <p className="text-sm text-cyan">{playlist.trackCount} tracks analyzed</p> : null}
+                      <div className={`space-y-1 text-xs text-[var(--theme-muted)] ${playlist.trackCount ? "mt-3" : ""}`}>
+                        <p>Created: {formatDateLabel(playlist.createdAt)}</p>
+                        <p>Last listened: {formatDateLabel(playlist.lastListenedAt)}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="mt-6 space-y-4">
+
+                  <div className="grid gap-4">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <p className="text-sm text-[var(--theme-muted)]">Mood</p>
                     <p className="mt-2 text-[var(--theme-text)]">{playlist.mood}</p>
@@ -167,6 +193,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <p className="text-sm text-[var(--theme-muted)]">Listening cadence</p>
                     <p className="mt-2 text-[var(--theme-text)]">{playlist.listeningCadence ?? playlist.overlap}</p>
+                  </div>
                   </div>
                 </div>
               </Link>

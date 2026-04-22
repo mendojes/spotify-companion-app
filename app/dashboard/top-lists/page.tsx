@@ -59,18 +59,104 @@ function normalizeDate(value?: string) {
   return value;
 }
 
+function formatListenCount(count?: number) {
+  if (!count || count < 1) {
+    return "Listen count unavailable";
+  }
+
+  return `${count} listen${count === 1 ? "" : "s"}`;
+}
+
+function getInitials(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 function Artwork({ src, alt }: { src?: string; alt: string }) {
   if (!src) {
     return (
-      <div className="flex h-28 w-28 items-center justify-center rounded-[28px] border border-dashed border-[rgba(57,18,98,0.16)] text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">
-        Art
+      <div className="media-frame flex h-28 w-28 items-center justify-center p-2">
+        <div className="flex h-full w-full items-center justify-center rounded-[20px] bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] font-display text-2xl uppercase tracking-[0.14em] text-[#170718]">
+          {getInitials(alt) || "SS"}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="relative h-28 w-28 overflow-hidden rounded-[28px] border border-white/10 bg-white/5">
-      <Image src={src} alt={alt} fill sizes="112px" className="object-contain bg-white/[0.2]" />
+    <div className="media-frame relative h-28 w-28 p-1.5">
+      <Image src={src} alt={alt} fill sizes="112px" className="rounded-[20px] object-cover" />
+    </div>
+  );
+}
+
+function ListensChip({ count, accent }: { count?: number; accent: "cyan" | "gold" | "mint" }) {
+  const tone =
+    accent === "gold"
+      ? "border-gold/35 bg-gold/18 text-[#8a5a00]"
+      : accent === "mint"
+        ? "border-mint/35 bg-mint/18 text-[#167a63]"
+        : "border-cyan/35 bg-cyan/18 text-[#0f6f88]";
+
+  return (
+    <span className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${tone}`}>
+      {count && count > 0 ? formatListenCount(count) : "History count pending"}
+    </span>
+  );
+}
+
+function RankChip({ rank, accent }: { rank: number; accent: "cyan" | "gold" | "mint" }) {
+  const tone =
+    accent === "gold"
+      ? "border-gold/35 bg-gold/18 text-[#8a5a00]"
+      : accent === "mint"
+        ? "border-mint/35 bg-mint/18 text-[#167a63]"
+        : "border-cyan/35 bg-cyan/18 text-[#0f6f88]";
+
+  return <span className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${tone}`}>#{rank}</span>;
+}
+
+function TopListCard({
+  artworkAlt,
+  artworkSrc,
+  title,
+  subtitle,
+  description,
+  rank,
+  accent,
+  listens,
+}: {
+  artworkAlt: string;
+  artworkSrc?: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  rank: number;
+  accent: "cyan" | "gold" | "mint";
+  listens?: number;
+}) {
+  return (
+    <div className="desktop-card p-5">
+      <div className="flex items-start gap-4">
+        <Artwork src={artworkSrc} alt={artworkAlt} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{title}</p>
+              <p className="mt-2 text-sm uppercase tracking-[0.18em] text-[var(--theme-body)]">{subtitle}</p>
+            </div>
+            <RankChip rank={rank} accent={accent} />
+          </div>
+          <p className="mt-4 text-sm leading-7 text-[var(--theme-body)]">{description}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ListensChip count={listens} accent={accent} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -79,16 +165,17 @@ function ArtistsList({ items }: { items: TopListArtist[] }) {
   return (
     <div className="space-y-4">
       {items.map((item) => (
-        <div key={item.id} className="flex items-start gap-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
-          <Artwork src={item.imageUrl} alt={item.name} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <p className="font-display text-3xl text-[var(--theme-title)]">{item.name}</p>
-              <p className="text-sm text-cyan">#{item.rank}</p>
-            </div>
-            <p className="mt-2 text-base text-[var(--theme-body)]">{item.genres.length > 0 ? item.genres.join(" - ") : "Genres unavailable"}</p>
-          </div>
-        </div>
+        <TopListCard
+          key={item.id}
+          artworkAlt={item.name}
+          artworkSrc={item.imageUrl}
+          title={item.name}
+          subtitle={item.genres.length > 0 ? item.genres.join(" / ") : "Genres unavailable"}
+          description={item.listenCount ? `${formatListenCount(item.listenCount)} across your recent top-list history.` : "Artist image and genre data come from your cached SoundScope history."}
+          rank={item.rank}
+          accent="cyan"
+          listens={item.listenCount}
+        />
       ))}
     </div>
   );
@@ -98,17 +185,17 @@ function TracksList({ items }: { items: TopListTrack[] }) {
   return (
     <div className="space-y-4">
       {items.map((item) => (
-        <div key={item.id} className="flex items-start gap-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
-          <Artwork src={item.imageUrl} alt={item.title} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <p className="font-display text-3xl text-[var(--theme-title)]">{item.title}</p>
-              <p className="text-sm text-gold">#{item.rank}</p>
-            </div>
-            <p className="mt-2 text-base text-[var(--theme-body)]">{item.artist}</p>
-            <p className="mt-2 text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{item.album}</p>
-          </div>
-        </div>
+        <TopListCard
+          key={item.id}
+          artworkAlt={item.title}
+          artworkSrc={item.imageUrl}
+          title={item.title}
+          subtitle={`${item.artist} / ${item.album}`}
+          description={item.listenCount ? `${formatListenCount(item.listenCount)} in the selected window.` : `Spotify popularity score: ${item.popularity}.`}
+          rank={item.rank}
+          accent="gold"
+          listens={item.listenCount}
+        />
       ))}
     </div>
   );
@@ -118,17 +205,17 @@ function AlbumsList({ items }: { items: TopListAlbum[] }) {
   return (
     <div className="space-y-4">
       {items.map((item) => (
-        <div key={item.id} className="flex items-start gap-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
-          <Artwork src={item.imageUrl} alt={item.name} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <p className="font-display text-3xl text-[var(--theme-title)]">{item.name}</p>
-              <p className="text-sm text-mint">#{item.rank}</p>
-            </div>
-            <p className="mt-2 text-base text-[var(--theme-body)]">{item.artist}</p>
-            <p className="mt-2 text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{item.trackCount} ranked track{item.trackCount === 1 ? "" : "s"}</p>
-          </div>
-        </div>
+        <TopListCard
+          key={item.id}
+          artworkAlt={item.name}
+          artworkSrc={item.imageUrl}
+          title={item.name}
+          subtitle={item.artist}
+          description={item.listenCount ? `${formatListenCount(item.listenCount)} from ${item.trackCount} ranked track${item.trackCount === 1 ? "" : "s"} on this album.` : `${item.trackCount} ranked track${item.trackCount === 1 ? "" : "s"} contributed to this album rank.`}
+          rank={item.rank}
+          accent="mint"
+          listens={item.listenCount}
+        />
       ))}
     </div>
   );
@@ -148,7 +235,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   let rankingsNotice: string | null = null;
 
   try {
-    data = await getSpotifyTopListsFromHistory(session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+    data = await getSpotifyTopListsFromHistory(session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo, session.accessToken);
   } catch (error) {
     if (isSessionRefreshFailure(error)) {
       redirect("/login?error=session_refresh_failed");

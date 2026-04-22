@@ -130,6 +130,7 @@ export type TopListArtist = {
   name: string;
   genres: string[];
   imageUrl?: string;
+  listenCount?: number;
 };
 
 export type TopListTrack = {
@@ -140,6 +141,7 @@ export type TopListTrack = {
   album: string;
   popularity: number;
   imageUrl?: string;
+  listenCount?: number;
 };
 
 export type TopListAlbum = {
@@ -150,6 +152,7 @@ export type TopListAlbum = {
   trackCount: number;
   score: number;
   imageUrl?: string;
+  listenCount?: number;
 };
 
 export type TopListsData = {
@@ -302,6 +305,7 @@ export type StoredRecentPlay = {
   playedAt: string;
   trackName: string;
   artistName: string;
+  artistNames?: string[];
   artistIds?: string[];
   albumName: string;
   durationMs?: number;

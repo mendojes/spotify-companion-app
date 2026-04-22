@@ -236,7 +236,7 @@ function getAdaptiveValueClass(value: string) {
 }
 
 function getAdaptivePlaylistTitleClass(value: string) {
-  const base = "whitespace-normal break-normal [overflow-wrap:normal] [word-break:keep-all] [text-wrap:balance]";
+  const base = "w-full whitespace-normal break-normal hyphens-none [overflow-wrap:normal] [word-break:keep-all] [text-wrap:balance]";
 
   if (value.length > 44) {
     return `${base} text-lg leading-[1.1] tracking-[0.02em]`;

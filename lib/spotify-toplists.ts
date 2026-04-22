@@ -262,10 +262,12 @@ function deriveAlbumsFromTracks(tracks: TopListTrack[], limit: number): TopListA
       trackCount: 0,
       score: 0,
       imageUrl: track.imageUrl,
+      listenCount: 0,
     };
 
     existing.trackCount += 1;
     existing.score += weight + Math.round(track.popularity / 10);
+    existing.listenCount = (existing.listenCount ?? 0) + (track.listenCount ?? 0);
     if (!existing.imageUrl && track.imageUrl) {
       existing.imageUrl = track.imageUrl;
     }
@@ -435,6 +437,28 @@ function buildArtistMetadataFromSnapshots(snapshots: SpotifyDashboardSnapshot[])
       metadata.set(key, existing);
     });
 
+    const snapshotTracks = [
+      ...snapshot.topTracks,
+      ...(snapshot.mediumTermTopTracks ?? []),
+      ...(snapshot.longTermTopTracks ?? []),
+    ];
+
+    snapshotTracks.forEach((track) => {
+      const imageUrl = track.album.images?.[0]?.url;
+      if (!imageUrl) {
+        return;
+      }
+
+      track.artists.forEach((artist) => {
+        const key = artist.name.toLowerCase();
+        const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
+        if (!existing.imageUrl) {
+          existing.imageUrl = imageUrl;
+        }
+        metadata.set(key, existing);
+      });
+    });
+
     Object.values(snapshot.cachedTopLists ?? {}).forEach((cachedList) => {
       cachedList.artists.forEach((artist) => {
         const key = artist.name.toLowerCase();
@@ -450,11 +474,83 @@ function buildArtistMetadataFromSnapshots(snapshots: SpotifyDashboardSnapshot[])
 
   return metadata;
 }
-function splitArtistNames(value: string) {
-  return value
-    .split(",")
-    .map((artist) => artist.trim())
-    .filter(Boolean);
+
+function getStoredPlayArtists(play: StoredRecentPlay) {
+  const artistNames =
+    Array.isArray(play.artistNames) && play.artistNames.length > 0
+      ? play.artistNames
+      : Array.isArray(play.artistIds) && play.artistIds.length === 1
+        ? [play.artistName]
+        : play.artistName
+            .split(", ")
+            .map((artist) => artist.trim())
+            .filter(Boolean);
+
+  return artistNames.map((name, index) => ({
+    name,
+    id: play.artistIds?.[index],
+  }));
+}
+
+async function fetchSpotifyArtistMetadata(accessToken: string, artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 200);
+
+  if (uniqueArtistIds.length === 0) {
+    return new Map<string, SpotifyArtist>();
+  }
+
+  try {
+    const chunks = Array.from({ length: Math.ceil(uniqueArtistIds.length / 50) }, (_, index) => uniqueArtistIds.slice(index * 50, index * 50 + 50));
+    const responses = await Promise.all(chunks.map((chunk) => spotifyFetch<{ artists: SpotifyArtist[] }>(`/artists?ids=${chunk.join(",")}`, accessToken)));
+    return new Map(
+      responses
+        .flatMap((response) => response.artists ?? [])
+        .filter((artist) => artist?.id)
+        .map((artist) => [artist.id, artist]),
+    );
+  } catch {
+    return new Map<string, SpotifyArtist>();
+  }
+}
+
+function recentPlaysToArtistIds(recentPlays: StoredRecentPlay[]) {
+  return recentPlays.flatMap((play) => play.artistIds ?? []).filter(Boolean);
+}
+
+async function enrichRecentPlayTopListArtists(
+  accessToken: string | undefined,
+  recentPlayTopLists: RecentPlayTopLists,
+  recentPlays: StoredRecentPlay[],
+  range: TopListRange,
+  limit: number,
+) {
+  const needsArtistMetadata = recentPlayTopLists.artists.some((artist) => !artist.imageUrl || artist.genres.length === 0);
+
+  if (!needsArtistMetadata) {
+    return recentPlayTopLists;
+  }
+
+  try {
+    const spotifyArtistMetadata = accessToken
+      ? await fetchSpotifyArtistMetadata(accessToken, recentPlaysToArtistIds(recentPlays))
+      : new Map<string, SpotifyArtist>();
+    const fallback = accessToken ? await getFallbackSpotifyTopLists(accessToken, range, limit) : null;
+    const fallbackArtistMap = new Map((fallback?.artists ?? []).map((artist) => [artist.name.toLowerCase(), artist]));
+
+    recentPlayTopLists.artists = recentPlayTopLists.artists.map((artist) => {
+      const spotifyArtist = spotifyArtistMetadata.get(artist.id);
+      const fallbackArtist = fallbackArtistMap.get(artist.name.toLowerCase());
+      return {
+        ...artist,
+        imageUrl: artist.imageUrl ?? spotifyArtist?.images?.[0]?.url ?? fallbackArtist?.imageUrl,
+        genres: artist.genres.length > 0 ? artist.genres : (spotifyArtist ? getArtistGenres(spotifyArtist) : (fallbackArtist?.genres ?? [])),
+      };
+    });
+  } catch {
+    // Keep recent-play rankings even if metadata enrichment fails.
+  }
+
+  return recentPlayTopLists;
 }
 
 function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, artistMetadata: Map<string, { genres: string[]; imageUrl?: string }>): TopListArtist[] {
@@ -463,15 +559,16 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
   recentPlays.forEach((play, index) => {
     const recencyWeight = Math.max(1, recentPlays.length - index);
 
-    splitArtistNames(play.artistName).forEach((artistName) => {
+    getStoredPlayArtists(play).forEach(({ name: artistName, id: artistId }) => {
       const key = artistName.toLowerCase();
       const metadata = artistMetadata.get(key);
-      const existing = artistMap.get(key) ?? {
-        id: key,
+      const lookupKey = artistId ?? key;
+      const existing = artistMap.get(lookupKey) ?? {
+        id: artistId ?? key,
         name: artistName,
         score: 0,
         playCount: 0,
-        imageUrl: metadata?.imageUrl,
+        imageUrl: metadata?.imageUrl ?? play.imageUrl,
         genres: metadata?.genres ?? [],
       };
 
@@ -480,10 +577,13 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
       if (!existing.imageUrl && metadata?.imageUrl) {
         existing.imageUrl = metadata.imageUrl;
       }
+      if (!existing.imageUrl && play.imageUrl) {
+        existing.imageUrl = play.imageUrl;
+      }
       if (existing.genres.length === 0 && metadata?.genres?.length) {
         existing.genres = metadata.genres;
       }
-      artistMap.set(key, existing);
+      artistMap.set(lookupKey, existing);
     });
   });
 
@@ -496,6 +596,7 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
       name: artist.name,
       genres: artist.genres,
       imageUrl: artist.imageUrl,
+      listenCount: artist.playCount,
     }));
 }
 
@@ -541,6 +642,7 @@ function deriveRecentTracks(recentPlays: StoredRecentPlay[], limit: number): Top
       album: track.album,
       popularity: track.popularity,
       imageUrl: track.imageUrl,
+      listenCount: track.playCount,
     }));
 }
 
@@ -585,6 +687,7 @@ function deriveRecentAlbums(recentPlays: StoredRecentPlay[], limit: number): Top
       trackCount: album.trackCount,
       score: album.score,
       imageUrl: album.imageUrl,
+      listenCount: album.playCount,
     }));
 }
 
@@ -728,27 +831,8 @@ export async function getSpotifyTopLists(
   const recentPlayTopLists = await getRecentPlayTopLists(spotifyUserId, range, boundedLimit, from, to, snapshots);
 
   if (recentPlayTopLists) {
-    const needsArtistMetadata = recentPlayTopLists.artists.some((artist) => !artist.imageUrl || artist.genres.length === 0);
-
-    if (needsArtistMetadata) {
-      try {
-        const fallback = await getFallbackSpotifyTopLists(accessToken, range, boundedLimit);
-        const fallbackArtistMap = new Map(fallback.artists.map((artist) => [artist.name.toLowerCase(), artist]));
-
-        recentPlayTopLists.artists = recentPlayTopLists.artists.map((artist) => {
-          const fallbackArtist = fallbackArtistMap.get(artist.name.toLowerCase());
-          return {
-            ...artist,
-            imageUrl: artist.imageUrl ?? fallbackArtist?.imageUrl,
-            genres: artist.genres.length > 0 ? artist.genres : (fallbackArtist?.genres ?? []),
-          };
-        });
-      } catch {
-        // Keep recent-play rankings even if metadata enrichment fails.
-      }
-    }
-
-    return recentPlayTopLists;
+    const recentPlays = await getRecentPlaysForTopLists(spotifyUserId, range, from, to);
+    return enrichRecentPlayTopListArtists(accessToken, recentPlayTopLists, recentPlays, range, boundedLimit);
   }
 
   const cachedTopLists = snapshots.length === 1 ? getSnapshotCachedTopLists(snapshots[0], range, boundedLimit, from, to) : null;
@@ -830,6 +914,7 @@ export async function getSpotifyTopListsFromHistory(
   limit = DASHBOARD_TOP_LIST_LIMIT,
   from?: string,
   to?: string,
+  accessToken?: string,
 ) {
   const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
   const snapshots = await getHistoricalSnapshots(spotifyUserId, range, from, to);
@@ -837,7 +922,13 @@ export async function getSpotifyTopListsFromHistory(
 
   if (recentPlayTopLists) {
     return {
-      ...recentPlayTopLists,
+      ...(await enrichRecentPlayTopListArtists(
+        accessToken,
+        recentPlayTopLists,
+        await getRecentPlaysForTopLists(spotifyUserId, range, from, to),
+        range,
+        boundedLimit,
+      )),
       sourceLabel: "Shared SoundScope listening history",
     } satisfies TopListsData;
   }
