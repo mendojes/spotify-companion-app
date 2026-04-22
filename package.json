@@ -13,6 +13,7 @@
     "debug:spotify-playlists": "node --env-file=.env.local scripts/debug-spotify-playlists.mjs"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.6.3",
     "lucide-react": "^0.511.0",
