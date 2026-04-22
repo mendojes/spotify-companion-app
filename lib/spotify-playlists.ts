@@ -19,7 +19,6 @@ import {
   SpotifyPlaylistTrackItem,
   SpotifyPlaylistTracksResponse,
   SpotifyTrack,
-  TopListTrack,
   StoredRecentPlay,
 } from "@/lib/types";
 import { PST_TIME_ZONE } from "@/lib/time";
@@ -58,6 +57,11 @@ type StoredPlaylistInsights = {
 type StoredPlaylistLibraryItem = SpotifyPlaylist & {
   spotifyUserId: string;
   updatedAt: string;
+};
+
+type TrackAffinity = {
+  playCount: number;
+  lastPlayedAt?: string;
 };
 
 export type PlaylistLibraryStatus = {
@@ -767,6 +771,56 @@ async function fetchMusicBrainzArtistTags(artistNames: string[]) {
   return tagMap;
 }
 
+function normalizeArtistName(value: string) {
+  return value.trim().toLowerCase();
+}
+
+async function fetchSpotifyArtistGenresBySearch(artistNames: string[]) {
+  const uniqueNames = [...new Set(artistNames.map((name) => name.trim()).filter(Boolean))].slice(0, PLAYLIST_PUBLIC_TAG_FETCH_LIMIT);
+  const genreMap = new Map<string, string[]>();
+
+  if (uniqueNames.length === 0) {
+    return genreMap;
+  }
+
+  try {
+    const clientToken = await getSpotifyClientCredentialsToken();
+
+    await Promise.all(uniqueNames.map(async (artistName) => {
+      try {
+        const response = await spotifyFetch<{
+          artists?: {
+            items?: Array<{ name?: string; genres?: string[] }>;
+          };
+        }>(`/search?q=${encodeURIComponent(artistName)}&type=artist&limit=1`, clientToken, { allowRetry: true });
+
+        const match = response.artists?.items?.[0];
+        const normalizedRequested = normalizeArtistName(artistName);
+        const normalizedMatched = normalizeArtistName(match?.name ?? "");
+        const genres = Array.isArray(match?.genres) ? match.genres.filter(Boolean) : [];
+
+        if (genres.length === 0) {
+          return;
+        }
+
+        if (
+          normalizedMatched === normalizedRequested ||
+          normalizedMatched.includes(normalizedRequested) ||
+          normalizedRequested.includes(normalizedMatched)
+        ) {
+          genreMap.set(normalizedRequested, genres);
+        }
+      } catch {
+        return;
+      }
+    }));
+  } catch {
+    return genreMap;
+  }
+
+  return genreMap;
+}
+
 function getTopArtistNamesByFrequency(tracks: SpotifyTrack[], limit = PLAYLIST_PUBLIC_TAG_FETCH_LIMIT) {
   const artistCounts = new Map<string, number>();
 
@@ -909,21 +963,21 @@ function buildSampleTracks(tracks: SpotifyTrack[]): PlaylistTrackSummary[] {
     }));
 }
 
-function buildTopTracks(tracks: SpotifyTrack[], allTimeTopTracks = new Map<string, TopListTrack>()): PlaylistTrackSummary[] {
+function buildTopTracks(tracks: SpotifyTrack[], allTimeTrackAffinity = new Map<string, TrackAffinity>()): PlaylistTrackSummary[] {
   return uniqueById(tracks)
     .sort((a, b) => {
-      const aTopTrack = allTimeTopTracks.get(a.id);
-      const bTopTrack = allTimeTopTracks.get(b.id);
+      const aAffinity = allTimeTrackAffinity.get(a.id);
+      const bAffinity = allTimeTrackAffinity.get(b.id);
 
-      if (aTopTrack && bTopTrack) {
-        return aTopTrack.rank - bTopTrack.rank;
+      if (aAffinity && bAffinity) {
+        return bAffinity.playCount - aAffinity.playCount || (bAffinity.lastPlayedAt ?? "").localeCompare(aAffinity.lastPlayedAt ?? "");
       }
 
-      if (aTopTrack) {
+      if (aAffinity) {
         return -1;
       }
 
-      if (bTopTrack) {
+      if (bAffinity) {
         return 1;
       }
 
@@ -939,15 +993,6 @@ function buildTopTracks(tracks: SpotifyTrack[], allTimeTopTracks = new Map<strin
     }));
 }
 
-async function getAllTimeTopTrackMap(spotifyUserId: string) {
-  try {
-    const topLists = await getSpotifyTopListsFromHistory(spotifyUserId, "all", FULL_TOP_LIST_LIMIT);
-    return new Map((topLists?.tracks ?? []).map((track) => [track.id, track]));
-  } catch {
-    return new Map<string, TopListTrack>();
-  }
-}
-
 async function getAllTimeArtistGenreMap(spotifyUserId: string) {
   try {
     const topLists = await getSpotifyTopListsFromHistory(spotifyUserId, "all", FULL_TOP_LIST_LIMIT);
@@ -958,6 +1003,26 @@ async function getAllTimeArtistGenreMap(spotifyUserId: string) {
     );
   } catch {
     return new Map<string, string[]>();
+  }
+}
+
+async function getAllTimeTrackAffinityMap(spotifyUserId: string) {
+  try {
+    const recentPlays = await getStoredRecentPlays(spotifyUserId);
+    const affinity = new Map<string, TrackAffinity>();
+
+    recentPlays.forEach((play) => {
+      const current = affinity.get(play.trackId) ?? { playCount: 0, lastPlayedAt: undefined };
+      current.playCount += 1;
+      if (!current.lastPlayedAt || play.playedAt > current.lastPlayedAt) {
+        current.lastPlayedAt = play.playedAt;
+      }
+      affinity.set(play.trackId, current);
+    });
+
+    return affinity;
+  } catch {
+    return new Map<string, TrackAffinity>();
   }
 }
 
@@ -1030,7 +1095,7 @@ async function analyzePlaylist(
   accessToken: string,
   playlist: SpotifyPlaylist,
   recentPlays: StoredRecentPlay[] = [],
-  allTimeTopTracks = new Map<string, TopListTrack>(),
+  allTimeTrackAffinity = new Map<string, TrackAffinity>(),
   allTimeArtistGenres = new Map<string, string[]>(),
 ): Promise<PlaylistDetail | null> {
   try {
@@ -1054,6 +1119,16 @@ async function analyzePlaylist(
     }
 
     if (topGenres.length === 0) {
+      const spotifySearchGenres = await fetchSpotifyArtistGenresBySearch(
+        getTopArtistNamesByFrequency(tracks),
+      ).catch(() => new Map<string, string[]>());
+
+      if (spotifySearchGenres.size > 0) {
+        topGenres = buildGenreSummaryFromArtistGenreMap(tracks, spotifySearchGenres);
+      }
+    }
+
+    if (topGenres.length === 0) {
       const artistTags = await fetchMusicBrainzArtistTags(
         getTopArtistNamesByFrequency(tracks),
       ).catch(() => new Map<string, string[]>());
@@ -1064,7 +1139,7 @@ async function analyzePlaylist(
     }
 
     const sampleTracks = buildSampleTracks(tracks);
-    const topTracks = buildTopTracks(tracks, allTimeTopTracks);
+    const topTracks = buildTopTracks(tracks, allTimeTrackAffinity);
 
     return {
       id: playlist.id,
@@ -1096,7 +1171,7 @@ async function analyzeManyPlaylists(
   accessToken: string,
   playlists: SpotifyPlaylist[],
   recentPlays: StoredRecentPlay[] = [],
-  allTimeTopTracks = new Map<string, TopListTrack>(),
+  allTimeTrackAffinity = new Map<string, TrackAffinity>(),
   allTimeArtistGenres = new Map<string, string[]>(),
 ) {
   const results: PlaylistDetail[] = [];
@@ -1104,7 +1179,7 @@ async function analyzeManyPlaylists(
   for (let index = 0; index < playlists.length; index += PLAYLIST_ANALYSIS_CONCURRENCY) {
     const batch = playlists.slice(index, index + PLAYLIST_ANALYSIS_CONCURRENCY);
     const batchResults = await Promise.all(
-      batch.map((playlist) => analyzePlaylist(accessToken, playlist, recentPlays, allTimeTopTracks, allTimeArtistGenres)),
+      batch.map((playlist) => analyzePlaylist(accessToken, playlist, recentPlays, allTimeTrackAffinity, allTimeArtistGenres)),
     );
     results.push(...batchResults.filter((detail): detail is PlaylistDetail => Boolean(detail)));
   }
@@ -1246,13 +1321,13 @@ function buildCachedPlaylistInsights(
 
 export async function getPlaylistInsights(accessToken: string, spotifyUserId: string): Promise<PlaylistInsight[]> {
   const inMemoryLastGood = lastGoodPlaylistInsights.get(spotifyUserId) ?? [];
-  const [storedLastGood, recentPlays, currentPlaybackSource, storedLibrary, cachedDetails, allTimeTopTracks, allTimeArtistGenres] = await Promise.all([
+  const [storedLastGood, recentPlays, currentPlaybackSource, storedLibrary, cachedDetails, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
     getStoredPlaylistInsights(spotifyUserId),
     getRecentHistory(accessToken, spotifyUserId),
     getCurrentPlaybackSource(accessToken).catch(() => undefined),
     getStoredPlaylistLibrary(spotifyUserId),
     getCachedPlaylistDetails(spotifyUserId),
-    getAllTimeTopTrackMap(spotifyUserId),
+    getAllTimeTrackAffinityMap(spotifyUserId),
     getAllTimeArtistGenreMap(spotifyUserId),
   ]);
 
@@ -1304,7 +1379,7 @@ export async function getPlaylistInsights(accessToken: string, spotifyUserId: st
     accessToken,
     playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)),
     recentPlays,
-    allTimeTopTracks,
+    allTimeTrackAffinity,
     allTimeArtistGenres,
   );
 
@@ -1383,13 +1458,13 @@ export async function getAllPlaylistInsights(
   sort: PlaylistSortOption = "created_desc",
 ): Promise<PlaylistInsight[]> {
   try {
-    const [playlists, recentPlays, storedLastGood, currentPlaybackSource, storedPlaylists, allTimeTopTracks, allTimeArtistGenres] = await Promise.all([
+    const [playlists, recentPlays, storedLastGood, currentPlaybackSource, storedPlaylists, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
       getPlaylistLibrary(accessToken, spotifyUserId),
       getRecentHistory(accessToken, spotifyUserId),
       getStoredPlaylistInsights(spotifyUserId),
       getCurrentPlaybackSource(accessToken).catch(() => undefined),
       getStoredPlaylistLibrary(spotifyUserId),
-      getAllTimeTopTrackMap(spotifyUserId),
+      getAllTimeTrackAffinityMap(spotifyUserId),
       getAllTimeArtistGenreMap(spotifyUserId),
     ]);
 
@@ -1416,7 +1491,7 @@ export async function getAllPlaylistInsights(
     }).slice(0, PLAYLIST_DETAIL_REFRESH_LIMIT);
 
     const freshDetails = missingPlaylists.length > 0
-      ? await analyzeManyPlaylists(accessToken, missingPlaylists, recentPlays, allTimeTopTracks, allTimeArtistGenres)
+      ? await analyzeManyPlaylists(accessToken, missingPlaylists, recentPlays, allTimeTrackAffinity, allTimeArtistGenres)
       : [];
 
     if (freshDetails.length > 0) {
@@ -1498,19 +1573,19 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
 }
 
 export async function getPlaylistDetail(accessToken: string, spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {
-  const [storedLibrary, cachedDetails, recentPlays, storedInsights, allTimeTopTracks, allTimeArtistGenres] = await Promise.all([
+  const [storedLibrary, cachedDetails, recentPlays, storedInsights, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
     getStoredPlaylistLibrary(spotifyUserId),
     getCachedPlaylistDetails(spotifyUserId, [playlistId]),
     getRecentHistory(accessToken, spotifyUserId),
     getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
-    getAllTimeTopTrackMap(spotifyUserId),
+    getAllTimeTrackAffinityMap(spotifyUserId),
     getAllTimeArtistGenreMap(spotifyUserId),
   ]);
 
   try {
     const playlist = await fetchPlaylistById(accessToken, playlistId);
     await upsertStoredPlaylist(spotifyUserId, playlist);
-    const detail = await analyzePlaylist(accessToken, playlist, recentPlays, allTimeTopTracks, allTimeArtistGenres);
+    const detail = await analyzePlaylist(accessToken, playlist, recentPlays, allTimeTrackAffinity, allTimeArtistGenres);
 
     if (detail) {
       await writeCachedPlaylistDetails(spotifyUserId, [detail]);
