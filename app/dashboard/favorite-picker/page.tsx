@@ -10,6 +10,7 @@ export default async function FavoritePickerPage() {
         <FavoritePickerView
           spotifyConnected={hasSpotifyConnection(session)}
           displayName={session.displayName}
+          userId={session.userId}
         />
       </div>
     </main>

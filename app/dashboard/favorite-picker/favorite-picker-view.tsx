@@ -4,6 +4,7 @@ import Image from "next/image";
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { LibraryBig, Link2, Search, Shuffle, Sparkles, Trophy } from "lucide-react";
 import {
+  FavoritePickerTargetType,
   chooseFavoritePickerSong,
   createFavoritePickerState,
   FavoritePickerTargetSummary,
@@ -19,9 +20,38 @@ import {
 type FavoritePickerViewProps = {
   spotifyConnected: boolean;
   displayName: string;
+  userId: string;
 };
 
 type LoadState = "build" | "pick" | "done";
+type SearchFilter = FavoritePickerTargetType;
+type SavedFavoritePickerProgress = {
+  version: 1;
+  savedAt: string;
+  phase: LoadState;
+  selectedTargets: FavoritePickerTargetSummary[];
+  pickerTracks: FavoritePickerTrack[];
+  pickerState: FavoritePickerState;
+};
+
+const FAVORITE_PICKER_SAVE_KEY_PREFIX = "soundscope.favorite-picker";
+
+function getFavoritePickerSaveKey(userId: string) {
+  return `${FAVORITE_PICKER_SAVE_KEY_PREFIX}.${userId}`;
+}
+
+function formatSavedAtLabel(value: string) {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
 
 function TargetArtwork({ imageUrl, label }: { imageUrl?: string; label: string }) {
   if (imageUrl) {
@@ -112,10 +142,15 @@ function TargetCard({
   );
 }
 
-export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePickerViewProps) {
+export function FavoritePickerView({ spotifyConnected, displayName, userId }: FavoritePickerViewProps) {
   const [phase, setPhase] = useState<LoadState>("build");
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeSearchQuery, setActiveSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<FavoritePickerTargetSummary[]>([]);
+  const [searchFilter, setSearchFilter] = useState<SearchFilter>("playlist");
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchTotalPages, setSearchTotalPages] = useState(0);
+  const [searchTotalResults, setSearchTotalResults] = useState(0);
   const [selectedTargets, setSelectedTargets] = useState<FavoritePickerTargetSummary[]>([]);
   const [libraryTargets, setLibraryTargets] = useState<FavoritePickerTargetSummary[]>([]);
   const [libraryQuery, setLibraryQuery] = useState("");
@@ -126,6 +161,29 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
   const [loadingPicker, setLoadingPicker] = useState(false);
   const [searching, setSearching] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [savedProgress, setSavedProgress] = useState<SavedFavoritePickerProgress | null>(null);
+
+  useEffect(() => {
+    try {
+      const rawValue = window.localStorage.getItem(getFavoritePickerSaveKey(userId));
+
+      if (!rawValue) {
+        setSavedProgress(null);
+        return;
+      }
+
+      const parsed = JSON.parse(rawValue) as SavedFavoritePickerProgress;
+      if (parsed?.version !== 1 || !parsed?.pickerState || !Array.isArray(parsed?.pickerTracks) || !Array.isArray(parsed?.selectedTargets)) {
+        window.localStorage.removeItem(getFavoritePickerSaveKey(userId));
+        setSavedProgress(null);
+        return;
+      }
+
+      setSavedProgress(parsed);
+    } catch {
+      setSavedProgress(null);
+    }
+  }, [userId]);
 
   useEffect(() => {
     if (!spotifyConnected) {
@@ -171,6 +229,44 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
     }
   }, [pickerState]);
 
+  useEffect(() => {
+    if (!activeSearchQuery.trim()) {
+      return;
+    }
+
+    setSearching(true);
+
+    startTransition(() => {
+      fetch(
+        `/api/favorite-picker/search?q=${encodeURIComponent(activeSearchQuery.trim())}&type=${encodeURIComponent(searchFilter)}&page=${searchPage}`,
+        { cache: "no-store" },
+      )
+        .then(async (response) => {
+          const payload = await response.json() as {
+            results?: FavoritePickerTargetSummary[];
+            totalPages?: number;
+            total?: number;
+            page?: number;
+            error?: string;
+          };
+          if (!response.ok) {
+            throw new Error(payload.error ?? "Could not search Spotify.");
+          }
+
+          setSearchResults(payload.results ?? []);
+          setSearchTotalPages(payload.totalPages ?? 0);
+          setSearchTotalResults(payload.total ?? 0);
+          setSearchPage(payload.page ?? searchPage);
+        })
+        .catch((error) => {
+          setMessage(error instanceof Error ? error.message : "Could not search Spotify.");
+        })
+        .finally(() => {
+          setSearching(false);
+        });
+    });
+  }, [activeSearchQuery, searchFilter, searchPage]);
+
   function appendTarget(target: FavoritePickerTargetSummary) {
     setSelectedTargets((current) => {
       if (current.some((entry) => entry.id === target.id && entry.type === target.type)) {
@@ -190,26 +286,51 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
       return;
     }
 
+    const normalizedQuery = searchQuery.trim();
+    setActiveSearchQuery(normalizedQuery);
+    setSearchPage(1);
     setSearching(true);
     setMessage(null);
 
     startTransition(() => {
-      fetch(`/api/favorite-picker/search?q=${encodeURIComponent(searchQuery.trim())}`, { cache: "no-store" })
+      fetch(
+        `/api/favorite-picker/search?q=${encodeURIComponent(normalizedQuery)}&type=${encodeURIComponent(searchFilter)}&page=1`,
+        { cache: "no-store" },
+      )
         .then(async (response) => {
-          const payload = await response.json() as { results?: FavoritePickerTargetSummary[]; error?: string };
+          const payload = await response.json() as {
+            results?: FavoritePickerTargetSummary[];
+            totalPages?: number;
+            total?: number;
+            page?: number;
+            error?: string;
+          };
           if (!response.ok) {
             throw new Error(payload.error ?? "Could not search Spotify.");
           }
 
           setSearchResults(payload.results ?? []);
+          setSearchTotalPages(payload.totalPages ?? 0);
+          setSearchTotalResults(payload.total ?? 0);
+          setSearchPage(payload.page ?? 1);
         })
         .catch((error) => {
           setMessage(error instanceof Error ? error.message : "Could not search Spotify.");
         })
         .finally(() => {
           setSearching(false);
-        });
+      });
     });
+  }
+
+  function clearSearchResults() {
+    setSearchQuery("");
+    setActiveSearchQuery("");
+    setSearchResults([]);
+    setSearchPage(1);
+    setSearchTotalPages(0);
+    setSearchTotalResults(0);
+    setMessage(null);
   }
 
   function addPastedTarget() {
@@ -286,6 +407,7 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
         setPickerTracks(tracks);
         setPickerState(createFavoritePickerState(tracks));
         setPhase("pick");
+        setSavedProgress(null);
       })
       .catch((error) => {
         setMessage(error instanceof Error ? error.message : "Could not build the favorite picker.");
@@ -300,6 +422,43 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
     setPickerState(null);
     setPickerTracks([]);
     setMessage(null);
+  }
+
+  function saveProgress() {
+    if (!pickerState || phase === "build") {
+      return;
+    }
+
+    const nextSavedProgress: SavedFavoritePickerProgress = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      phase,
+      selectedTargets,
+      pickerTracks,
+      pickerState,
+    };
+
+    window.localStorage.setItem(getFavoritePickerSaveKey(userId), JSON.stringify(nextSavedProgress));
+    setSavedProgress(nextSavedProgress);
+    setMessage("Favorite picker progress saved.");
+  }
+
+  function resumeSavedProgress() {
+    if (!savedProgress) {
+      return;
+    }
+
+    setSelectedTargets(savedProgress.selectedTargets);
+    setPickerTracks(savedProgress.pickerTracks);
+    setPickerState(savedProgress.pickerState);
+    setPhase(savedProgress.phase);
+    setMessage(`Resumed your saved picker from ${formatSavedAtLabel(savedProgress.savedAt)}.`);
+  }
+
+  function clearSavedProgress() {
+    window.localStorage.removeItem(getFavoritePickerSaveKey(userId));
+    setSavedProgress(null);
+    setMessage("Saved picker progress cleared.");
   }
 
   return (
@@ -338,6 +497,34 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
 
       {phase === "build" ? (
         <div className="space-y-6">
+          {savedProgress ? (
+            <section className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="section-kicker">Saved picker</p>
+                  <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Resume where you left off</h2>
+                  <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
+                    Saved {formatSavedAtLabel(savedProgress.savedAt)} with {savedProgress.selectedTargets.length} target{savedProgress.selectedTargets.length === 1 ? "" : "s"} and {savedProgress.pickerTracks.length} songs in the pool.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={resumeSavedProgress}
+                    className="neon-outline inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-medium uppercase tracking-[0.18em] text-[#170718]"
+                  >
+                    Resume picker
+                  </button>
+                  <button
+                    onClick={clearSavedProgress}
+                    className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-5 py-3 text-sm text-[var(--theme-text)]"
+                  >
+                    Clear saved progress
+                  </button>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           <section className="window-panel rounded-[32px] p-6 pt-14 text-[var(--theme-text)]">
             <div className="max-w-3xl">
               <div className="flex items-center gap-3">
@@ -432,11 +619,39 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
                   <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Find public targets</h2>
                 </div>
               </div>
+              <div className="mt-5 flex flex-wrap gap-3">
+                {(["playlist", "album", "artist"] as SearchFilter[]).map((filter) => {
+                  const active = filter === searchFilter;
+
+                  return (
+                    <button
+                      key={filter}
+                      onClick={() => {
+                        setSearchFilter(filter);
+                        setSearchPage(1);
+                        setSearchResults([]);
+                        setSearchTotalPages(0);
+                        setSearchTotalResults(0);
+                      }}
+                      className={`rounded-full px-4 py-2 text-sm uppercase tracking-[0.16em] transition ${
+                        active
+                          ? "neon-outline text-[#170718]"
+                          : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"
+                      }`}
+                    >
+                      {filter}
+                    </button>
+                  );
+                })}
+              </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <input
                   value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search artists, albums, or playlists"
+                  onChange={(event) => {
+                    setSearchQuery(event.target.value);
+                    setSearchPage(1);
+                  }}
+                  placeholder={`Search ${searchFilter}s`}
                   className="w-full rounded-[18px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/70 px-4 py-3 text-base text-[var(--theme-text)]"
                 />
                 <button
@@ -446,7 +661,38 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
                 >
                   {searching ? "Searching" : "Search"}
                 </button>
+                <button
+                  onClick={clearSearchResults}
+                  disabled={searchResults.length === 0 && !searchQuery}
+                  className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-5 py-3 text-sm text-[var(--theme-text)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Clear search
+                </button>
               </div>
+
+              {searchTotalResults > 0 ? (
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">
+                    {searchTotalResults} result{searchTotalResults === 1 ? "" : "s"} • page {searchPage} of {searchTotalPages}
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setSearchPage((current) => Math.max(1, current - 1))}
+                      disabled={searchPage <= 1 || searching}
+                      className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      onClick={() => setSearchPage((current) => Math.min(searchTotalPages, current + 1))}
+                      disabled={searchPage >= searchTotalPages || searching || searchTotalPages === 0}
+                      className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-5 space-y-3">
                 {searchResults.length > 0 ? searchResults.map((target) => (
@@ -538,6 +784,12 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
                   <Shuffle className="h-4 w-4" /> Skip matchup
                 </button>
                 <button
+                  onClick={saveProgress}
+                  className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-5 py-3 text-sm text-[var(--theme-text)]"
+                >
+                  Save progress
+                </button>
+                <button
                   onClick={() => setPickerState((current) => current ? goBackFavoritePickerChoice(current) : current)}
                   disabled={pickerState.history.length === 0}
                   className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-5 py-3 text-sm text-[var(--theme-text)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -609,6 +861,9 @@ export function FavoritePickerView({ spotifyConnected, displayName }: FavoritePi
               This run ranked {rankedTracks.length} songs across {selectedTargets.length} selected Spotify targets.
             </p>
             <div className="mt-5 flex gap-3">
+              <button onClick={saveProgress} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-5 py-3 text-sm text-[var(--theme-text)]">
+                Save progress
+              </button>
               <button onClick={resetPicker} className="neon-outline inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-medium uppercase tracking-[0.18em] text-[#170718]">
                 Build another picker
               </button>

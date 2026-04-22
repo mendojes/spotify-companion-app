@@ -53,18 +53,31 @@ type SpotifyArtistAlbumsResponse = {
 type SpotifySearchResponse = {
   artists?: {
     items: Array<SpotifyArtistSummary | null>;
+    total?: number;
   };
   albums?: {
     items: Array<SpotifyAlbum | null>;
+    total?: number;
   };
   playlists?: {
     items: Array<(SpotifyPlaylist & { external_urls?: { spotify?: string } }) | null>;
+    total?: number;
   };
 };
 
 type PickerTargetInput = {
   id: string;
   type: FavoritePickerTargetType;
+};
+
+export type FavoritePickerSearchType = FavoritePickerTargetType;
+
+export type FavoritePickerSearchResultPage = {
+  results: FavoritePickerTargetSummary[];
+  page: number;
+  total: number;
+  totalPages: number;
+  type: FavoritePickerSearchType;
 };
 
 const SEARCH_TARGET_LIMIT = 8;
@@ -335,57 +348,97 @@ async function fetchArtistTracks(accessToken: string, target: FavoritePickerTarg
 }
 
 export async function getFavoritePickerSearchResults(session: AuthSession | null, query: string) {
+  return getFavoritePickerSearchResultsPage(session, query, "playlist", 1);
+}
+
+export async function getFavoritePickerSearchResultsPage(
+  session: AuthSession | null,
+  query: string,
+  type: FavoritePickerSearchType,
+  page = 1,
+): Promise<FavoritePickerSearchResultPage> {
   const normalizedQuery = normalizeInput(query);
 
   if (!normalizedQuery) {
-    return [] as FavoritePickerTargetSummary[];
+    return {
+      results: [],
+      page: 1,
+      total: 0,
+      totalPages: 0,
+      type,
+    };
   }
 
   const accessToken = await getPickerAccessToken(session);
+  const safePage = Math.max(1, page);
   const searchParams = new URLSearchParams({
     q: normalizedQuery,
-    type: "artist,album,playlist",
+    type,
     limit: String(SEARCH_TARGET_LIMIT),
+    offset: String((safePage - 1) * SEARCH_TARGET_LIMIT),
   });
 
   const response = await spotifyFetch<SpotifySearchResponse>(`/search?${searchParams.toString()}`, accessToken);
 
-  const artistResults = (response.artists?.items ?? [])
-    .filter(isSearchArtistResult)
-    .map((artist) => toTargetSummary({
-    id: artist.id,
-    type: "artist",
-    name: artist.name,
-    subtitle: "Artist",
-    imageUrl: artist.images?.[0]?.url,
-    spotifyUrl: artist.external_urls?.spotify,
-  }));
+  if (type === "artist") {
+    const items = (response.artists?.items ?? []).filter(isSearchArtistResult);
+    const total = response.artists?.total ?? items.length;
 
-  const albumResults = (response.albums?.items ?? [])
-    .filter(isSearchAlbumResult)
-    .map((album) => toTargetSummary({
-    id: album.id,
-    type: "album",
-    name: album.name,
-    subtitle: `Album by ${album.artists.map((artist) => artist.name).join(", ")}`,
-    imageUrl: album.images?.[0]?.url,
-    spotifyUrl: album.external_urls?.spotify,
-    trackCount: album.total_tracks,
-  }));
+    return {
+      results: items.map((artist) => toTargetSummary({
+        id: artist.id,
+        type: "artist",
+        name: artist.name,
+        subtitle: "Artist",
+        imageUrl: artist.images?.[0]?.url,
+        spotifyUrl: artist.external_urls?.spotify,
+      })),
+      page: safePage,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / SEARCH_TARGET_LIMIT)),
+      type,
+    };
+  }
 
-  const playlistResults = (response.playlists?.items ?? [])
-    .filter(isSearchPlaylistResult)
-    .map((playlist) => toTargetSummary({
-    id: playlist.id,
-    type: "playlist",
-    name: playlist.name,
-    subtitle: playlist.owner?.display_name ? `Playlist by ${playlist.owner.display_name}` : "Playlist",
-    imageUrl: playlist.images?.[0]?.url,
-    spotifyUrl: playlist.external_urls?.spotify,
-    trackCount: playlist.tracks?.total,
-  }));
+  if (type === "album") {
+    const items = (response.albums?.items ?? []).filter(isSearchAlbumResult);
+    const total = response.albums?.total ?? items.length;
 
-  return [...artistResults, ...albumResults, ...playlistResults];
+    return {
+      results: items.map((album) => toTargetSummary({
+        id: album.id,
+        type: "album",
+        name: album.name,
+        subtitle: `Album by ${album.artists.map((artist) => artist.name).join(", ")}`,
+        imageUrl: album.images?.[0]?.url,
+        spotifyUrl: album.external_urls?.spotify,
+        trackCount: album.total_tracks,
+      })),
+      page: safePage,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / SEARCH_TARGET_LIMIT)),
+      type,
+    };
+  }
+
+  const items = (response.playlists?.items ?? []).filter(isSearchPlaylistResult);
+  const total = response.playlists?.total ?? items.length;
+
+  return {
+    results: items.map((playlist) => toTargetSummary({
+      id: playlist.id,
+      type: "playlist",
+      name: playlist.name,
+      subtitle: playlist.owner?.display_name ? `Playlist by ${playlist.owner.display_name}` : "Playlist",
+      imageUrl: playlist.images?.[0]?.url,
+      spotifyUrl: playlist.external_urls?.spotify,
+      trackCount: playlist.tracks?.total,
+    })),
+    page: safePage,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / SEARCH_TARGET_LIMIT)),
+    type,
+  };
 }
 
 export async function getFavoritePickerPlaylistLibrary(session: AuthSession | null) {

@@ -277,10 +277,35 @@ export function chooseFavoritePickerSong(
 }
 
 export function skipFavoritePickerChoice(state: FavoritePickerState) {
+  const choice = getChoiceDescriptor(state);
+
+  if (!choice) {
+    return state;
+  }
+
   return {
     ...state,
     activeSongIds: shuffle(state.activeSongIds),
     pairIndex: 0,
+    history: [
+      ...state.history,
+      {
+        snapshot: {
+          songs: state.songs.map((song) => ({
+            ...song,
+            eliminators: [...song.eliminators],
+            artists: [...song.artists],
+            sourceTargetIds: [...song.sourceTargetIds],
+            sourceLabels: [...song.sourceLabels],
+          })),
+          activeSongIds: [...state.activeSongIds],
+          rankedSongIds: [...state.rankedSongIds],
+          pairIndex: state.pairIndex,
+          eliminationCountdown: state.eliminationCountdown,
+          currentFavoriteId: state.currentFavoriteId,
+        },
+      },
+    ],
   };
 }
 

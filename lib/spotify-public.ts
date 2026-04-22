@@ -1,6 +1,6 @@
 import { getCachedValue } from "@/lib/runtime-cache";
 import { getPublicPlaylistInsights } from "@/lib/spotify-playlists";
-import { getSpotifyClientCredentialsToken, spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
+import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { PlaylistInsight, SpotifyPlaylist, SpotifyPlaylistsResponse } from "@/lib/types";
 
 export type PublicProfileArtist = {
@@ -61,8 +61,25 @@ async function fetchAllPublicPlaylists(accessToken: string, spotifyUserId: strin
   return playlists.slice(0, limit);
 }
 
+async function fetchPlaylistById(accessToken: string, playlistId: string) {
+  return spotifyFetch<SpotifyPlaylist>(`/playlists/${playlistId}`, accessToken);
+}
+
 function getScriptPayloads(html: string) {
   return [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1]?.trim()).filter(Boolean) as string[];
+}
+
+function scrapePlaylistIdsFromProfileHtml(html: string) {
+  const matches = [...html.matchAll(/\/playlist\/([A-Za-z0-9]{22})/g)];
+  const uniqueIds = new Set<string>();
+
+  matches.forEach((match) => {
+    if (match[1]) {
+      uniqueIds.add(match[1]);
+    }
+  });
+
+  return [...uniqueIds];
 }
 
 function normalizeArtistCandidate(value: unknown): PublicProfileArtist | null {
@@ -165,8 +182,35 @@ async function scrapeRecentArtistsFromProfile(profileUrl: string) {
   return [...deduped.values()].slice(0, 8);
 }
 
+async function scrapePublicPlaylistsFromProfile(profileUrl: string, accessToken: string) {
+  const response = await fetch(profileUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 SoundScope",
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) {
+    return [] as SpotifyPlaylist[];
+  }
+
+  const html = await response.text();
+  const playlistIds = scrapePlaylistIdsFromProfileHtml(html).slice(0, PUBLIC_PLAYLIST_LIMIT);
+
+  if (playlistIds.length === 0) {
+    return [] as SpotifyPlaylist[];
+  }
+
+  const playlists = await Promise.all(
+    playlistIds.map((playlistId) => fetchPlaylistById(accessToken, playlistId).catch(() => null)),
+  );
+
+  return playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
+}
+
 export async function getPublicSpotifyProfileInsights(spotifyUserId: string, profileUrl?: string) {
-  return getCachedValue(`public-profile:${spotifyUserId}`, PUBLIC_PROFILE_TTL_MS, async (): Promise<PublicSpotifyProfileInsights | null> => {
+  return getCachedValue(`public-profile:${spotifyUserId}:${profileUrl ?? "default"}`, PUBLIC_PROFILE_TTL_MS, async (): Promise<PublicSpotifyProfileInsights | null> => {
     const accessToken = await getSpotifyClientCredentialsToken();
     const user = await fetchPublicSpotifyUser(accessToken, spotifyUserId).catch(() => null);
 
@@ -175,7 +219,17 @@ export async function getPublicSpotifyProfileInsights(spotifyUserId: string, pro
     }
 
     const resolvedProfileUrl = profileUrl ?? user.external_urls?.spotify ?? `https://open.spotify.com/user/${spotifyUserId}`;
-    const publicPlaylists = await fetchAllPublicPlaylists(accessToken, spotifyUserId, PUBLIC_PLAYLIST_LIMIT).catch(() => [] as SpotifyPlaylist[]);
+    const apiPlaylists = await fetchAllPublicPlaylists(accessToken, spotifyUserId, PUBLIC_PLAYLIST_LIMIT).catch(() => [] as SpotifyPlaylist[]);
+    const scrapedPlaylists = apiPlaylists.length === 0
+      ? await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(() => [] as SpotifyPlaylist[])
+      : [];
+    const dedupedPlaylists = new Map<string, SpotifyPlaylist>();
+    [...apiPlaylists, ...scrapedPlaylists].forEach((playlist) => {
+      if (playlist?.id && !dedupedPlaylists.has(playlist.id)) {
+        dedupedPlaylists.set(playlist.id, playlist);
+      }
+    });
+    const publicPlaylists = [...dedupedPlaylists.values()].slice(0, PUBLIC_PLAYLIST_LIMIT);
     const playlistInsights = await getPublicPlaylistInsights(accessToken, publicPlaylists).catch(() => [] as PlaylistInsight[]);
     const recentArtists = await scrapeRecentArtistsFromProfile(resolvedProfileUrl).catch(() => [] as PublicProfileArtist[]);
 
