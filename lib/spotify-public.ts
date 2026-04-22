@@ -34,6 +34,7 @@ type PublicSpotifyUser = {
 
 const PUBLIC_PROFILE_TTL_MS = 1000 * 60 * 30;
 const PUBLIC_PLAYLIST_LIMIT = 6;
+const PUBLIC_PROFILE_CACHE_VERSION = "v2";
 
 async function fetchPublicSpotifyUser(accessToken: string, spotifyUserId: string) {
   return spotifyFetch<PublicSpotifyUser>(`/users/${spotifyUserId}`, accessToken);
@@ -210,7 +211,7 @@ async function scrapePublicPlaylistsFromProfile(profileUrl: string, accessToken:
 }
 
 export async function getPublicSpotifyProfileInsights(spotifyUserId: string, profileUrl?: string) {
-  return getCachedValue(`public-profile:${spotifyUserId}:${profileUrl ?? "default"}`, PUBLIC_PROFILE_TTL_MS, async (): Promise<PublicSpotifyProfileInsights | null> => {
+  return getCachedValue(`public-profile:${PUBLIC_PROFILE_CACHE_VERSION}:${spotifyUserId}:${profileUrl ?? "default"}`, PUBLIC_PROFILE_TTL_MS, async (): Promise<PublicSpotifyProfileInsights | null> => {
     const accessToken = await getSpotifyClientCredentialsToken();
     const user = await fetchPublicSpotifyUser(accessToken, spotifyUserId).catch(() => null);
 
@@ -220,9 +221,7 @@ export async function getPublicSpotifyProfileInsights(spotifyUserId: string, pro
 
     const resolvedProfileUrl = profileUrl ?? user.external_urls?.spotify ?? `https://open.spotify.com/user/${spotifyUserId}`;
     const apiPlaylists = await fetchAllPublicPlaylists(accessToken, spotifyUserId, PUBLIC_PLAYLIST_LIMIT).catch(() => [] as SpotifyPlaylist[]);
-    const scrapedPlaylists = apiPlaylists.length === 0
-      ? await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(() => [] as SpotifyPlaylist[])
-      : [];
+    const scrapedPlaylists = await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(() => [] as SpotifyPlaylist[]);
     const dedupedPlaylists = new Map<string, SpotifyPlaylist>();
     [...apiPlaylists, ...scrapedPlaylists].forEach((playlist) => {
       if (playlist?.id && !dedupedPlaylists.has(playlist.id)) {
