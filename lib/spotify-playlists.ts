@@ -85,13 +85,21 @@ function normalizePlaylist(playlist: Partial<SpotifyPlaylist> | null | undefined
     return null;
   }
 
+  const playlistItems = playlist.items as { total?: number; href?: string } | undefined;
+  const trackTotal = typeof playlist.tracks?.total === "number"
+    ? playlist.tracks.total
+    : typeof playlistItems?.total === "number"
+      ? playlistItems.total
+      : 0;
+  const trackHref = playlist.tracks?.href ?? playlistItems?.href;
+
   return {
     id: playlist.id,
     name: playlist.name,
     images: Array.isArray(playlist.images) ? playlist.images.filter((image) => Boolean(image?.url)) : undefined,
     tracks: {
-      total: typeof playlist.tracks?.total === "number" ? playlist.tracks.total : 0,
-      href: playlist.tracks?.href,
+      total: trackTotal,
+      href: trackHref,
     },
     owner: playlist.owner?.display_name ? { display_name: playlist.owner.display_name } : undefined,
   };
@@ -506,19 +514,21 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
 
   while (tracks.length < PLAYLIST_TRACK_LIMIT) {
     const response = await spotifyFetch<SpotifyPlaylistTracksResponse>(
-      `/playlists/${playlistId}/tracks?limit=100&offset=${offset}`,
+      `/playlists/${playlistId}/items?limit=100&offset=${offset}`,
       accessToken,
     );
 
     const pageTracks = response.items
       .map((item: SpotifyPlaylistTrackItem): PlaylistTrackWithMeta | null => {
-        if (!isUsablePlaylistTrack(item.track)) {
+        const track = item.track ?? item.item;
+
+        if (!isUsablePlaylistTrack(track)) {
           return null;
         }
 
         return {
           addedAt: item.added_at,
-          track: item.track,
+          track,
         };
       })
       .filter((item): item is PlaylistTrackWithMeta => item !== null);

@@ -336,6 +336,10 @@ export type SpotifyPlaylist = {
     total: number;
     href?: string;
   };
+  items?: {
+    total: number;
+    href?: string;
+  };
   owner?: {
     display_name?: string;
   };
@@ -352,6 +356,7 @@ export type SpotifyPlaylistsResponse = {
 export type SpotifyPlaylistTrackItem = {
   added_at?: string;
   track: SpotifyTrack | null;
+  item?: SpotifyTrack | null;
 };
 
 export type SpotifyPlaylistTracksResponse = {
