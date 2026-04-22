@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth";
+import { requireSpotifySession } from "@/lib/auth";
 import { getAppUrl } from "@/lib/spotify";
 import { updateConnectedUserPrivacySettings } from "@/lib/connected-users";
 
@@ -8,7 +8,7 @@ function isChecked(formData: FormData, key: string) {
 }
 
 export async function POST(request: Request) {
-  const session = await requireSession();
+  const session = await requireSpotifySession("/settings");
   const formData = await request.formData();
 
   await updateConnectedUserPrivacySettings(session.spotifyUserId, {

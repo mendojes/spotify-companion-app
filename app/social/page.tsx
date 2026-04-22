@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireSession } from "@/lib/auth";
+import { hasSpotifyConnection, requireSession } from "@/lib/auth";
 import { getConnectedUser, getDefaultPrivacySettings, listCommunityUsers } from "@/lib/connected-users";
 import { formatPstDateTime, PST_TIME_ZONE } from "@/lib/time";
 
@@ -20,6 +20,34 @@ function formatSeenAt(value?: string) {
 
 export default async function SocialPage() {
   const session = await requireSession();
+  const spotifyConnected = hasSpotifyConnection(session);
+
+  if (!spotifyConnected) {
+    return (
+      <main className="city-pop-shell min-h-screen px-6 py-10 md:px-10">
+        <div className="mx-auto max-w-6xl space-y-8 text-[var(--theme-text)]">
+          <section className="glass-panel rounded-[36px] p-8 md:p-10">
+            <p className="section-kicker">Social</p>
+            <h1 className="mt-4 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">
+              Social compare unlocks after Spotify connection
+            </h1>
+            <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
+              SoundScope compares cached listening history between connected Spotify accounts. Your app-only account can sign in and save a public profile link, but it does not have listening snapshots to compare yet.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a href="/api/auth/login" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                Connect Spotify
+              </a>
+              <Link href="/dashboard" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                Back to dashboard
+              </Link>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
   const [communityUsers, currentUser] = await Promise.all([
     listCommunityUsers(24),
     getConnectedUser(session.spotifyUserId),

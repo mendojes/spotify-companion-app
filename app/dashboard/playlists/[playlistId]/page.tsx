@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { requireSpotifySession } from "@/lib/auth";
 import { getPlaylistDetailFromHistory } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { formatPstDateTime } from "@/lib/time";
@@ -15,11 +15,7 @@ function formatDateLabel(value?: string) {
 }
 
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {
-  const session = await requireSession();
-
-  if (!session) {
-    redirect("/login");
-  }
+  const session = await requireSpotifySession("/dashboard/playlists");
 
   const { playlistId } = await params;
   const detail = await getPlaylistDetailFromHistory(session.spotifyUserId, playlistId);

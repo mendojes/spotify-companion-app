@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, hasSpotifyConnection } from "@/lib/auth";
 import { getDashboardPlaylistInsights, promoteRecentlyPlayedPlaylist } from "@/lib/spotify-playlists";
 
 export async function GET() {
@@ -7,6 +7,10 @@ export async function GET() {
 
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasSpotifyConnection(session)) {
+    return NextResponse.json({ error: "Spotify connection required." }, { status: 403 });
   }
 
   try {
@@ -22,6 +26,10 @@ export async function POST(request: Request) {
 
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasSpotifyConnection(session)) {
+    return NextResponse.json({ error: "Spotify connection required." }, { status: 403 });
   }
 
   try {

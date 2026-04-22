@@ -1,5 +1,5 @@
 ﻿import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, hasSpotifyConnection } from "@/lib/auth";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import type { DashboardRange, SpotifyDashboardSnapshot } from "@/lib/types";
 
@@ -34,6 +34,10 @@ export async function GET() {
 
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasSpotifyConnection(session)) {
+    return NextResponse.json({ error: "Spotify connection required." }, { status: 403 });
   }
 
   if (!hasMongoConfig()) {

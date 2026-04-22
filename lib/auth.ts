@@ -21,20 +21,29 @@ type CookieTarget = {
 };
 
 export type AuthSession = {
-  spotifyUserId: string;
+  accountType: "spotify" | "local";
+  userId: string;
   displayName: string;
   email?: string;
   imageUrl?: string;
+  spotifyUserId?: string;
+  spotifyProfileUrl?: string;
   accessToken?: string;
-  refreshToken: string;
+  refreshToken?: string;
   expiresAt: number;
 };
 
 export type AuthorizedSession = AuthSession & {
+  accountType: "spotify";
   accessToken: string;
+  refreshToken: string;
+  spotifyUserId: string;
 };
 
-type PersistedAuthSession = Pick<AuthSession, "spotifyUserId" | "displayName" | "refreshToken" | "expiresAt">;
+type PersistedAuthSession = Pick<
+  AuthSession,
+  "accountType" | "userId" | "displayName" | "email" | "imageUrl" | "spotifyUserId" | "spotifyProfileUrl" | "refreshToken" | "expiresAt"
+>;
 
 type SignedEnvelope<T> = {
   payload: T;
@@ -129,8 +138,13 @@ function setSignedCookie(target: CookieTarget, name: string, value: string, opti
 
 function toPersistedSession(session: AuthSession): PersistedAuthSession {
   return {
-    spotifyUserId: session.spotifyUserId,
+    accountType: session.accountType,
+    userId: session.userId,
     displayName: session.displayName,
+    email: session.email,
+    imageUrl: session.imageUrl,
+    spotifyUserId: session.spotifyUserId,
+    spotifyProfileUrl: session.spotifyProfileUrl,
     refreshToken: session.refreshToken,
     expiresAt: session.expiresAt,
   };
@@ -147,6 +161,8 @@ export function buildSession(
   expiresIn: number,
 ) {
   return {
+    accountType: "spotify",
+    userId: `spotify:${profile.id}`,
     spotifyUserId: profile.id,
     displayName: profile.display_name ?? "Spotify Listener",
     email: profile.email,
@@ -155,6 +171,24 @@ export function buildSession(
     refreshToken,
     expiresAt: Date.now() + expiresIn * 1000,
   } satisfies AuthorizedSession;
+}
+
+export function buildLocalSession(account: {
+  id: string;
+  displayName: string;
+  email: string;
+  spotifyProfileUrl: string;
+  spotifyUserId?: string;
+}) {
+  return {
+    accountType: "local",
+    userId: account.id,
+    displayName: account.displayName,
+    email: account.email,
+    spotifyProfileUrl: account.spotifyProfileUrl,
+    spotifyUserId: account.spotifyUserId,
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  } satisfies AuthSession;
 }
 
 export async function setAuthStateCookie(state: string) {
@@ -240,6 +274,19 @@ export function isSessionExpired(session: Pick<AuthSession, "expiresAt">) {
   return session.expiresAt <= Date.now() + 15_000;
 }
 
+export function hasSpotifyConnection(session: AuthSession | null | undefined): session is AuthorizedSession | (AuthSession & {
+  accountType: "spotify";
+  refreshToken: string;
+  spotifyUserId: string;
+}) {
+  return Boolean(
+    session &&
+    session.accountType === "spotify" &&
+    session.spotifyUserId &&
+    session.refreshToken,
+  );
+}
+
 export async function requireSession() {
   const session = await getSession();
 
@@ -248,7 +295,21 @@ export async function requireSession() {
   }
 
   if (isSessionExpired(session)) {
-    redirect("/api/auth/refresh?returnTo=/dashboard");
+    if (hasSpotifyConnection(session)) {
+      redirect("/api/auth/refresh?returnTo=/dashboard");
+    }
+
+    redirect("/login?error=session_expired");
+  }
+
+  return session;
+}
+
+export async function requireSpotifySession(returnTo = "/dashboard") {
+  const session = await requireSession();
+
+  if (!hasSpotifyConnection(session)) {
+    redirect(`/dashboard?connect_spotify=1`);
   }
 
   return session;
@@ -260,9 +321,14 @@ export function isSessionRefreshFailure(error: unknown) {
 }
 
 export async function refreshSession(session: AuthSession) {
+  if (!hasSpotifyConnection(session)) {
+    throw new Error("Spotify connection required.");
+  }
+
   const token = await refreshSpotifyAccessToken(session.refreshToken);
   return {
     ...session,
+    accountType: "spotify",
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? session.refreshToken,
     expiresAt: Date.now() + token.expires_in * 1000,
@@ -270,6 +336,10 @@ export async function refreshSession(session: AuthSession) {
 }
 
 export async function getAuthorizedSession(session: AuthSession): Promise<AuthorizedSession> {
+  if (!hasSpotifyConnection(session)) {
+    throw new Error("Spotify connection required.");
+  }
+
   if (session.accessToken && !isSessionExpired(session)) {
     return session as AuthorizedSession;
   }

@@ -965,6 +965,27 @@ function playlistFromPlaybackSource(
   };
 }
 
+export async function getPublicPlaylistInsights(accessToken: string, playlists: SpotifyPlaylist[], limit = DASHBOARD_PLAYLIST_COUNT): Promise<PlaylistInsight[]> {
+  if (playlists.length === 0) {
+    return [] as PlaylistInsight[];
+  }
+
+  const details = await analyzeManyPlaylists(accessToken, playlists.slice(0, limit), []);
+
+  if (details.length > 0) {
+    return uniqueById(details.map((detail) => ({
+      ...toInsight(detail, []),
+      listeningCadence: "Public playlist snapshot only",
+      lastListenedAt: undefined,
+    })));
+  }
+
+  return playlists.slice(0, limit).map((playlist) => ({
+    ...toBasicInsight(playlist, []),
+    listeningCadence: "Public playlist snapshot only",
+  }));
+}
+
 function buildCachedPlaylistInsights(
   playlists: SpotifyPlaylist[],
   cachedDetails: CachedPlaylistDetail[],

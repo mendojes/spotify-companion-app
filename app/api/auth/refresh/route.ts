@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { applyAuthEventCookie, applyClearedSessionCookies, applySessionCookie, getSession, refreshSession } from "@/lib/auth";
+import { applyAuthEventCookie, applyClearedSessionCookies, applySessionCookie, getSession, hasSpotifyConnection, refreshSession } from "@/lib/auth";
 import { getAppUrl } from "@/lib/spotify";
 
 export async function GET(request: NextRequest) {
@@ -10,6 +10,12 @@ export async function GET(request: NextRequest) {
   if (!session) {
     const response = NextResponse.redirect(getAppUrl("/login", request));
     applyAuthEventCookie(response, "refresh_missing_session");
+    return response;
+  }
+
+  if (!hasSpotifyConnection(session)) {
+    const response = NextResponse.redirect(getAppUrl("/dashboard?connect_spotify=1", request));
+    applyAuthEventCookie(response, "refresh_skipped_local_session");
     return response;
   }
 

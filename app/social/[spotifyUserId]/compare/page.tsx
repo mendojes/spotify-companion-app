@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { requireSpotifySession } from "@/lib/auth";
 import { getCommunityUserProfile } from "@/lib/connected-users";
 import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { compareTopLists, getListeningSnapshotSummary } from "@/lib/social";
@@ -11,7 +11,7 @@ type ComparePageProps = {
 };
 
 export default async function SocialComparePage({ params }: ComparePageProps) {
-  const session = await requireSession();
+  const session = await requireSpotifySession("/social");
   const { spotifyUserId } = await params;
 
   const profile = await getCommunityUserProfile(spotifyUserId);

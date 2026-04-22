@@ -1,17 +1,18 @@
 import Link from "next/link";
-import { Disc3 } from "lucide-react";
+import { Disc3, LibraryBig, Sparkles, UserRound } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
-import { AuthorizedSession, getAuthorizedSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, hasSpotifyConnection, isSessionRefreshFailure, requireSession } from "@/lib/auth";
+import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { getDashboardPlaylistInsights } from "@/lib/spotify-playlists";
 import { getSpotifyTopListsFromSnapshots } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
-  searchParams: Promise<{ range?: string; topRange?: string; topFrom?: string; topTo?: string; refreshed?: string; refresh_error?: string }>;
+  searchParams: Promise<{ range?: string; topRange?: string; topFrom?: string; topTo?: string; refreshed?: string; refresh_error?: string; welcome?: string; connect_spotify?: string }>;
 };
 
 type CacheLoadResult<T> = {
@@ -108,6 +109,169 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect("/login");
   }
 
+  const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag, welcome, connect_spotify: connectSpotify } = await searchParams;
+
+  if (!hasSpotifyConnection(session)) {
+    const publicInsights = session.spotifyUserId
+      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
+      : null;
+
+    return (
+      <main className="relative overflow-hidden pb-10">
+        <div className="space-y-4 px-6 pt-6 md:px-10">
+          {welcome ? <Notice tone="cyan">Your SoundScope account is ready. Connect Spotify any time to unlock the full dashboard.</Notice> : null}
+          {connectSpotify ? <Notice tone="gold">That section needs Spotify data, so SoundScope brought you back to overview limited mode.</Notice> : null}
+        </div>
+
+        <section className="px-6 py-8 md:px-10">
+          <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+            <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)] md:p-8">
+              <p className="section-kicker">Limited mode</p>
+              <h1 className="mt-3 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">Your account is in, your Spotify data is not.</h1>
+              <p className="mt-5 max-w-2xl text-base leading-8 text-[var(--theme-body)]">
+                SoundScope saved your app account and your public Spotify profile link, so you can sign in and keep your spot. Private rankings, listening analysis, refresh actions, and social compare still wait for Spotify OAuth, but we can still read whatever Spotify exposes publicly on your profile page.
+              </p>
+              <div className="mt-6 space-y-3 rounded-[28px] border-[3px] border-[rgba(44,12,70,0.18)] bg-white/[0.42] p-5">
+                <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{session.displayName}</p>
+                <p className="text-sm text-[var(--theme-body)]">{session.email}</p>
+                <p className="text-sm leading-7 text-[var(--theme-body)]">
+                  Public profile link:{" "}
+                  {session.spotifyProfileUrl ? (
+                    <a href={session.spotifyProfileUrl} target="_blank" rel="noreferrer" className="underline decoration-[rgba(44,12,70,0.45)] underline-offset-4">
+                      {session.spotifyProfileUrl}
+                    </a>
+                  ) : "Not saved"}
+                </p>
+              </div>
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                <div className="desktop-card p-4">
+                  <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">Public playlists</p>
+                  <p className="mt-3 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{publicInsights?.publicPlaylistCount ?? 0}</p>
+                </div>
+                <div className="desktop-card p-4">
+                  <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">Recent artists visible</p>
+                  <p className="mt-3 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">
+                    {publicInsights?.recentArtistsVisible ? `${publicInsights.recentArtists.length} found` : "Not shared"}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <a href="/api/auth/login" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                  Connect Spotify
+                </a>
+                <Link href="/settings" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                  Account details
+                </Link>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {publicInsights ? (
+                <div className="space-y-4">
+                  <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="section-kicker">Public profile</p>
+                        <h2 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">
+                          {publicInsights.displayName}
+                        </h2>
+                        <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
+                          These insights come from public Spotify data only. If the user has enabled recently played artists on their public profile, SoundScope will show them here too.
+                        </p>
+                      </div>
+                      <a href={publicInsights.profileUrl} target="_blank" rel="noreferrer" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                        Open Spotify profile
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">
+                      <div className="flex items-center gap-3">
+                        <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
+                          <UserRound className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="section-kicker">Recent artists</p>
+                          <h3 className="mt-1 font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Public profile activity</h3>
+                        </div>
+                      </div>
+                      <div className="mt-5 space-y-3">
+                        {publicInsights.recentArtistsVisible ? publicInsights.recentArtists.map((artist) => (
+                          <a
+                            key={artist.id}
+                            href={artist.spotifyUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="desktop-card flex items-center justify-between gap-4 p-4 transition hover:border-cyan/30"
+                          >
+                            <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{artist.name}</p>
+                            <span className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">artist</span>
+                          </a>
+                        )) : (
+                          <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
+                            Spotify is not exposing recently played artists on this public profile right now, or the profile page did not include that section.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">
+                      <div className="flex items-center gap-3">
+                        <div className="icon-bubble h-10 w-10 text-[var(--theme-highlight)]">
+                          <LibraryBig className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="section-kicker">Public playlists</p>
+                          <h3 className="mt-1 font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Playlist vibe read</h3>
+                        </div>
+                      </div>
+                      <div className="mt-5 space-y-3">
+                        {publicInsights.playlistInsights.length > 0 ? publicInsights.playlistInsights.map((playlist) => (
+                          <div key={playlist.id ?? playlist.name} className="desktop-card p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlist.name}</p>
+                                <p className="mt-2 text-sm text-[var(--theme-body)]">{playlist.mood}</p>
+                              </div>
+                              {playlist.trackCount ? <span className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">{playlist.trackCount} tracks</span> : null}
+                            </div>
+                            <div className="mt-3 space-y-2 text-sm leading-6 text-[var(--theme-body)]">
+                              <p>Genres: {playlist.topGenresSummary ?? playlist.diversity}</p>
+                              <p>Pattern: {playlist.listeningCadence ?? playlist.overlap}</p>
+                            </div>
+                          </div>
+                        )) : publicInsights.publicPlaylists.length > 0 ? publicInsights.publicPlaylists.map((playlist) => (
+                          <div key={playlist.id} className="desktop-card p-4">
+                            <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlist.name}</p>
+                            <p className="mt-2 text-sm text-[var(--theme-body)]">{playlist.tracks.total} visible tracks</p>
+                          </div>
+                        )) : (
+                          <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
+                            No public playlists were visible from this Spotify profile.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <Notice tone="coral">Preview mode below shows the layout style you&apos;ll get after connecting Spotify. Public profile insights were not available for this link, so the content below is sample-only.</Notice>
+                  <DashboardView mode="preview" />
+                </div>
+              )}
+              <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
+                <Sparkles className="mb-2 h-4 w-4 text-[var(--theme-highlight)]" />
+                Public-profile insights are best-effort and depend on what Spotify exposes publicly. Private listening stats still require Spotify OAuth.
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   let activeSession: AuthorizedSession;
 
   try {
@@ -120,7 +284,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     throw error;
   }
 
-  const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag } = await searchParams;
   const selectedRange = normalizeRange(range);
   const selectedTopRange = normalizeTopRange(topRange);
   const selectedTopFrom = normalizeDate(topFrom);

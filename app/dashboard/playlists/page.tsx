@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { requireSpotifySession } from "@/lib/auth";
 import { getAllPlaylistInsightsFromHistory, getPlaylistLibraryStatus } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
@@ -42,11 +41,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps) {
-  const session = await requireSession();
-
-  if (!session) {
-    redirect("/login");
-  }
+  const session = await requireSpotifySession("/dashboard/playlists");
 
   const { sort, refreshed, refresh_error: refreshError } = await searchParams;
   const selectedSort = normalizeSort(sort);

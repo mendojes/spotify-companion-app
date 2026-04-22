@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { requireSpotifySession } from "@/lib/auth";
 import { getDashboardAnalysisDetailFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
@@ -19,11 +19,7 @@ function normalizeRange(value?: string): DashboardRange {
 }
 
 export default async function DashboardAnalysisPage({ searchParams }: AnalysisPageProps) {
-  const session = await requireSession();
-
-  if (!session) {
-    redirect("/login");
-  }
+  const session = await requireSpotifySession("/dashboard/analysis");
 
   const { section, range, label, mood, period } = await searchParams;
   const selectedRange = normalizeRange(range);

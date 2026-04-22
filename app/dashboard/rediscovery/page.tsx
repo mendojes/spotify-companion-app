@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { requireSpotifySession } from "@/lib/auth";
 import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange, FavoriteTrack } from "@/lib/types";
 import { PST_TIME_ZONE } from "@/lib/time";
@@ -70,11 +70,7 @@ export default async function RediscoveryPage({
 }: {
   searchParams: Promise<{ range?: string }>;
 }) {
-  const session = await requireSession();
-
-  if (!session) {
-    redirect("/login");
-  }
+  const session = await requireSpotifySession("/dashboard/rediscovery");
 
   const { range } = await searchParams;
   const selectedRange = normalizeRange(range);

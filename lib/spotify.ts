@@ -3,6 +3,9 @@ const spotifyAccountsBase = "https://accounts.spotify.com";
 const spotifyCallbackPath = "/api/auth/callback/spotify";
 const MAX_SPOTIFY_RETRIES = 2;
 const SPOTIFY_FETCH_TIMEOUT_MS = 10_000;
+const CLIENT_CREDENTIALS_CACHE_TTL_MS = 1000 * 60 * 50;
+
+let cachedClientCredentialsToken: { accessToken: string; expiresAt: number } | null = null;
 
 export const spotifyScopes = [
   "user-read-email",
@@ -194,6 +197,37 @@ export async function refreshSpotifyAccessToken(refreshToken: string) {
   }
 
   return (await response.json()) as SpotifyTokenResponse;
+}
+
+export async function getSpotifyClientCredentialsToken() {
+  if (cachedClientCredentialsToken && cachedClientCredentialsToken.expiresAt > Date.now() + 15_000) {
+    return cachedClientCredentialsToken.accessToken;
+  }
+
+  const response = await fetch(`${spotifyAccountsBase}/api/token`, {
+    method: "POST",
+    headers: {
+      Authorization: getSpotifyBasicAuthHeader(),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+    }),
+    signal: AbortSignal.timeout(SPOTIFY_FETCH_TIMEOUT_MS),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Spotify client credentials token failed: ${response.status}`);
+  }
+
+  const token = (await response.json()) as SpotifyTokenResponse;
+  cachedClientCredentialsToken = {
+    accessToken: token.access_token,
+    expiresAt: Date.now() + Math.min(token.expires_in * 1000, CLIENT_CREDENTIALS_CACHE_TTL_MS),
+  };
+
+  return token.access_token;
 }
 
 export async function spotifyFetch<T>(path: string, accessToken: string, options?: { allowRetry?: boolean }): Promise<T> {

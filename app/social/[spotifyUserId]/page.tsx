@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireSession } from "@/lib/auth";
+import { requireSpotifySession } from "@/lib/auth";
 import { getCommunityUserProfile } from "@/lib/connected-users";
 import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
@@ -46,7 +46,7 @@ function formatCachedAt(value?: string) {
 }
 
 export default async function SocialProfilePage({ params, searchParams }: SocialProfilePageProps) {
-  await requireSession();
+  await requireSpotifySession("/social");
 
   const { spotifyUserId } = await params;
   const { range, topRange } = await searchParams;

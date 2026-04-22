@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthorizedSession, getAuthorizedSession, getSession, isSessionRefreshFailure } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { getAppUrl } from "@/lib/spotify";
 import { invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
 
@@ -8,6 +8,10 @@ export async function GET(request: NextRequest) {
 
   if (!session) {
     return NextResponse.redirect(getAppUrl("/login?error=session_required", request));
+  }
+
+  if (!hasSpotifyConnection(session)) {
+    return NextResponse.redirect(getAppUrl("/dashboard?connect_spotify=1", request));
   }
 
   let authorizedSession: AuthorizedSession;

@@ -1,5 +1,5 @@
-﻿import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
-import type { AuthSession } from "@/lib/auth";
+import { hasSpotifyConnection, type AuthSession } from "@/lib/auth";
+import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 
 export type ConnectedUserPrivacySettings = {
   shareProfile: boolean;
@@ -102,6 +102,10 @@ export async function upsertConnectedUser(user: {
 }
 
 export async function syncConnectedUserSession(session: AuthSession) {
+  if (!hasSpotifyConnection(session)) {
+    return;
+  }
+
   await upsertConnectedUser({
     spotifyUserId: session.spotifyUserId,
     displayName: session.displayName,
@@ -281,4 +285,3 @@ export async function updateConnectedUserPrivacySettings(
 
   return nextPrivacy;
 }
-

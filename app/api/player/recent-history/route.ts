@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthorizedSession, getAuthorizedSession, getSession, isSessionRefreshFailure } from "@/lib/auth";
+import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { getRecentPlaySyncStatus, getStoredRecentPlaysPage } from "@/lib/spotify-activity";
 
 const DEFAULT_LIMIT = 100;
@@ -10,6 +10,10 @@ export async function GET(request: NextRequest) {
 
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!hasSpotifyConnection(session)) {
+    return NextResponse.json({ error: "Spotify connection required." }, { status: 403 });
   }
 
   const url = new URL(request.url);

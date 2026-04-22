@@ -4,7 +4,7 @@ import { DashboardView } from "@/components/dashboard-view";
 import { Hero } from "@/components/hero";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { getSession } from "@/lib/auth";
+import { getSession, hasSpotifyConnection } from "@/lib/auth";
 
 type HomeProps = {
   searchParams: Promise<{ auth_error?: string }>;
@@ -13,6 +13,7 @@ type HomeProps = {
 export default async function Home({ searchParams }: HomeProps) {
   const session = await getSession();
   const { auth_error: authError } = await searchParams;
+  const spotifyConnected = hasSpotifyConnection(session);
 
   return (
     <main className="city-pop-shell relative overflow-hidden pb-12">
@@ -34,15 +35,24 @@ export default async function Home({ searchParams }: HomeProps) {
                 <LayoutGrid className="h-4 w-4" /> Preview
               </a>
               <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href={session ? "/dashboard" : "/login"}>
-                <Sparkles className="h-4 w-4" /> {session ? "Open dashboard" : "Connect Spotify"}
+                <Sparkles className="h-4 w-4" /> {session ? (spotifyConnected ? "Open dashboard" : "Open limited mode") : "Sign in"}
               </Link>
-              {session ? (
+              {spotifyConnected ? (
                 <>
                   <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/social">
                     <Users className="h-4 w-4" /> Social
                   </Link>
                   <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/settings">
                     <Settings2 className="h-4 w-4" /> Settings
+                  </Link>
+                  <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/api/auth/logout">
+                    <Disc3 className="h-4 w-4" /> Log out
+                  </a>
+                </>
+              ) : session ? (
+                <>
+                  <Link className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/settings">
+                    <Settings2 className="h-4 w-4" /> Account
                   </Link>
                   <a className="pixel-chip inline-flex items-center gap-2 text-[#5b2a86] transition hover:text-[#2d0d46]" href="/api/auth/logout">
                     <Disc3 className="h-4 w-4" /> Log out

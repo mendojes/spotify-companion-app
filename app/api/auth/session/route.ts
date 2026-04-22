@@ -1,5 +1,5 @@
 ﻿import { NextResponse } from "next/server";
-import { getSession, isSessionExpired } from "@/lib/auth";
+import { getSession, hasSpotifyConnection, isSessionExpired } from "@/lib/auth";
 
 export async function GET() {
   const session = await getSession();
@@ -11,6 +11,8 @@ export async function GET() {
   return NextResponse.json({
     authenticated: true,
     user: {
+      accountType: session.accountType,
+      spotifyConnected: hasSpotifyConnection(session),
       spotifyUserId: session.spotifyUserId,
       displayName: session.displayName,
     },

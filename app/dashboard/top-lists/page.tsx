@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { isSessionRefreshFailure, requireSession } from "@/lib/auth";
+import { isSessionRefreshFailure, requireSpotifySession } from "@/lib/auth";
 import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { TopListAlbum, TopListArtist, TopListRange, TopListTrack } from "@/lib/types";
 
@@ -135,11 +135,7 @@ function AlbumsList({ items }: { items: TopListAlbum[] }) {
 }
 
 export default async function TopListsPage({ searchParams }: TopListsPageProps) {
-  const session = await requireSession();
-
-  if (!session) {
-    redirect("/login");
-  }
+  const session = await requireSpotifySession("/dashboard/top-lists");
 
   const { range, tab, page, from, to } = await searchParams;
   const selectedRange = normalizeRange(range);
