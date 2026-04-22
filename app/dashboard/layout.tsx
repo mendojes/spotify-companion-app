@@ -38,11 +38,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                   <RefreshCcw className="h-4 w-4" /> Refresh snapshot
                 </a>
               </>
-            ) : (
-              <a href="/api/auth/login" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
-                <Sparkles className="h-4 w-4" /> Connect Spotify
-              </a>
-            )}
+            ) : null}
             {session?.displayName ? (
               <div className="hidden desktop-card px-4 py-2 text-right md:block">
                 <p className="text-sm text-[var(--theme-title)]">{session.displayName}</p>
@@ -67,12 +63,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
                   <RefreshCcw className="h-4 w-4 text-[var(--theme-accent)]" /> one section at a time
                 </div>
               </div>
-              <DashboardSectionNav />
+              <DashboardSectionNav spotifyConnected />
             </>
           ) : (
-            <div className="rounded-[24px] border-[3px] border-[rgba(44,12,70,0.9)] bg-[rgba(255,247,224,0.86)] px-5 py-4 text-sm text-[var(--theme-text)] shadow-glow">
-              Limited mode is active. Your app account is signed in, but the dashboard sections unlock only after you connect Spotify.
-            </div>
+            <>
+              <div className="rounded-[24px] border-[3px] border-[rgba(44,12,70,0.9)] bg-[rgba(255,247,224,0.86)] px-5 py-4 text-sm text-[var(--theme-text)] shadow-glow">
+                Public-profile dashboard mode is active. SoundScope is showing only the Spotify data that is available from the public profile link on your account.
+              </div>
+              <DashboardSectionNav spotifyConnected={false} />
+            </>
           )}
         </div>
       </div>

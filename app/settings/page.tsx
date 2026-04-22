@@ -45,10 +45,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           <section className="glass-panel rounded-[36px] p-8 md:p-10">
             <p className="section-kicker">Account</p>
             <h1 className="mt-4 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">
-              Limited mode account details
+              Public-profile account details
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-              You&apos;re signed in with a SoundScope account only. Privacy sharing, social compare, cached listening history, and dashboard refresh stay unavailable until Spotify is connected.
+              This account is using the public-profile dashboard path. SoundScope reads from the Spotify profile link saved on your account and only shows sections that are publicly available from that profile.
             </p>
             <div className="mt-6 space-y-3 rounded-[28px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/[0.48] p-5">
               <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{session.displayName}</p>
@@ -56,9 +56,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <p className="text-sm leading-7 text-[var(--theme-body)]">Saved Spotify profile link: {session.spotifyProfileUrl ?? "Not available"}</p>
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
-              <a href="/api/auth/login" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
-                Connect Spotify
-              </a>
               <Link href="/dashboard" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 Back to dashboard
               </Link>

@@ -3,17 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const sections = [
-  { href: "/dashboard", label: "Overview", match: (pathname: string) => pathname === "/dashboard" },
-  { href: "/dashboard/analysis", label: "Analysis", match: (pathname: string) => pathname.startsWith("/dashboard/analysis") },
-  { href: "/dashboard/top-lists", label: "Top Lists", match: (pathname: string) => pathname.startsWith("/dashboard/top-lists") },
-  { href: "/dashboard/rediscovery", label: "Rediscovery", match: (pathname: string) => pathname.startsWith("/dashboard/rediscovery") },
-  { href: "/dashboard/playlists", label: "Playlists", match: (pathname: string) => pathname.startsWith("/dashboard/playlists") },
-  { href: "/dashboard/recent", label: "Recent", match: (pathname: string) => pathname.startsWith("/dashboard/recent") },
-];
-
-export function DashboardSectionNav() {
+export function DashboardSectionNav({ spotifyConnected = true }: { spotifyConnected?: boolean }) {
   const pathname = usePathname();
+  const sections = [
+    { href: "/dashboard", label: "Overview", match: (value: string) => value === "/dashboard" },
+    { href: "/dashboard/favorite-picker", label: "Favorite Picker", match: (value: string) => value.startsWith("/dashboard/favorite-picker") },
+    ...(spotifyConnected
+      ? [
+        { href: "/dashboard/analysis", label: "Analysis", match: (value: string) => value.startsWith("/dashboard/analysis") },
+        { href: "/dashboard/top-lists", label: "Top Lists", match: (value: string) => value.startsWith("/dashboard/top-lists") },
+        { href: "/dashboard/rediscovery", label: "Rediscovery", match: (value: string) => value.startsWith("/dashboard/rediscovery") },
+        { href: "/dashboard/playlists", label: "Playlists", match: (value: string) => value.startsWith("/dashboard/playlists") },
+        { href: "/dashboard/recent", label: "Recent", match: (value: string) => value.startsWith("/dashboard/recent") },
+      ]
+      : []),
+  ];
 
   return (
     <div className="flex flex-wrap gap-3">

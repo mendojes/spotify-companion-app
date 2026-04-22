@@ -29,15 +29,12 @@ export default async function SocialPage() {
           <section className="glass-panel rounded-[36px] p-8 md:p-10">
             <p className="section-kicker">Social</p>
             <h1 className="mt-4 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">
-              Social compare unlocks after Spotify connection
+              Social compare is unavailable in public-profile mode
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-              SoundScope compares cached listening history between connected Spotify accounts. Your app-only account can sign in and save a public profile link, but it does not have listening snapshots to compare yet.
+              SoundScope social tools compare cached private listening history between fully connected accounts. Public-profile accounts only have public Spotify data, so there isn&apos;t enough history for compare pages yet.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <a href="/api/auth/login" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
-                Connect Spotify
-              </a>
               <Link href="/dashboard" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 Back to dashboard
               </Link>
