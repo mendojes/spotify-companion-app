@@ -118,13 +118,13 @@ export function RecentTracksPageView() {
           <div className="max-w-3xl space-y-3">
             <p className="text-sm uppercase tracking-[0.3em] text-coral/80">Recent History</p>
             <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">Everything still spinning in your orbit.</h1>
-            <p className="text-base leading-7 text-ink/80">
+            <p className="text-base leading-7 text-[var(--theme-body)]">
               A wider look at the tracks SoundScope has synced from your recent listening history.
             </p>
           </div>
           <Link
             href="/dashboard"
-            className="rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm text-ink transition hover:border-gold/25 hover:text-gold"
+            className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold"
           >
             Back to dashboard
           </Link>
@@ -150,7 +150,7 @@ export function RecentTracksPageView() {
           </div>
 
           {state?.syncedAt ? (
-            <p className="mt-4 text-sm text-ink/60">
+            <p className="mt-4 text-sm text-[var(--theme-muted)]">
               Last synced {formatPstDateTime(state.syncedAt)}. Showing {recentTracks.length} recovered plays{state.nextCursor ? " so far" : ""}.
             </p>
           ) : null}
@@ -181,10 +181,10 @@ export function RecentTracksPageView() {
                   ) : null}
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-display text-3xl text-[var(--theme-title)]">{track.title}</p>
-                    <p className="mt-2 truncate text-base text-ink/80">{track.artist}</p>
-                    <p className="mt-2 truncate text-sm uppercase tracking-[0.2em] text-ink/55">{track.album}</p>
+                    <p className="mt-2 truncate text-base text-[var(--theme-body)]">{track.artist}</p>
+                    <p className="mt-2 truncate text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{track.album}</p>
                   </div>
-                  <p className="text-right text-sm text-ink/55">{formatPlayedAt(track.playedAt)}</p>
+                  <p className="text-right text-sm text-[var(--theme-muted)]">{formatPlayedAt(track.playedAt)}</p>
                 </div>
               ))
             ) : (

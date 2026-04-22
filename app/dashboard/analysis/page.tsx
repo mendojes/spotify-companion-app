@@ -43,9 +43,9 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
           <div className="max-w-3xl space-y-3">
             <p className="text-sm uppercase tracking-[0.3em] text-gold/75">Analysis Drilldown</p>
             <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">{detail.title}</h1>
-            <p className="text-base leading-7 text-ink/80">{detail.subtitle}</p>
+            <p className="text-base leading-7 text-[var(--theme-body)]">{detail.subtitle}</p>
           </div>
-          <Link href="/dashboard" className="rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm text-ink transition hover:border-gold/25 hover:text-gold">
+          <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold">
             Back to dashboard
           </Link>
         </div>
@@ -56,15 +56,15 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
               <p className="text-sm uppercase tracking-[0.24em] text-gold/70">{detail.section === "trend" ? "Trend bucket" : "Heatmap cell"}</p>
               <h2 className="mt-2 font-display text-3xl text-[var(--theme-title)]">{detail.entries.length} matching play{detail.entries.length === 1 ? "" : "s"}</h2>
             </div>
-            <p className="text-sm text-ink/70">Range: {detail.range === "week" ? "This Week" : detail.range === "month" ? "This Month" : "All Time"}</p>
+            <p className="text-sm text-[var(--theme-muted)]">Range: {detail.range === "week" ? "This Week" : detail.range === "month" ? "This Month" : "All Time"}</p>
           </div>
 
-          <div className="mt-4 rounded-[24px] border border-cyan/20 bg-cyan/10 px-4 py-3 text-sm text-ink/85">
+          <div className="mt-4 rounded-[24px] border border-cyan/20 bg-cyan/10 px-4 py-3 text-sm text-[var(--theme-body)]">
             This drilldown is using stored snapshot history. Heatmap drilldowns show cached time-of-day sessions without live audio-feature refresh.
           </div>
 
           {detail.entries.length === 0 ? (
-            <div className="mt-8 rounded-[28px] border border-dashed border-white/15 bg-white/[0.04] p-8 text-center text-ink/70">
+            <div className="mt-8 rounded-[28px] border border-dashed border-[rgba(57,18,98,0.16)] bg-white/[0.08] p-8 text-center text-[var(--theme-muted)]">
               No matching sessions were available yet for this slice.
             </div>
           ) : (
@@ -84,10 +84,10 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="font-display text-3xl text-[var(--theme-title)]">{entry.title}</p>
-                        <p className="mt-2 text-base text-ink/80">{entry.artist}</p>
-                        <p className="mt-2 text-sm uppercase tracking-[0.2em] text-ink/55">{entry.album}</p>
+                        <p className="mt-2 text-base text-[var(--theme-body)]">{entry.artist}</p>
+                        <p className="mt-2 text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{entry.album}</p>
                       </div>
-                      <div className="text-right text-sm text-ink/70">
+                      <div className="text-right text-sm text-[var(--theme-muted)]">
                         <p>{formatPstDateTime(entry.playedAt)}</p>
                         <p className="mt-2 uppercase tracking-[0.14em]">{Math.round(entry.durationMs / 60000)} min</p>
                       </div>

@@ -63,13 +63,13 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
           <div>
             <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Playlist Lab</p>
             <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">All playlist breakdowns</h1>
-            <p className="mt-3 max-w-2xl text-base leading-7 text-ink/80">
+            <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
               Browse every playlist we can access, sort them by timeline signals, and open any one for deeper mood, top-genre, and listening-cadence analysis.
             </p>
-            <p className="mt-3 text-sm text-ink/60">
+            <p className="mt-3 text-sm text-[var(--theme-muted)]">
               Created is estimated from the oldest track add date we can see, and last listened only updates when Spotify gives us exact playlist playback context.
             </p>
-            <div className="mt-4 space-y-1 text-sm text-ink/65">
+            <div className="mt-4 space-y-1 text-sm text-[var(--theme-muted)]">
               <p>Stored playlists: {libraryStatus.playlistCount}</p>
               <p>Last playlist sync: {formatDateLabel(libraryStatus.lastSyncedAt)}</p>
             </div>
@@ -149,7 +149,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
                   <div className="min-w-0 flex-1">
                     <h2 className="font-display text-2xl text-[var(--theme-title)]">{playlist.name}</h2>
                     {playlist.trackCount ? <p className="mt-2 text-sm text-cyan">{playlist.trackCount} tracks analyzed</p> : null}
-                    <div className="mt-4 space-y-1 text-xs text-ink/60">
+                    <div className="mt-4 space-y-1 text-xs text-[var(--theme-muted)]">
                       <p>Created: {formatDateLabel(playlist.createdAt)}</p>
                       <p>Last listened: {formatDateLabel(playlist.lastListenedAt)}</p>
                     </div>
@@ -157,15 +157,15 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
                 </div>
                 <div className="mt-6 space-y-4">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Mood</p>
+                    <p className="text-sm text-[var(--theme-muted)]">Mood</p>
                     <p className="mt-2 text-[var(--theme-text)]">{playlist.mood}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Top genres</p>
+                    <p className="text-sm text-[var(--theme-muted)]">Top genres</p>
                     <p className="mt-2 text-[var(--theme-text)]">{playlist.topGenresSummary ?? playlist.diversity}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-sm text-ink/60">Listening cadence</p>
+                    <p className="text-sm text-[var(--theme-muted)]">Listening cadence</p>
                     <p className="mt-2 text-[var(--theme-text)]">{playlist.listeningCadence ?? playlist.overlap}</p>
                   </div>
                 </div>

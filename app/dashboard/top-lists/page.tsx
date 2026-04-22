@@ -62,7 +62,7 @@ function normalizeDate(value?: string) {
 function Artwork({ src, alt }: { src?: string; alt: string }) {
   if (!src) {
     return (
-      <div className="flex h-28 w-28 items-center justify-center rounded-[28px] border border-dashed border-ink/15 text-xs uppercase tracking-[0.18em] text-ink/50">
+      <div className="flex h-28 w-28 items-center justify-center rounded-[28px] border border-dashed border-[rgba(57,18,98,0.16)] text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">
         Art
       </div>
     );
@@ -86,7 +86,7 @@ function ArtistsList({ items }: { items: TopListArtist[] }) {
               <p className="font-display text-3xl text-[var(--theme-title)]">{item.name}</p>
               <p className="text-sm text-cyan">#{item.rank}</p>
             </div>
-            <p className="mt-2 text-base text-ink/80">{item.genres.length > 0 ? item.genres.join(" - ") : "Genres unavailable"}</p>
+            <p className="mt-2 text-base text-[var(--theme-body)]">{item.genres.length > 0 ? item.genres.join(" - ") : "Genres unavailable"}</p>
           </div>
         </div>
       ))}
@@ -105,8 +105,8 @@ function TracksList({ items }: { items: TopListTrack[] }) {
               <p className="font-display text-3xl text-[var(--theme-title)]">{item.title}</p>
               <p className="text-sm text-gold">#{item.rank}</p>
             </div>
-            <p className="mt-2 text-base text-ink/80">{item.artist}</p>
-            <p className="mt-2 text-sm uppercase tracking-[0.2em] text-ink/55">{item.album}</p>
+            <p className="mt-2 text-base text-[var(--theme-body)]">{item.artist}</p>
+            <p className="mt-2 text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{item.album}</p>
           </div>
         </div>
       ))}
@@ -125,8 +125,8 @@ function AlbumsList({ items }: { items: TopListAlbum[] }) {
               <p className="font-display text-3xl text-[var(--theme-title)]">{item.name}</p>
               <p className="text-sm text-mint">#{item.rank}</p>
             </div>
-            <p className="mt-2 text-base text-ink/80">{item.artist}</p>
-            <p className="mt-2 text-sm uppercase tracking-[0.2em] text-ink/55">{item.trackCount} ranked track{item.trackCount === 1 ? "" : "s"}</p>
+            <p className="mt-2 text-base text-[var(--theme-body)]">{item.artist}</p>
+            <p className="mt-2 text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{item.trackCount} ranked track{item.trackCount === 1 ? "" : "s"}</p>
           </div>
         </div>
       ))}
@@ -204,9 +204,9 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
           <div className="max-w-3xl space-y-3">
             <p className="text-sm uppercase tracking-[0.3em] text-gold/75">Top Lists</p>
             <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">Your full ranking shelves.</h1>
-            <p className="text-base leading-7 text-ink/80">Browse your rankings over 1 week, 1 month, 1 year, all time, or a custom window.</p>
+            <p className="text-base leading-7 text-[var(--theme-body)]">Browse your rankings over 1 week, 1 month, 1 year, all time, or a custom window.</p>
           </div>
-          <Link href={`/dashboard?topRange=${selectedRange}${customQuery ? `&topFrom=${selectedFrom}&topTo=${selectedTo}` : ""}`} className="rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm text-ink transition hover:border-gold/25 hover:text-gold">
+          <Link href={`/dashboard?topRange=${selectedRange}${customQuery ? `&topFrom=${selectedFrom}&topTo=${selectedTo}` : ""}`} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold">
             Back to dashboard
           </Link>
         </div>
@@ -217,7 +217,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
             const href = `/dashboard/top-lists?range=${option.key}&tab=${selectedTab}&page=1${option.key === "custom" ? customQuery : ""}`;
 
             return (
-              <Link key={option.key} href={href} className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-gold text-[#24160f]" : "border border-ink/10 bg-white/5 text-ink/80"}`}>
+              <Link key={option.key} href={href} className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-gold text-[#24160f]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}>
                 {option.label}
               </Link>
             );
@@ -229,11 +229,11 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
             <input type="hidden" name="tab" value={selectedTab} />
             <input type="hidden" name="page" value="1" />
             <input type="hidden" name="range" value="custom" />
-            <label className="space-y-2 text-sm text-ink/80">
+            <label className="space-y-2 text-sm text-[var(--theme-body)]">
               <span className="block uppercase tracking-[0.18em]">From</span>
               <input name="from" type="date" defaultValue={selectedFrom} className="rounded-2xl border border-ink/15 bg-white/10 px-3 py-2 text-ink" />
             </label>
-            <label className="space-y-2 text-sm text-ink/80">
+            <label className="space-y-2 text-sm text-[var(--theme-body)]">
               <span className="block uppercase tracking-[0.18em]">To</span>
               <input name="to" type="date" defaultValue={selectedTo} className="rounded-2xl border border-ink/15 bg-white/10 px-3 py-2 text-ink" />
             </label>
@@ -245,7 +245,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
           {tabs.map((option) => {
             const active = option.key === selectedTab;
             return (
-              <Link key={option.key} href={`/dashboard/top-lists?range=${selectedRange}&tab=${option.key}&page=1${customQuery}`} className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-cyan text-[#1c1511]" : "border border-ink/10 bg-white/5 text-ink/80"}`}>
+              <Link key={option.key} href={`/dashboard/top-lists?range=${selectedRange}&tab=${option.key}&page=1${customQuery}`} className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-cyan text-[#1c1511]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}>
                 {option.label}
               </Link>
             );
@@ -262,7 +262,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
               <p className="text-sm uppercase tracking-[0.24em] text-gold/70">{tabs.find((item) => item.key === selectedTab)?.label}</p>
               <h2 className="mt-2 font-display text-3xl text-[var(--theme-title)]">{data.sourceLabel}</h2>
             </div>
-            <p className="text-sm text-ink/70">Showing {selectedItems.length === 0 ? 0 : startIndex + 1}-{Math.min(startIndex + pageSize, selectedItems.length)} of {selectedItems.length}</p>
+            <p className="text-sm text-[var(--theme-muted)]">Showing {selectedItems.length === 0 ? 0 : startIndex + 1}-{Math.min(startIndex + pageSize, selectedItems.length)} of {selectedItems.length}</p>
           </div>
 
           <div className="mt-8">
@@ -276,7 +276,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
               <Link href={`/dashboard/top-lists?range=${selectedRange}&tab=${selectedTab}&page=${Math.max(1, currentPage - 1)}${customQuery}`} className={`rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm ${currentPage === 1 ? "pointer-events-none opacity-40" : "text-ink hover:text-gold"}`}>
                 Previous
               </Link>
-              <p className="text-sm text-ink/70">Page {currentPage} of {totalPages}</p>
+              <p className="text-sm text-[var(--theme-muted)]">Page {currentPage} of {totalPages}</p>
               <Link href={`/dashboard/top-lists?range=${selectedRange}&tab=${selectedTab}&page=${Math.min(totalPages, currentPage + 1)}${customQuery}`} className={`rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm ${currentPage === totalPages ? "pointer-events-none opacity-40" : "text-ink hover:text-gold"}`}>
                 Next
               </Link>

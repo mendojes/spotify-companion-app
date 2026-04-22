@@ -331,8 +331,8 @@ function TrackShelfCard({
   accent?: "mint" | "gold";
 }) {
   const accentClass = accent === "gold"
-    ? "border-gold/25 bg-gold/10 text-gold"
-    : "border-mint/20 bg-mint/10 text-mint";
+    ? "border-gold/35 bg-gold/18 text-[#8a5a00]"
+    : "border-mint/35 bg-mint/18 text-[#167a63]";
 
   return (
     <div className="desktop-card p-4">
@@ -340,13 +340,13 @@ function TrackShelfCard({
         <Artwork imageUrl={track.imageUrl} label={track.title} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{track.title}</p>
-          <p className="mt-1 text-sm text-[var(--theme-muted)]">{track.artist} / {track.album}</p>
+          <p className="mt-1 text-sm text-[var(--theme-body)]">{track.artist} / {track.album}</p>
           {track.reason ? <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{track.reason}</p> : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <span className={`rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em] ${accentClass}`}>
               {track.affinity}% match
             </span>
-            <span className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.55] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-faint)]">
+            <span className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.55] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">
               {track.lastPlayed}
             </span>
           </div>
@@ -1085,8 +1085,8 @@ export function DashboardView({
                     <h3 className="mt-2 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{data.forgottenFavorites[0]?.title}</h3>
                     <p className="mt-2 text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{data.forgottenFavorites[0]?.artist} / {data.forgottenFavorites[0]?.album}</p>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <span className="pixel-chip text-mint">{data.forgottenFavorites[0]?.affinity}% affinity</span>
-                      <span className="pixel-chip text-gold">{data.forgottenFavorites[0]?.lastPlayed}</span>
+                      <span className="pixel-chip border-mint/35 bg-mint/18 text-[#167a63]">{data.forgottenFavorites[0]?.affinity}% affinity</span>
+                      <span className="pixel-chip border-gold/35 bg-gold/18 text-[#8a5a00]">{data.forgottenFavorites[0]?.lastPlayed}</span>
                     </div>
                   </div>
                 </div>

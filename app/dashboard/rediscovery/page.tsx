@@ -23,8 +23,8 @@ function normalizeRange(value?: string): DashboardRange {
 
 function TrackRow({ track, accent }: { track: FavoriteTrack; accent: "mint" | "gold" }) {
   const accentClass = accent === "gold"
-    ? "border-gold/25 bg-gold/10 text-gold"
-    : "border-mint/20 bg-mint/10 text-mint";
+    ? "border-gold/35 bg-gold/18 text-[#8a5a00]"
+    : "border-mint/35 bg-mint/18 text-[#167a63]";
 
   return (
     <div className="desktop-card p-5">
@@ -42,18 +42,18 @@ function TrackRow({ track, accent }: { track: FavoriteTrack; accent: "mint" | "g
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-3xl">{track.title}</p>
-              <p className="mt-2 text-sm uppercase tracking-[0.18em] text-[var(--theme-muted)]">{track.artist} / {track.album}</p>
+              <p className="mt-2 text-sm uppercase tracking-[0.18em] text-[var(--theme-body)]">{track.artist} / {track.album}</p>
             </div>
             <span className={`rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em] ${accentClass}`}>
               {track.affinity}% match
             </span>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.55] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-faint)]">
+            <span className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.55] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">
               {track.lastPlayed}
             </span>
             {track.savedAt ? (
-              <span className="rounded-full border border-white/15 bg-white/[0.45] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-faint)]">
+              <span className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.45] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">
                 Saved {new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: PST_TIME_ZONE }).format(new Date(track.savedAt))}
               </span>
             ) : null}
@@ -103,7 +103,7 @@ export default async function RediscoveryPage({
               <Link
                 key={option.key}
                 href={`/dashboard/rediscovery?range=${option.key}`}
-                className={`rounded-full px-4 py-2 text-sm uppercase tracking-[0.16em] transition ${active ? "bg-gold text-[#24160f]" : "border border-ink/10 bg-white/5 text-ink/80"}`}
+                className={`rounded-full px-4 py-2 text-sm uppercase tracking-[0.16em] transition ${active ? "bg-gold text-[#24160f]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}
               >
                 {option.label}
               </Link>
