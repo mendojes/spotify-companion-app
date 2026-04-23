@@ -1397,9 +1397,17 @@ function buildSampleTracks(tracks: SpotifyTrack[]): PlaylistTrackSummary[] {
     }));
 }
 
-function buildTopTracks(tracks: SpotifyTrack[], allTimeTrackAffinity = new Map<string, TrackAffinity>()): PlaylistTrackSummary[] {
+function buildTopTracks(
+  tracks: SpotifyTrack[],
+  allTimeTrackAffinity = new Map<string, TrackAffinity>(),
+  mode: "history" | "popularity" = "history",
+): PlaylistTrackSummary[] {
   return uniqueById(tracks)
     .sort((a, b) => {
+      if (mode === "popularity") {
+        return b.popularity - a.popularity || a.name.localeCompare(b.name);
+      }
+
       const aAffinity = allTimeTrackAffinity.get(a.id);
       const bAffinity = allTimeTrackAffinity.get(b.id);
 
@@ -1531,6 +1539,7 @@ async function analyzePlaylist(
   recentPlays: StoredRecentPlay[] = [],
   allTimeTrackAffinity = new Map<string, TrackAffinity>(),
   allTimeArtistGenres = new Map<string, string[]>(),
+  topTrackMode: "history" | "popularity" = "history",
 ): Promise<PlaylistDetail | null> {
   let trackItems: PlaylistTrackWithMeta[];
   try {
@@ -1550,6 +1559,7 @@ async function analyzePlaylist(
     allTimeTrackAffinity,
     allTimeArtistGenres,
     accessToken,
+    topTrackMode,
   );
 }
 
@@ -1560,6 +1570,7 @@ async function analyzePlaylistFromTrackItems(
   allTimeTrackAffinity = new Map<string, TrackAffinity>(),
   allTimeArtistGenres = new Map<string, string[]>(),
   accessToken?: string,
+  topTrackMode: "history" | "popularity" = "history",
 ): Promise<PlaylistDetail | null> {
   if (trackItems.length === 0) {
     return null;
@@ -1602,7 +1613,7 @@ async function analyzePlaylistFromTrackItems(
   }
 
   const sampleTracks = buildSampleTracks(tracks);
-  const topTracks = buildTopTracks(tracks, allTimeTrackAffinity);
+  const topTracks = buildTopTracks(tracks, allTimeTrackAffinity, topTrackMode);
 
   return {
     id: playlist.id,
@@ -1765,7 +1776,7 @@ export async function getPublicPlaylistInsights(accessToken: string, playlists: 
 export async function getPublicPlaylistDetail(accessToken: string, playlistId: string): Promise<PlaylistDetail | null> {
   try {
     const playlist = await fetchPlaylistById(accessToken, playlistId);
-    const detail = await analyzePlaylist(accessToken, playlist, []);
+    const detail = await analyzePlaylist(accessToken, playlist, [], new Map<string, TrackAffinity>(), new Map<string, string[]>(), "popularity");
 
     if (detail) {
       return {
