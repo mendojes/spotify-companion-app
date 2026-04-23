@@ -48,7 +48,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               Public-profile account details
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-              This account is using the public-profile dashboard path. SoundScope reads from the Spotify profile link saved on your account and only shows sections that are publicly available from that profile.
+              This account is using the public-profile dashboard path. Listening Lore reads from the Spotify profile link saved on your account and only shows sections that are publicly available from that profile.
             </p>
             <div className="mt-6 space-y-3 rounded-[28px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/[0.48] p-5">
               <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{session.displayName}</p>
@@ -78,7 +78,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             Social sharing controls
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-            Choose exactly what other SoundScope users can see. These controls affect only cached data already stored for the app and never trigger extra Spotify fetches for people viewing your profile.
+            Choose exactly what other Listening Lore users can see. These controls affect only cached data already stored for the app and never trigger extra Spotify fetches for people viewing your profile.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href="/social" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
@@ -103,13 +103,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           <ToggleRow
             name="shareProfile"
             title="Show my profile in social"
-            description="Lets other signed-in users find your public SoundScope profile card in the social directory. If this is off, your profile stays hidden."
+            description="Lets other signed-in users find your public Listening Lore profile card in the social directory. If this is off, your profile stays hidden."
             defaultChecked={privacy.shareProfile}
           />
           <ToggleRow
             name="shareTopLists"
             title="Share my top artists and tracks"
-            description="Allows your public profile and compare page to show cached top-list rankings from your stored SoundScope history."
+            description="Allows your public profile and compare page to show cached top-list rankings from your stored Listening Lore history."
             defaultChecked={privacy.shareTopLists}
           />
           <ToggleRow

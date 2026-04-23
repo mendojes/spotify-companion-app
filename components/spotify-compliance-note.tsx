@@ -26,7 +26,7 @@ export function SpotifyComplianceNote({ compact = false }: SpotifyComplianceNote
           />
         </div>
         <p className="max-w-3xl">
-          Artwork and metadata are provided by Spotify. SoundScope displays Spotify visual content in its original form and is an independent app, not affiliated with or endorsed by Spotify.
+          Artwork and metadata are provided by Spotify. Listening Lore displays Spotify visual content in its original form and is an independent app, not affiliated with or endorsed by Spotify.
         </p>
       </div>
       <p className={compact ? "mt-2" : "mt-3"}>

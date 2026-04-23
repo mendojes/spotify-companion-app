@@ -769,7 +769,7 @@ async function getRecentPlayTopLists(spotifyUserId: string, range: TopListRange,
     tracks,
     albums,
     playCount: recentPlays.length,
-    sourceLabel: "SoundScope recent-play history",
+    sourceLabel: "Listening Lore recent-play history",
     generatedAt: recentPlays[0]?.playedAt ?? new Date().toISOString(),
     from,
     to,
@@ -853,7 +853,7 @@ export async function getSpotifyTopLists(
       artists,
       tracks,
       albums,
-      sourceLabel: snapshots.length > 1 ? "Historical SoundScope rankings" : "Latest SoundScope snapshot",
+      sourceLabel: snapshots.length > 1 ? "Historical Listening Lore rankings" : "Latest Listening Lore snapshot",
       generatedAt: snapshots[0]?.fetchedAt ?? new Date().toISOString(),
       from,
       to,
@@ -929,7 +929,7 @@ export async function getSpotifyTopListsFromHistory(
         range,
         boundedLimit,
       )),
-      sourceLabel: "Shared SoundScope listening history",
+      sourceLabel: "Shared Listening Lore listening history",
     } satisfies TopListsData;
   }
 

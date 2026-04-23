@@ -156,7 +156,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
         {isAnalysisPending ? (
           <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-            SoundScope tried to refresh this playlist from Spotify, but only partial stored analysis is available right now. Some sections may stay minimal until Spotify returns enough playlist metadata or you refresh the playlist snapshot again.
+            Listening Lore tried to refresh this playlist from Spotify, but only partial stored analysis is available right now. Some sections may stay minimal until Spotify returns enough playlist metadata or you refresh the playlist snapshot again.
           </div>
         ) : (
           <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">

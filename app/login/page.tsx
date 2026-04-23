@@ -42,14 +42,14 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 Start with Spotify or use the public-profile dashboard.
               </h1>
               <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-                People who can&apos;t connect Spotify can still sign in with a SoundScope account and get the experience built from public profile data.
+                People who can&apos;t connect Spotify can still sign in with a Listening Lore account and get the experience built from public profile data.
               </p>
             </div>
 
             <div className="space-y-5 text-[var(--theme-text)]">
               <h2 className="font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">Start the session.</h2>
               <p className="max-w-xl text-base leading-7 text-[var(--theme-body)]">
-                Continue with Spotify if available, or continue without connecting to use the public-profile version of SoundScope.
+                Continue with Spotify if available, or continue without connecting to use the public-profile version of Listening Lore.
               </p>
             </div>
 
@@ -67,7 +67,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
             {deleted ? (
               <div className="mt-6 rounded-[24px] border-[3px] border-[rgba(44,12,70,0.9)] bg-[rgba(229,255,255,0.82)] px-5 py-4 text-sm text-[var(--theme-text)]">
-                Your SoundScope session was deleted.
+                Your Listening Lore session was deleted.
               </div>
             ) : null}
 

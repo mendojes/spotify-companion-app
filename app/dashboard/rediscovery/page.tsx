@@ -112,7 +112,7 @@ export default async function RediscoveryPage({
         </div>
 
         <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-          Rediscovery is being generated from stored SoundScope history so this page stays fast and predictable.
+          Rediscovery is being generated from stored Listening Lore history so this page stays fast and predictable.
         </div>
 
         <section className="glass-panel rounded-[36px] p-6 md:p-8">
@@ -129,7 +129,7 @@ export default async function RediscoveryPage({
             {insights.forgottenFavorites.length > 0 ? (
               insights.forgottenFavorites.map((track) => <TrackRow key={`${track.title}-${track.artist}`} track={track} accent="mint" />)
             ) : (
-              <div className="desktop-card p-5 text-sm leading-7 text-[var(--theme-body)]">No rediscovery candidates yet. Give SoundScope more listening history and saved-track data to work with.</div>
+              <div className="desktop-card p-5 text-sm leading-7 text-[var(--theme-body)]">No rediscovery candidates yet. Give Listening Lore more listening history and saved-track data to work with.</div>
             )}
           </div>
         </section>
@@ -151,7 +151,7 @@ export default async function RediscoveryPage({
             {insights.quietSavedTracks.length > 0 ? (
               insights.quietSavedTracks.map((track) => <TrackRow key={`${track.title}-${track.artist}`} track={track} accent="gold" />)
             ) : (
-              <div className="desktop-card p-5 text-sm leading-7 text-[var(--theme-body)]">No quiet saved-track picks yet. This list fills in as SoundScope sees more of your library and recent listening.</div>
+              <div className="desktop-card p-5 text-sm leading-7 text-[var(--theme-body)]">No quiet saved-track picks yet. This list fills in as Listening Lore sees more of your library and recent listening.</div>
             )}
           </div>
         </section>

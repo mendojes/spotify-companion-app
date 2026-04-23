@@ -14,10 +14,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="neon-outline flex h-14 w-14 items-center justify-center rounded-[20px] border-[3px] border-[rgba(44,12,70,0.9)] bg-[linear-gradient(135deg,#fff8ff,#ff97e8_44%,#87f2ff)] font-display text-lg font-bold uppercase tracking-[0.18em] text-[#2d0d46]">
-              SS
+              LL
             </div>
             <div>
-              <p className="font-display text-2xl uppercase tracking-[0.14em] text-[var(--theme-title)] md:text-3xl">SoundScope</p>
+              <p className="font-display text-2xl uppercase tracking-[0.14em] text-[var(--theme-title)] md:text-3xl">Listening Lore</p>
               <p className="font-mono text-lg uppercase tracking-[0.24em] text-[var(--theme-muted)]">pastel listening desktop</p>
             </div>
           </div>
@@ -60,7 +60,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           ) : (
             <>
               <div className="rounded-[24px] border-[3px] border-[rgba(44,12,70,0.9)] bg-[rgba(255,247,224,0.86)] px-5 py-4 text-sm text-[var(--theme-text)] shadow-glow">
-                Public-profile dashboard mode is active. SoundScope is showing only the Spotify data that is available from the public profile link on your account.
+                Public-profile dashboard mode is active. Listening Lore is showing only the Spotify data that is available from the public profile link on your account.
               </div>
               <DashboardSectionNav spotifyConnected={false} />
             </>

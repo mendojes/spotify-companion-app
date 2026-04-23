@@ -1,5 +1,5 @@
-export const PST_TIME_ZONE = "Etc/GMT+8";
-export const PST_LABEL = "PST";
+export const PST_TIME_ZONE = "America/Los_Angeles";
+export const PST_LABEL = "PT";
 
 export function formatPstDateTime(
   value?: string | number | Date,

@@ -49,7 +49,7 @@ export function LocalAccountAccess({
           <form action="/api/auth/local/login" method="post" className="desktop-card space-y-4 p-5 text-[var(--theme-text)]">
             <div>
               <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Login without connecting</p>
-              <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">Use your SoundScope account to open the public-profile dashboard experience.</p>
+              <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">Use your Listening Lore account to open the public-profile dashboard experience.</p>
             </div>
             {!enabled ? <p className="text-sm leading-7 text-[var(--theme-body)]">Local login needs MongoDB configured first.</p> : null}
             <InputField label="Email" name="email" type="email" required />
@@ -66,7 +66,7 @@ export function LocalAccountAccess({
           <form action="/api/auth/local/signup" method="post" className="window-panel space-y-4 p-5 pt-14 text-[var(--theme-text)]">
             <div>
               <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Create account</p>
-              <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">Paste your public Spotify profile link and SoundScope will build the public-data dashboard around it.</p>
+              <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">Paste your public Spotify profile link and Listening Lore will build the public-data dashboard around it.</p>
             </div>
             {!enabled ? <p className="text-sm leading-7 text-[var(--theme-body)]">Account creation needs MongoDB configured first.</p> : null}
             <InputField label="Display name" name="displayName" required />

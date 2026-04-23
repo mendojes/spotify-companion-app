@@ -171,7 +171,7 @@ function ArtistsList({ items }: { items: TopListArtist[] }) {
           artworkSrc={item.imageUrl}
           title={item.name}
           subtitle={item.genres.length > 0 ? item.genres.join(" / ") : "Genres unavailable"}
-          description={item.listenCount ? `${formatListenCount(item.listenCount)} across your recent top-list history.` : "Artist image and genre data come from your cached SoundScope history."}
+          description={item.listenCount ? `${formatListenCount(item.listenCount)} across your recent top-list history.` : "Artist image and genre data come from your cached Listening Lore history."}
           rank={item.rank}
           accent="cyan"
           listens={item.listenCount}
@@ -247,7 +247,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
       artists: [],
       tracks: [],
       albums: [],
-      sourceLabel: "No cached SoundScope rankings yet",
+      sourceLabel: "No cached Listening Lore rankings yet",
       from: selectedFrom,
       to: selectedTo,
     };
@@ -255,7 +255,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   }
 
   if (!rankingsNotice) {
-    rankingsNotice = "This page is using stored SoundScope rankings so it can load without waiting on live Spotify requests.";
+    rankingsNotice = "This page is using stored Listening Lore rankings so it can load without waiting on live Spotify requests.";
   }
 
   if (!data) {
@@ -264,7 +264,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
       artists: [],
       tracks: [],
       albums: [],
-      sourceLabel: "No cached SoundScope rankings yet",
+      sourceLabel: "No cached Listening Lore rankings yet",
       from: selectedFrom,
       to: selectedTo,
     };

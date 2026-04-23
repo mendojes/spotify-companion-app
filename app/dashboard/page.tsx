@@ -139,17 +139,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     return (
       <main className="relative overflow-hidden pb-10">
         <div className="space-y-4 px-6 pt-6 md:px-10">
-          {welcome ? <Notice tone="cyan">Your SoundScope account is ready.</Notice> : null}
-          {connectSpotify ? <Notice tone="gold">That section needs private Spotify account data, so SoundScope brought you back to the public-profile dashboard.</Notice> : null}
+          {welcome ? <Notice tone="cyan">Your Listening Lore account is ready.</Notice> : null}
+          {connectSpotify ? <Notice tone="gold">That section needs private Spotify account data, so Listening Lore brought you back to the public-profile dashboard.</Notice> : null}
         </div>
 
         <section className="px-6 py-8 md:px-10">
           <div className="mx-auto max-w-7xl space-y-6">
             <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)] md:p-8">
               <p className="section-kicker">Public profile dashboard</p>
-              <h1 className="mt-3 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">Your SoundScope account is using public Spotify data.</h1>
+              <h1 className="mt-3 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">Your Listening Lore account is using public Spotify data.</h1>
               <p className="mt-5 max-w-2xl text-base leading-8 text-[var(--theme-body)]">
-                This version is built around what Spotify exposes publicly on your profile page. SoundScope reads your public profile identity, recently played artists when Spotify shows them, and insight cards from your public playlists.
+                This version is built around what Spotify exposes publicly on your profile page. Listening Lore reads your public profile identity, recently played artists when Spotify shows them, and insight cards from your public playlists.
               </p>
               <div className="mt-6 space-y-3 rounded-[28px] border-[3px] border-[rgba(44,12,70,0.18)] bg-white/[0.42] p-5">
                 <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{session.displayName}</p>
@@ -317,7 +317,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   </div>
                   <div>
                     <p className="section-kicker">Public data unavailable</p>
-                    <h2 className="mt-1 font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">SoundScope couldn&apos;t load public Spotify sections for this profile.</h2>
+                    <h2 className="mt-1 font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Listening Lore couldn&apos;t load public Spotify sections for this profile.</h2>
                   </div>
                 </div>
                 <p className="mt-5 max-w-3xl text-sm leading-7 text-[var(--theme-body)]">
@@ -404,7 +404,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   );
 
   if (cacheErrors.length > 0) {
-    dashboardError = `Dashboard data could not be fully loaded right now, so SoundScope is showing the latest stored sections it could find. (${cacheErrors.join("; ")})`;
+    dashboardError = `Dashboard data could not be fully loaded right now, so Listening Lore is showing the latest stored sections it could find. (${cacheErrors.join("; ")})`;
   } else if (missingCachedSections.length > 0) {
     dashboardError = `Dashboard data is missing ${missingCachedSections.join(", ")}. Use Refresh snapshot to update the dashboard.`;
   }

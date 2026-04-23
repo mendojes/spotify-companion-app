@@ -224,7 +224,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
 
         {playlists.length === 0 ? (
           <div className="glass-panel rounded-[30px] p-8 text-sm text-ink/75">
-            No cached playlists are available yet. Open Spotify from one of your playlists and refresh the dashboard once so SoundScope can store your library and analysis locally.
+            No cached playlists are available yet. Open Spotify from one of your playlists and refresh the dashboard once so Listening Lore can store your library and analysis locally.
           </div>
         ) : (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">

@@ -16,6 +16,7 @@ import {
   skipFavoritePickerChoice,
   type FavoritePickerState,
 } from "@/lib/favorite-picker";
+import { formatPstDateTime } from "@/lib/time";
 
 type FavoritePickerViewProps = {
   spotifyConnected: boolean;
@@ -42,12 +43,13 @@ function getFavoritePickerSaveKey(userId: string) {
 
 function formatSavedAtLabel(value: string) {
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    return formatPstDateTime(value, {
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
-    }).format(new Date(value));
+      hour12: true,
+    });
   } catch {
     return value;
   }

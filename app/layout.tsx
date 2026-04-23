@@ -23,9 +23,9 @@ const vt323 = VT323({
 });
 
 export const metadata: Metadata = {
-  title: "SoundScope",
+  title: "Listening Lore",
   description:
-    "SoundScope turns Spotify history into a vivid, on-demand dashboard for moods, trends, and forgotten favorites.",
+    "Listening Lore turns Spotify history into a vivid, on-demand dashboard for moods, trends, and forgotten favorites.",
 };
 
 const themeInitScript = `

@@ -22,7 +22,7 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
           <div className="marquee-track">
             {[0, 1].map((group) => (
               <div key={group} className="marquee-group" aria-hidden={group === 1}>
-                {['pastel desktop pop', 'spotify scrapbook', 'album-art collage', 'playlist toybox', 'retro browser energy'].map((item) => (
+                {['spotify insights dashboard', 'recent plays tracking', 'top lists and playlists', 'public profile mode', 'listening history analysis'].map((item) => (
                   <Fragment key={`${group}-${item}`}>
                     <span className="marquee-item">{item}</span>
                     <span className="marquee-separator" aria-hidden="true" />
@@ -44,26 +44,26 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
               <div className="flex flex-wrap gap-3">
                 <div className="holo-badge inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm text-[var(--theme-text)]">
                   <SmilePlus className="h-4 w-4 text-[var(--theme-accent)]" />
-                  pastel web shrine for your spotify life
+                  Spotify listening insights
                 </div>
                 <div className="holo-badge inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm text-[var(--theme-text)]">
                   <Star className="h-4 w-4 text-[var(--theme-highlight)]" />
-                  cute chrome windows and image walls
+                  dashboard, playlists, and rediscovery tools
                 </div>
               </div>
 
               <div className="space-y-5">
-                <p className="section-kicker">Desktop fantasy mode</p>
+                <p className="section-kicker">Listening dashboard</p>
                 <h1 className="max-w-[72rem] font-display text-5xl font-black uppercase leading-[0.9] tracking-[0.08em] text-[var(--theme-title)] md:text-7xl xl:text-[6.25rem]">
-                  Turn your listening history into a <span className="gradient-text">pink little internet bedroom</span>.
+                  Turn your listening history into a <span className="gradient-text">clear Spotify dashboard</span>.
                 </h1>
                 <p className="max-w-3xl text-lg leading-8 text-[var(--theme-body)] md:text-xl">
-                  Connect Spotify to see your recent plays, top lists, playlists, and rediscovery picks in one place.
+                  Sign in to view recent plays, top lists, playlist breakdowns, and rediscovery insights in one place.
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-4">
-                <Button href={isAuthenticated ? "/dashboard" : "/login"}>{isAuthenticated ? "Open your dashboard" : "Connect Spotify"}</Button>
+                <Button href={isAuthenticated ? "/dashboard" : "/login"}>{isAuthenticated ? "Open your dashboard" : "Sign in"}</Button>
                 <Button href="#dashboard" variant="ghost">
                   Explore the preview
                 </Button>

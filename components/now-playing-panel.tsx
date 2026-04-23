@@ -8,12 +8,13 @@ import { NowPlayingState, RecentTrackSummary } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
 
 function formatPlayedAt(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
+  return formatPstDateTime(value, {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+    hour12: true,
+  });
 }
 
 function formatClock(ms: number) {
@@ -582,7 +583,7 @@ export function NowPlayingPanel() {
                   ))
                 ) : (
                   <div className="rounded-[18px] border-2 border-[rgba(57,18,98,0.16)] bg-white/[0.5] p-4 text-sm text-[var(--theme-body)]">
-                    Recent listening history will start showing here as Spotify syncs into SoundScope.
+                    Recent listening history will start showing here as Spotify syncs into Listening Lore.
                   </div>
                 )}
               </div>

@@ -39,7 +39,7 @@ export default async function SocialComparePage({ params }: ComparePageProps) {
             You vs {profile.displayName}
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-            This comparison is built entirely from cached monthly SoundScope history. No live Spotify calls are made for {profile.displayName}&apos;s account when you open this page.
+            This comparison is built entirely from cached monthly Listening Lore history. No live Spotify calls are made for {profile.displayName}&apos;s account when you open this page.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href={`/social/${spotifyUserId}`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">

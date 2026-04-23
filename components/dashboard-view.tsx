@@ -781,7 +781,7 @@ export function DashboardView({
                   </div>
                   <div className="mt-4 desktop-card p-4">
                     <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">genre shelf</p>
-                    <p className="mt-1 text-sm text-[var(--theme-body)]">your biggest styles get stacked like icons pinned to a pastel corkboard.</p>
+                    <p className="mt-1 text-sm text-[var(--theme-body)]">your top styles are grouped into a quick summary of the genres driving your listening.</p>
                   </div>
                   <div className="mt-6 h-[300px] rounded-[24px] border-2 border-[rgba(57,18,98,0.22)] bg-white/[0.62] p-3">
                     {hasGenrePulseData ? (

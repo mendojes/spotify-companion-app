@@ -21,6 +21,7 @@ import {
   TrendPoint,
   DashboardAnalysisDetail,
   DashboardAnalysisEntry,
+  DashboardAnalysisHighlight,
 } from "@/lib/types";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 
@@ -117,6 +118,19 @@ function getPacificDateParts(value: string | Date) {
     day: Number(lookup.day),
     hour: lookup.hour,
   };
+}
+
+function toPacificDateKey(value: string | Date) {
+  const { year, month, day } = getPacificDateParts(value);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function normalizeDateInput(value?: string) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return undefined;
+  }
+
+  return value;
 }
 
 function getPacificDaySerial(value: string | Date) {
@@ -1161,6 +1175,191 @@ function toAnalysisEntry(meta: RecentTrackMoodMeta): DashboardAnalysisEntry {
   };
 }
 
+function buildAnalysisFilterLabel(range: DashboardRange, from?: string, to?: string) {
+  if (from && to) {
+    if (from === to) {
+      return formatPacificLabel(from);
+    }
+
+    return `${formatPacificLabel(from)} to ${formatPacificLabel(to)}`;
+  }
+
+  if (range === "week") {
+    return "Last 7 days";
+  }
+
+  if (range === "month") {
+    return "Last 30 days";
+  }
+
+  return "Last 6 months";
+}
+
+function formatPacificLabel(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: PACIFIC_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(Date.UTC(year, month - 1, day, 12)));
+}
+
+function buildAnalysisArtistGenreLookup(snapshots: SpotifyDashboardSnapshot[]) {
+  const lookup = new Map<string, string[]>();
+
+  snapshots.forEach((snapshot) => {
+    snapshot.topArtists.forEach((artist) => {
+      const genres = getArtistGenres(artist);
+      if (genres.length === 0) {
+        return;
+      }
+
+      lookup.set(artist.name.toLowerCase(), genres);
+    });
+  });
+
+  return lookup;
+}
+
+function buildAnalysisHighlights(
+  recent: SpotifyRecentlyPlayedItem[],
+  snapshots: SpotifyDashboardSnapshot[],
+  filterLabel: string,
+): Omit<DashboardAnalysisDetail, "section" | "title" | "subtitle" | "range" | "entries" | "from" | "to"> {
+  const totalMinutes = recent.reduce((sum, item) => sum + minutesFromMs(item.track.duration_ms), 0);
+  const uniqueTracks = new Set(recent.map((item) => item.track.id)).size;
+  const uniqueArtists = new Set(
+    recent.flatMap((item) => item.track.artists.map((artist) => artist.name.toLowerCase())),
+  ).size;
+  const uniqueAlbums = new Set(recent.map((item) => `${item.track.album.name}::${item.track.artists[0]?.name ?? ""}`.toLowerCase())).size;
+  const averageMinutes = recent.length > 0 ? totalMinutes / recent.length : 0;
+
+  const periodTotals = new Map<(typeof heatmapPeriods)[number], { minutes: number; plays: number }>(
+    heatmapPeriods.map((period) => [period, { minutes: 0, plays: 0 }]),
+  );
+  const artistTotals = new Map<string, { plays: number; minutes: number }>();
+  const albumTotals = new Map<string, { plays: number; minutes: number; artist: string }>();
+  const genreTotals = new Map<string, { minutes: number; plays: number }>();
+  const genreLookup = buildAnalysisArtistGenreLookup(snapshots);
+  const dayTotals = new Map<string, number>();
+
+  recent.forEach((item) => {
+    const minutes = minutesFromMs(item.track.duration_ms);
+    const period = getDayPeriod(new Date(item.played_at));
+    const dayKey = toPacificDateKey(item.played_at);
+
+    periodTotals.set(period, {
+      minutes: (periodTotals.get(period)?.minutes ?? 0) + minutes,
+      plays: (periodTotals.get(period)?.plays ?? 0) + 1,
+    });
+    dayTotals.set(dayKey, (dayTotals.get(dayKey) ?? 0) + minutes);
+
+    item.track.artists.forEach((artist) => {
+      const key = artist.name;
+      const existingArtist = artistTotals.get(key) ?? { plays: 0, minutes: 0 };
+      artistTotals.set(key, {
+        plays: existingArtist.plays + 1,
+        minutes: existingArtist.minutes + minutes,
+      });
+
+      const genres = genreLookup.get(artist.name.toLowerCase()) ?? [];
+      genres.slice(0, 3).forEach((genre) => {
+        const existingGenre = genreTotals.get(genre) ?? { minutes: 0, plays: 0 };
+        genreTotals.set(genre, {
+          minutes: existingGenre.minutes + minutes / Math.max(1, item.track.artists.length),
+          plays: existingGenre.plays + 1,
+        });
+      });
+    });
+
+    const albumKey = `${item.track.album.name}::${item.track.artists[0]?.name ?? "Unknown Artist"}`;
+    const existingAlbum = albumTotals.get(albumKey) ?? {
+      plays: 0,
+      minutes: 0,
+      artist: item.track.artists[0]?.name ?? "Unknown Artist",
+    };
+    albumTotals.set(albumKey, {
+      plays: existingAlbum.plays + 1,
+      minutes: existingAlbum.minutes + minutes,
+      artist: existingAlbum.artist,
+    });
+  });
+
+  const peakPeriod = [...periodTotals.entries()].sort((a, b) => b[1].minutes - a[1].minutes)[0];
+  const busiestDay = [...dayTotals.entries()].sort((a, b) => b[1] - a[1])[0];
+  const firstPlay = recent[recent.length - 1]?.played_at;
+  const lastPlay = recent[0]?.played_at;
+
+  const summaryCards = [
+    {
+      label: "Listening time",
+      value: `${Math.round(totalMinutes)} min`,
+      delta: `${recent.length} plays across ${filterLabel.toLowerCase()}`,
+    },
+    {
+      label: "Artist spread",
+      value: String(uniqueArtists),
+      delta: `${uniqueTracks} unique tracks and ${uniqueAlbums} albums`,
+    },
+    {
+      label: "Peak window",
+      value: peakPeriod?.[0] ?? "Unavailable",
+      delta: peakPeriod ? `${Math.round(peakPeriod[1].minutes)} minutes in that period` : "Not enough listening history yet",
+    },
+    {
+      label: "Average play",
+      value: `${averageMinutes.toFixed(1)} min`,
+      delta: busiestDay ? `Busiest day: ${formatPacificLabel(busiestDay[0])}` : "No busiest day available yet",
+    },
+  ];
+
+  const topArtists = [...artistTotals.entries()]
+    .sort((a, b) => b[1].minutes - a[1].minutes || b[1].plays - a[1].plays)
+    .slice(0, 4)
+    .map<DashboardAnalysisHighlight>(([artist, value]) => ({
+      label: artist,
+      value: `${Math.round(value.minutes)} min`,
+      detail: `${value.plays} play${value.plays === 1 ? "" : "s"}`,
+    }));
+
+  const topAlbums = [...albumTotals.entries()]
+    .sort((a, b) => b[1].minutes - a[1].minutes || b[1].plays - a[1].plays)
+    .slice(0, 4)
+    .map<DashboardAnalysisHighlight>(([albumKey, value]) => ({
+      label: albumKey.split("::")[0] ?? albumKey,
+      value: `${Math.round(value.minutes)} min`,
+      detail: `${value.artist} • ${value.plays} play${value.plays === 1 ? "" : "s"}`,
+    }));
+
+  const topGenres = [...genreTotals.entries()]
+    .sort((a, b) => b[1].minutes - a[1].minutes || b[1].plays - a[1].plays)
+    .slice(0, 4)
+    .map<DashboardAnalysisHighlight>(([genre, value]) => ({
+      label: genre,
+      value: `${Math.round(value.minutes)} min`,
+      detail: `${value.plays} contributing play${value.plays === 1 ? "" : "s"}`,
+    }));
+
+  const periodBreakdown = heatmapPeriods.map<DashboardAnalysisHighlight>((period) => {
+    const value = periodTotals.get(period) ?? { minutes: 0, plays: 0 };
+    return {
+      label: period,
+      value: `${Math.round(value.minutes)} min`,
+      detail: `${value.plays} play${value.plays === 1 ? "" : "s"}`,
+    };
+  }).sort((a, b) => Number.parseInt(b.value, 10) - Number.parseInt(a.value, 10));
+
+  return {
+    filterLabel,
+    summaryCards,
+    topArtists,
+    topAlbums,
+    topGenres,
+    periodBreakdown,
+  };
+}
+
 async function ensureSnapshotsForRange(accessToken: string, spotifyUserId: string, range: DashboardRange) {
   const latestSnapshot = await getLatestSnapshot(spotifyUserId);
 
@@ -1478,11 +1677,32 @@ export async function getDashboardAnalysisDetail(
   accessToken: string,
   spotifyUserId: string,
   range: DashboardRange,
-  options: { section: "trend" | "heatmap"; label?: string; mood?: string; period?: string },
+  options: { section: "trend" | "heatmap"; label?: string; mood?: string; period?: string; day?: string; from?: string; to?: string },
 ): Promise<DashboardAnalysisDetail> {
   const snapshots = await ensureSnapshotsForRange(accessToken, spotifyUserId, range);
   const sortedSnapshots = [...snapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
-  const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
+  const selectedDay = normalizeDateInput(options.day);
+  const rawFrom = normalizeDateInput(options.from);
+  const rawTo = normalizeDateInput(options.to);
+  const from = selectedDay ?? (rawFrom && rawTo && rawFrom > rawTo ? rawTo : rawFrom);
+  const to = selectedDay ?? (rawFrom && rawTo && rawFrom > rawTo ? rawFrom : rawTo ?? rawFrom);
+
+  const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent)).filter((item) => {
+    if (!from && !to) {
+      return true;
+    }
+
+    const dayKey = toPacificDateKey(item.played_at);
+    if (from && dayKey < from) {
+      return false;
+    }
+
+    if (to && dayKey > to) {
+      return false;
+    }
+
+    return true;
+  });
 
   const audioFeatureTrackIds = [...new Set(recent.map((item) => item.track.id))].slice(0, 100);
   const audioFeatureResponse = audioFeatureTrackIds.length > 0
@@ -1490,54 +1710,85 @@ export async function getDashboardAnalysisDetail(
     : null;
   const features = audioFeatureResponse?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
   const recentMoodMeta = buildRecentMoodMeta(recent, features);
+  const filterLabel = buildAnalysisFilterLabel(range, from, to);
 
   if (options.section === "trend") {
     const buckets = buildTrendBuckets(range);
-    const targetBucket = buckets.find((bucket) => bucket.label === options.label) ?? buckets[0];
-    const entries = recentMoodMeta
-      .filter((meta) => getTrendBucketKeyForPlay(meta.item.played_at, range) === targetBucket.key)
-      .map(toAnalysisEntry);
+    const targetBucket = options.label ? buckets.find((bucket) => bucket.label === options.label) : undefined;
+    const scopedMeta = targetBucket
+      ? recentMoodMeta.filter((meta) => getTrendBucketKeyForPlay(meta.item.played_at, range) === targetBucket.key)
+      : recentMoodMeta;
+    const entries = scopedMeta.map(toAnalysisEntry);
+    const highlights = buildAnalysisHighlights(scopedMeta.map((meta) => meta.item), sortedSnapshots, filterLabel);
 
     return {
       section: "trend",
-      title: `${targetBucket.label} listening sessions`,
-      subtitle: `Tracks played during the ${range} trend bucket shown on your dashboard.`,
+      title: targetBucket ? `${targetBucket.label} listening sessions` : `${filterLabel} listening analysis`,
+      subtitle: targetBucket
+        ? `Tracks played during the ${range} trend bucket shown on your dashboard, plus deeper breakdowns for this slice.`
+        : `A deeper breakdown of the listening history stored for ${filterLabel.toLowerCase()}.`,
       range,
+      from,
+      to,
       entries,
+      ...highlights,
     };
   }
 
-  const targetPeriod = (options.period && heatmapPeriods.includes(options.period as (typeof heatmapPeriods)[number])
-    ? options.period
-    : heatmapPeriods[0]) as (typeof heatmapPeriods)[number];
-  const targetMood = (options.mood && moodOrder.includes(options.mood as (typeof moodOrder)[number])
-    ? options.mood
-    : moodOrder[0]) as (typeof moodOrder)[number];
+  const targetPeriod = options.period && heatmapPeriods.includes(options.period as (typeof heatmapPeriods)[number])
+    ? options.period as (typeof heatmapPeriods)[number]
+    : undefined;
+  const targetMood = options.mood && moodOrder.includes(options.mood as (typeof moodOrder)[number])
+    ? options.mood as (typeof moodOrder)[number]
+    : undefined;
 
-  let filtered = recentMoodMeta.filter((meta) => meta.period === targetPeriod && meta.mood === targetMood);
-  let subtitle = `Recent ${targetMood.toLowerCase()} sessions during ${targetPeriod.toLowerCase()}.`;
+  let filtered = recentMoodMeta;
+  let subtitle = `A deeper breakdown of listening across ${filterLabel.toLowerCase()}.`;
 
-  if (filtered.length === 0) {
+  if (targetPeriod && targetMood) {
+    filtered = recentMoodMeta.filter((meta) => meta.period === targetPeriod && meta.mood === targetMood);
+    subtitle = `Recent ${targetMood.toLowerCase()} sessions during ${targetPeriod.toLowerCase()}.`;
+
+    if (filtered.length === 0) {
+      filtered = recentMoodMeta.filter((meta) => meta.period === targetPeriod);
+      subtitle = `Audio-feature mood matches were unavailable here, so this shows all ${targetPeriod.toLowerCase()} sessions instead.`;
+    }
+  } else if (targetPeriod) {
     filtered = recentMoodMeta.filter((meta) => meta.period === targetPeriod);
-    subtitle = `Audio-feature mood matches were unavailable here, so this shows all ${targetPeriod.toLowerCase()} sessions instead.`;
+    subtitle = `Listening sessions grouped under ${targetPeriod.toLowerCase()} for ${filterLabel.toLowerCase()}.`;
   }
+
+  const highlights = buildAnalysisHighlights(filtered.map((meta) => meta.item), sortedSnapshots, filterLabel);
 
   return {
     section: "heatmap",
-    title: `${targetMood} x ${targetPeriod}`,
+    title: targetPeriod && targetMood
+      ? `${targetMood} x ${targetPeriod}`
+      : targetPeriod
+        ? `${targetPeriod} listening analysis`
+        : `${filterLabel} listening analysis`,
     subtitle,
     range,
+    from,
+    to,
     entries: filtered.map(toAnalysisEntry),
+    ...highlights,
   };
 }
 
 export async function getDashboardAnalysisDetailFromHistory(
   spotifyUserId: string,
   range: DashboardRange,
-  options: { section: "trend" | "heatmap"; label?: string; mood?: string; period?: string },
+  options: { section: "trend" | "heatmap"; label?: string; mood?: string; period?: string; day?: string; from?: string; to?: string },
 ): Promise<DashboardAnalysisDetail | null> {
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
-  const scopedSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
+  const selectedDay = normalizeDateInput(options.day);
+  const rawFrom = normalizeDateInput(options.from);
+  const rawTo = normalizeDateInput(options.to);
+  const from = selectedDay ?? (rawFrom && rawTo && rawFrom > rawTo ? rawTo : rawFrom);
+  const to = selectedDay ?? (rawFrom && rawTo && rawFrom > rawTo ? rawFrom : rawTo ?? rawFrom);
+  const hasCustomWindow = Boolean(from || to);
+  const scopedSnapshots = hasCustomWindow ? snapshots : filterSnapshotsForDashboardRange(snapshots, range);
   const relevantSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
   const sortedSnapshots = [...relevantSnapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
 
@@ -1545,13 +1796,31 @@ export async function getDashboardAnalysisDetailFromHistory(
     return null;
   }
 
-  const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
+  const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent)).filter((item) => {
+    if (!from && !to) {
+      return true;
+    }
+
+    const dayKey = toPacificDateKey(item.played_at);
+    if (from && dayKey < from) {
+      return false;
+    }
+
+    if (to && dayKey > to) {
+      return false;
+    }
+
+    return true;
+  });
+  const filterLabel = buildAnalysisFilterLabel(range, from, to);
 
   if (options.section === "trend") {
     const buckets = buildTrendBuckets(range);
-    const targetBucket = buckets.find((bucket) => bucket.label === options.label) ?? buckets[0];
-    const entries = recent
-      .filter((item) => getTrendBucketKeyForPlay(item.played_at, range) === targetBucket.key)
+    const targetBucket = options.label ? buckets.find((bucket) => bucket.label === options.label) : undefined;
+    const scopedRecent = targetBucket
+      ? recent.filter((item) => getTrendBucketKeyForPlay(item.played_at, range) === targetBucket.key)
+      : recent;
+    const entries = scopedRecent
       .map((item) => ({
         trackId: item.track.id,
         title: item.track.name,
@@ -1562,21 +1831,29 @@ export async function getDashboardAnalysisDetailFromHistory(
         durationMs: item.track.duration_ms,
         period: getDayPeriod(new Date(item.played_at)),
       }));
+    const highlights = buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel);
 
     return {
       section: "trend",
-      title: `${targetBucket.label} listening sessions`,
-      subtitle: `Tracks played during the ${range} trend bucket shown in your cached dashboard history.`,
+      title: targetBucket ? `${targetBucket.label} listening sessions` : `${filterLabel} listening analysis`,
+      subtitle: targetBucket
+        ? `Tracks played during the ${range} trend bucket shown in your cached dashboard history, plus deeper breakdowns for this slice.`
+        : `A deeper breakdown of the listening history stored for ${filterLabel.toLowerCase()}.`,
       range,
+      from,
+      to,
       entries,
+      ...highlights,
     };
   }
 
-  const targetPeriod = (options.period && heatmapPeriods.includes(options.period as (typeof heatmapPeriods)[number])
-    ? options.period
-    : heatmapPeriods[0]) as (typeof heatmapPeriods)[number];
-  const entries = recent
-    .filter((item) => getDayPeriod(new Date(item.played_at)) === targetPeriod)
+  const targetPeriod = options.period && heatmapPeriods.includes(options.period as (typeof heatmapPeriods)[number])
+    ? options.period as (typeof heatmapPeriods)[number]
+    : undefined;
+  const scopedRecent = targetPeriod
+    ? recent.filter((item) => getDayPeriod(new Date(item.played_at)) === targetPeriod)
+    : recent;
+  const entries = scopedRecent
     .map((item) => ({
       trackId: item.track.id,
       title: item.track.name,
@@ -1587,13 +1864,19 @@ export async function getDashboardAnalysisDetailFromHistory(
       durationMs: item.track.duration_ms,
       period: getDayPeriod(new Date(item.played_at)),
     }));
+  const highlights = buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel);
 
   return {
     section: "heatmap",
-    title: `${targetPeriod} sessions`,
-    subtitle: "Cached history does not include live audio-feature mood matching, so this view shows the selected time-of-day sessions from stored snapshots.",
+    title: targetPeriod ? `${targetPeriod} sessions` : `${filterLabel} listening analysis`,
+    subtitle: targetPeriod
+      ? "Cached history does not include live audio-feature mood matching, so this view shows the selected time-of-day sessions from stored snapshots with extra context."
+      : `Cached history breakdown for ${filterLabel.toLowerCase()}, including top artists, albums, genres, and time-of-day patterns.`,
     range,
+    from,
+    to,
     entries,
+    ...highlights,
   };
 }
 

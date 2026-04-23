@@ -182,11 +182,25 @@ export type DashboardAnalysisEntry = {
   period?: string;
 };
 
+export type DashboardAnalysisHighlight = {
+  label: string;
+  value: string;
+  detail: string;
+};
+
 export type DashboardAnalysisDetail = {
   section: "trend" | "heatmap";
   title: string;
   subtitle: string;
   range: DashboardRange;
+  filterLabel: string;
+  from?: string;
+  to?: string;
+  summaryCards: StatCard[];
+  topArtists: DashboardAnalysisHighlight[];
+  topAlbums: DashboardAnalysisHighlight[];
+  topGenres: DashboardAnalysisHighlight[];
+  periodBreakdown: DashboardAnalysisHighlight[];
   entries: DashboardAnalysisEntry[];
 };
 export type RecentTrackSummary = {

@@ -21,11 +21,11 @@ export default async function Home({ searchParams }: HomeProps) {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="neon-outline flex h-14 w-14 items-center justify-center rounded-[20px] border-[3px] border-[rgba(44,12,70,0.9)] bg-[linear-gradient(135deg,#fff8ff,#ff97e8_44%,#87f2ff)] font-display text-lg font-bold uppercase tracking-[0.18em] text-[#2d0d46]">
-              SS
+              LL
             </div>
             <div>
-              <p className="font-display text-2xl uppercase tracking-[0.14em] text-[var(--theme-title)] md:text-3xl">SoundScope</p>
-              <p className="font-mono text-lg uppercase tracking-[0.22em] text-[var(--theme-muted)]">cute spotify desktop companion</p>
+              <p className="font-display text-2xl uppercase tracking-[0.14em] text-[var(--theme-title)] md:text-3xl">Listening Lore</p>
+              <p className="font-mono text-lg uppercase tracking-[0.22em] text-[var(--theme-muted)]">spotify listening insights dashboard</p>
             </div>
           </div>
           <div className="flex items-center gap-3">

@@ -32,7 +32,7 @@ export default async function SocialPage() {
               Social compare is unavailable in public-profile mode
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-              SoundScope social tools compare cached private listening history between fully connected accounts. Public-profile accounts only have public Spotify data, so there isn&apos;t enough history for compare pages yet.
+              Listening Lore social tools compare cached private listening history between fully connected accounts. Public-profile accounts only have public Spotify data, so there isn&apos;t enough history for compare pages yet.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link href="/dashboard" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
@@ -62,7 +62,7 @@ export default async function SocialPage() {
             Compare cached listening worlds
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-            This community area only uses stored SoundScope history. Opening someone else&apos;s profile never triggers a fresh Spotify request for their account.
+            This community area only uses stored Listening Lore history. Opening someone else&apos;s profile never triggers a fresh Spotify request for their account.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href="/settings" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">

@@ -19,12 +19,13 @@ type RecentHistoryState = {
 };
 
 function formatPlayedAt(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
+  return formatPstDateTime(value, {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+    hour12: true,
+  });
 }
 
 export function RecentTracksPageView() {
@@ -119,7 +120,7 @@ export function RecentTracksPageView() {
             <p className="text-sm uppercase tracking-[0.3em] text-coral/80">Recent History</p>
             <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">Everything still spinning in your orbit.</h1>
             <p className="text-base leading-7 text-[var(--theme-body)]">
-              A wider look at the tracks SoundScope has synced from your recent listening history.
+              A wider look at the tracks Listening Lore has synced from your recent listening history.
             </p>
           </div>
           <Link
@@ -189,7 +190,7 @@ export function RecentTracksPageView() {
               ))
             ) : (
               <div className="rounded-[28px] border border-ink/10 bg-white/[0.03] p-6 text-sm text-ink/75">
-                Recent listening history will start showing here as Spotify syncs into SoundScope.
+                Recent listening history will start showing here as Spotify syncs into Listening Lore.
               </div>
             )}
           </div>

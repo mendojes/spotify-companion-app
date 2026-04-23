@@ -75,7 +75,7 @@ export default async function SocialProfilePage({ params, searchParams }: Social
             {profile.displayName}
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-            This view is built from cached SoundScope history only. It respects the owner&apos;s sharing settings, so sections disappear when they are not opted in.
+            This view is built from cached Listening Lore history only. It respects the owner&apos;s sharing settings, so sections disappear when they are not opted in.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href={`/social/${spotifyUserId}/compare`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
