@@ -181,7 +181,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   </div>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-4">
                   <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">
                     <div className="flex items-center gap-3">
                       <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">

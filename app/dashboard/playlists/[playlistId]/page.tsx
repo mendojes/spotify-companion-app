@@ -52,10 +52,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
                   {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
                   This playlist is being analyzed from public Spotify playlist data only.
                 </p>
-                <div className="mt-4 space-y-1 text-sm text-[var(--theme-muted)]">
-                  <p>Created estimate: {formatDateLabel(detail.createdAt)}</p>
-                  <p>Last listened estimate: Not available in public mode</p>
-                </div>
               </div>
             </div>
             <div className="flex gap-3">
@@ -68,7 +64,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="glass-panel rounded-[28px] p-5">
               <p className="text-sm text-[var(--theme-muted)]">Tracks analyzed</p>
               <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.trackCount}</p>
@@ -78,20 +74,16 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
               <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueArtistCount}</p>
             </div>
             <div className="glass-panel rounded-[28px] p-5">
-              <p className="text-sm text-[var(--theme-muted)]">Unique albums</p>
-              <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueAlbumCount}</p>
-            </div>
-            <div className="glass-panel rounded-[28px] p-5">
               <p className="text-sm text-[var(--theme-muted)]">Mood center</p>
               <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">{detail.mood}</p>
             </div>
           </div>
 
           <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-            This analysis comes from public playlist contents only, so listen timeline and last-listened signals are unavailable in public mode.
+            This analysis comes from the public playlist page only, so private listening history, last-listened timing, and album-level stats are intentionally left out here.
           </div>
 
-          <PlaylistDetailView detail={detail} />
+          <PlaylistDetailView detail={detail} mode="public" />
         </div>
       </main>
     );

@@ -41,8 +41,10 @@ const PLAYLIST_AUDIO_FEATURE_SAMPLE_LIMIT = 200;
 const PLAYLIST_LARGE_SYNC_THRESHOLD = 1000;
 const PLAYLIST_SYNC_PAGE_SIZE = 100;
 const PLAYLIST_LARGE_SYNC_PAGES_PER_REQUEST = 8;
+const PUBLIC_SPOTIFY_WEB_TIMEOUT_MS = 10_000;
 
 const lastGoodPlaylistInsights = new Map<string, PlaylistInsight[]>();
+const publicPlaylistHtmlCache = new Map<string, string | null>();
 
 type PlaylistTrackWithMeta = {
   addedAt?: string;
@@ -89,6 +91,10 @@ type StoredPlaylistTrackSyncState = {
 type TrackAffinity = {
   playCount: number;
   lastPlayedAt?: string;
+};
+
+type SpotifyTracksResponse = {
+  tracks: Array<SpotifyTrack | null>;
 };
 
 export type PlaylistLibraryStatus = {
@@ -654,12 +660,167 @@ function uniqueById<T extends Identifiable>(items: T[]) {
   return result;
 }
 
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+async function fetchPublicPlaylistPageHtml(playlistId: string) {
+  if (publicPlaylistHtmlCache.has(playlistId)) {
+    return publicPlaylistHtmlCache.get(playlistId) ?? null;
+  }
+
+  try {
+    const response = await fetch(`https://open.spotify.com/playlist/${playlistId}`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 SoundScope",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(PUBLIC_SPOTIFY_WEB_TIMEOUT_MS),
+    });
+
+    const html = response.ok ? await response.text() : null;
+    publicPlaylistHtmlCache.set(playlistId, html);
+    return html;
+  } catch {
+    publicPlaylistHtmlCache.set(playlistId, null);
+    return null;
+  }
+}
+
+function scrapePlaylistTrackCountFromHtml(html: string) {
+  const metaCount = html.match(/<meta\s+name="music:song_count"\s+content="(\d+)"/i)?.[1];
+  if (metaCount) {
+    return Number.parseInt(metaCount, 10);
+  }
+
+  const descriptionCount = html.match(/<meta\s+property="og:description"\s+content="[^"]*·\s*(\d+)\s+items"/i)?.[1];
+  if (descriptionCount) {
+    return Number.parseInt(descriptionCount, 10);
+  }
+
+  return 0;
+}
+
+function scrapePlaylistTrackItemsFromHtml(html: string) {
+  const chunks = html.split('data-testid="track-row"').slice(1);
+
+  return chunks
+    .map((chunk): PlaylistTrackWithMeta | null => {
+      const trackId = chunk.match(/href="\/track\/([A-Za-z0-9]{22})"/)?.[1];
+      const title = chunk.match(/aria-label="([^"]+)"/)?.[1];
+      const imageUrl = chunk.match(/<img[^>]+src="([^"]+)"/)?.[1];
+      const artists = [...chunk.matchAll(/href="\/artist\/([A-Za-z0-9]{22})"[^>]*>([^<]+)<\/a>/g)]
+        .map((match) => ({
+          id: match[1],
+          name: decodeHtmlEntities(match[2] ?? "").trim(),
+        }))
+        .filter((artist) => artist.name.length > 0);
+
+      if (!trackId || !title || artists.length === 0) {
+        return null;
+      }
+
+      const normalizedTitle = decodeHtmlEntities(title).trim();
+
+      if (!normalizedTitle) {
+        return null;
+      }
+
+      return {
+        track: {
+          id: trackId,
+          name: normalizedTitle,
+          popularity: 0,
+          duration_ms: 0,
+          album: {
+            id: `public-playlist-track:${trackId}`,
+            name: "Album metadata unavailable",
+            images: imageUrl ? [{ url: imageUrl }] : undefined,
+          },
+          artists,
+        },
+      };
+    })
+    .filter((item): item is PlaylistTrackWithMeta => item !== null);
+}
+
+async function fetchTracksByIds(accessToken: string, trackIds: string[]) {
+  if (trackIds.length === 0) {
+    return [] as SpotifyTrack[];
+  }
+
+  const tracks: SpotifyTrack[] = [];
+
+  for (let index = 0; index < trackIds.length; index += 50) {
+    const chunk = trackIds.slice(index, index + 50);
+    const response = await spotifyFetch<SpotifyTracksResponse>(`/tracks?ids=${chunk.join(",")}`, accessToken, { allowRetry: true });
+    tracks.push(...(response.tracks ?? []).filter((track): track is SpotifyTrack => Boolean(track && isUsablePlaylistTrack(track))));
+  }
+
+  return tracks;
+}
+
+async function fetchPublicPlaylistTrackItems(accessToken: string, playlistId: string) {
+  const html = await fetchPublicPlaylistPageHtml(playlistId);
+
+  if (!html) {
+    return [] as PlaylistTrackWithMeta[];
+  }
+
+  const scrapedTrackItems = scrapePlaylistTrackItemsFromHtml(html);
+  if (scrapedTrackItems.length === 0) {
+    return [] as PlaylistTrackWithMeta[];
+  }
+
+  try {
+    const hydratedTracks = await fetchTracksByIds(accessToken, scrapedTrackItems.map((item) => item.track.id));
+    if (hydratedTracks.length > 0) {
+      const trackMap = new Map(hydratedTracks.map((track) => [track.id, track]));
+      return scrapedTrackItems.map((item) => ({
+        ...item,
+        track: trackMap.get(item.track.id) ?? item.track,
+      }));
+    }
+  } catch {
+    // Fall back to track rows from the public playlist page.
+  }
+
+  return scrapedTrackItems;
+}
+
 async function fetchPlaylistsPage(accessToken: string, offset = 0) {
   return spotifyFetch<SpotifyPlaylistsResponse>(`/me/playlists?limit=${PLAYLIST_PAGE_LIMIT}&offset=${offset}`, accessToken);
 }
 
 async function fetchPlaylistById(accessToken: string, playlistId: string) {
-  return spotifyFetch<SpotifyPlaylist>(`/playlists/${playlistId}`, accessToken);
+  const playlist = await spotifyFetch<SpotifyPlaylist>(`/playlists/${playlistId}`, accessToken);
+
+  if ((playlist.tracks?.total ?? 0) > 0) {
+    return playlist;
+  }
+
+  const html = await fetchPublicPlaylistPageHtml(playlistId);
+  if (!html) {
+    return playlist;
+  }
+
+  const trackCount = scrapePlaylistTrackCountFromHtml(html);
+  if (trackCount <= 0) {
+    return playlist;
+  }
+
+  return {
+    ...playlist,
+    tracks: {
+      total: trackCount,
+      href: playlist.tracks?.href,
+    },
+  };
 }
 
 async function fetchAllPlaylists(accessToken: string) {
@@ -725,7 +886,11 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
     offset += response.items.length;
   }
 
-  return tracks;
+  if (tracks.length > 0) {
+    return tracks;
+  }
+
+  return fetchPublicPlaylistTrackItems(accessToken, playlistId);
 }
 
 async function syncPlaylistTrackCache(
@@ -1177,8 +1342,9 @@ function getRedundancy(tracks: SpotifyTrack[]) {
 
   tracks.forEach((track) => {
     const primaryArtist = track.artists[0]?.name ?? "Unknown Artist";
+    const albumKey = track.album.id ?? track.album.name;
     artistCounts.set(primaryArtist, (artistCounts.get(primaryArtist) ?? 0) + 1);
-    albumCounts.set(track.album.name, (albumCounts.get(track.album.name) ?? 0) + 1);
+    albumCounts.set(albumKey, (albumCounts.get(albumKey) ?? 0) + 1);
   });
 
   const repeatedArtistTracks = [...artistCounts.values()].filter((count) => count > 1).reduce((sum, count) => sum + count, 0);
@@ -1364,7 +1530,7 @@ async function analyzePlaylist(
   try {
     trackItems = await fetchPlaylistTrackItems(accessToken, playlist.id);
   } catch {
-    return null;
+    trackItems = [];
   }
 
   if (trackItems.length === 0) {
@@ -1401,7 +1567,7 @@ async function analyzePlaylistFromTrackItems(
   ]);
 
   const uniqueArtists = new Set(tracks.flatMap((track) => track.artists.map((artist) => artist.name)));
-  const uniqueAlbums = new Set(tracks.map((track) => track.album.name));
+  const uniqueAlbums = new Set(tracks.map((track) => track.album.id ?? track.album.name));
 
   let topGenres = buildGenreSummary(artists);
 

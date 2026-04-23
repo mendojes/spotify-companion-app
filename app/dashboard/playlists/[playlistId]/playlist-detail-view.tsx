@@ -112,30 +112,36 @@ function getExtraInsightCards(detail: PlaylistDetail, topGenreLabel?: string): I
   ];
 }
 
-export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
+export function PlaylistDetailView({ detail, mode = "authenticated" }: { detail: PlaylistDetail; mode?: "authenticated" | "public" }) {
   const genreData = getGenreChartData(detail);
-  const hasTimeline = detail.listenTimeline.length > 0;
+  const hasTimeline = mode === "authenticated" && detail.listenTimeline.length > 0;
   const hasGenres = genreData.length > 0;
   const topGenreLabel = genreData[0]?.genre;
-  const extraInsights = getExtraInsightCards(detail, topGenreLabel);
+  const extraInsights = mode === "public" ? [] : getExtraInsightCards(detail, topGenreLabel);
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 xl:grid-cols-3">
-        {extraInsights.map((insight) => (
-          <div key={insight.label} className="glass-panel rounded-[30px] p-6 text-[var(--theme-text)]">
-            <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">{insight.label}</p>
-            <p className="mt-4 font-display text-3xl leading-tight text-[var(--theme-title)]">{insight.value}</p>
-            <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">{insight.detail}</p>
-          </div>
-        ))}
-      </div>
+      {extraInsights.length > 0 ? (
+        <div className="grid gap-4 xl:grid-cols-3">
+          {extraInsights.map((insight) => (
+            <div key={insight.label} className="glass-panel rounded-[30px] p-6 text-[var(--theme-text)]">
+              <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">{insight.label}</p>
+              <p className="mt-4 font-display text-3xl leading-tight text-[var(--theme-title)]">{insight.value}</p>
+              <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">{insight.detail}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      <div className={`grid gap-6 ${mode === "public" ? "" : "xl:grid-cols-[1.05fr_0.95fr]"}`}>
         <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
           <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Genre composition</p>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--theme-body)]">
-            {hasGenres ? "A genre-share view of the artists driving this playlist right now." : "Spotify did not return enough artist genre metadata to build a genre share chart yet."}
+            {hasGenres
+              ? mode === "public"
+                ? "A genre-share view inferred from the artists visible on this public playlist page."
+                : "A genre-share view of the artists driving this playlist right now."
+              : "Spotify did not return enough artist genre metadata to build a genre share chart yet."}
           </p>
           <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(16rem,0.9fr)]">
             <div className="h-[320px] rounded-[26px] border border-white/10 bg-white/[0.04] p-3">
@@ -176,36 +182,38 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
           </div>
         </div>
 
-        <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
-          <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Listening timeline</p>
-          <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">{detail.listeningCadence}</p>
-          <div className="mt-6 h-[320px] rounded-[26px] border border-white/10 bg-white/[0.04] p-3">
-            {hasTimeline ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={detail.listenTimeline} margin={{ left: -16, right: 12, top: 14, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="playlistTimelineFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#2b9fc3" stopOpacity={0.5} />
-                      <stop offset="100%" stopColor="#2b9fc3" stopOpacity={0.12} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#5d3383", fontSize: 12 }} />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#5d3383", fontSize: 12 }} width={28} />
-                  <Tooltip
-                    formatter={(value: number) => [`${value}`, value === 1 ? "Listen" : "Listens"]}
-                    labelFormatter={(label) => `Day: ${label}`}
-                    contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }}
-                  />
-                  <Area type="monotone" dataKey="listens" stroke="#2b9fc3" strokeWidth={3} fill="url(#playlistTimelineFill)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center text-center text-sm text-[var(--theme-muted)]">
-                No tracked playlist listens yet. Once Spotify playback history includes this playlist, the timeline will appear here.
-              </div>
-            )}
+        {mode === "authenticated" ? (
+          <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+            <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Listening timeline</p>
+            <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">{detail.listeningCadence}</p>
+            <div className="mt-6 h-[320px] rounded-[26px] border border-white/10 bg-white/[0.04] p-3">
+              {hasTimeline ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={detail.listenTimeline} margin={{ left: -16, right: 12, top: 14, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="playlistTimelineFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#2b9fc3" stopOpacity={0.5} />
+                        <stop offset="100%" stopColor="#2b9fc3" stopOpacity={0.12} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#5d3383", fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#5d3383", fontSize: 12 }} width={28} />
+                    <Tooltip
+                      formatter={(value: number) => [`${value}`, value === 1 ? "Listen" : "Listens"]}
+                      labelFormatter={(label) => `Day: ${label}`}
+                      contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }}
+                    />
+                    <Area type="monotone" dataKey="listens" stroke="#2b9fc3" strokeWidth={3} fill="url(#playlistTimelineFill)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center text-center text-sm text-[var(--theme-muted)]">
+                  No tracked playlist listens yet. Once Spotify playback history includes this playlist, the timeline will appear here.
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
@@ -260,7 +268,11 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
 
       <div className="glass-panel rounded-[32px] p-6">
         <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Top songs</p>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--theme-body)]">Tracks from this playlist that rank highest against your all-time listening history, with Spotify popularity used only as a fallback when a song is absent from that history.</p>
+        <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--theme-body)]">
+          {mode === "public"
+            ? "Tracks sampled from the public playlist page. These rankings come from the public snapshot only."
+            : "Tracks from this playlist that rank highest against your all-time listening history, with Spotify popularity used only as a fallback when a song is absent from that history."}
+        </p>
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {(detail.topTracks.length > 0 ? detail.topTracks : detail.sampleTracks).map((track, index) => (
             <div key={track.id} className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4 text-[var(--theme-text)]">
@@ -274,7 +286,7 @@ export function PlaylistDetailView({ detail }: { detail: PlaylistDetail }) {
                   <p className="text-xs uppercase tracking-[0.18em] text-[#2b7f97]">#{index + 1}</p>
                   <p className="mt-2 break-words font-display text-xl leading-tight text-[var(--theme-title)]">{track.title}</p>
                   <p className="mt-2 break-words text-sm text-[var(--theme-muted)]">{track.artist}</p>
-                  <p className="mt-2 break-words text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">{track.album}</p>
+                  {mode === "authenticated" ? <p className="mt-2 break-words text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">{track.album}</p> : null}
                 </div>
               </div>
             </div>
