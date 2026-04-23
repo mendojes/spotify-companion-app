@@ -1,5 +1,5 @@
 import { getCachedValue } from "@/lib/runtime-cache";
-import { getPublicPlaylistInsights } from "@/lib/spotify-playlists";
+import { getPublicPlaylistDetail, getPublicPlaylistInsights } from "@/lib/spotify-playlists";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { PlaylistInsight, SpotifyPlaylist, SpotifyPlaylistsResponse } from "@/lib/types";
 
@@ -246,7 +246,7 @@ export async function getPublicSpotifyProfileInsights(spotifyUserId: string, pro
       }
     });
     const publicPlaylists = [...dedupedPlaylists.values()].slice(0, PUBLIC_PLAYLIST_LIMIT);
-    const playlistInsights = await getPublicPlaylistInsights(accessToken, publicPlaylists).catch(() => [] as PlaylistInsight[]);
+    const playlistInsights = await getPublicPlaylistInsights(accessToken, publicPlaylists, publicPlaylists.length || PUBLIC_PLAYLIST_LIMIT).catch(() => [] as PlaylistInsight[]);
     const recentArtists = await scrapeRecentArtistsFromProfile(resolvedProfileUrl).catch(() => [] as PublicProfileArtist[]);
 
     return {
@@ -262,4 +262,9 @@ export async function getPublicSpotifyProfileInsights(spotifyUserId: string, pro
       fetchedAt: new Date().toISOString(),
     };
   });
+}
+
+export async function getPublicSpotifyPlaylistDetail(playlistId: string) {
+  const accessToken = await getSpotifyClientCredentialsToken();
+  return getPublicPlaylistDetail(accessToken, playlistId);
 }

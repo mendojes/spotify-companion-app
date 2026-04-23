@@ -1590,6 +1590,40 @@ export async function getPublicPlaylistInsights(accessToken: string, playlists: 
   }));
 }
 
+export async function getPublicPlaylistDetail(accessToken: string, playlistId: string): Promise<PlaylistDetail | null> {
+  try {
+    const playlist = await fetchPlaylistById(accessToken, playlistId);
+    const detail = await analyzePlaylist(accessToken, playlist, []);
+
+    if (detail) {
+      return {
+        ...detail,
+        listeningCadence: "Public playlist snapshot only",
+        lastListenedAt: undefined,
+        listenTimeline: [],
+      };
+    }
+
+    return {
+      ...toBasicInsight(playlist, []),
+      id: playlist.id,
+      trackCount: playlist.tracks?.total ?? 0,
+      ownerName: playlist.owner?.display_name,
+      uniqueArtistCount: 0,
+      uniqueAlbumCount: 0,
+      listeningCadence: "Public playlist snapshot only",
+      topGenres: [],
+      topArtists: [],
+      repeatedTracks: [],
+      sampleTracks: [],
+      topTracks: [],
+      listenTimeline: [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 function buildCachedPlaylistInsights(
   playlists: SpotifyPlaylist[],
   cachedDetails: CachedPlaylistDetail[],

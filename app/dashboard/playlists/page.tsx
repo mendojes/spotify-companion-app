@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
-import { requireSpotifySession } from "@/lib/auth";
+import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
+import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { getAllPlaylistInsightsFromHistory, getPlaylistLibraryStatus } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
@@ -59,17 +60,96 @@ function getAdaptivePlaylistTitleClass(value: string) {
 }
 
 export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps) {
-  const session = await requireSpotifySession("/dashboard/playlists");
-
   const { sort, refreshed, refresh_error: refreshError } = await searchParams;
+  const session = await requireSession();
+  const spotifyConnected = hasSpotifyConnection(session);
   const selectedSort = normalizeSort(sort);
 
+  if (!spotifyConnected) {
+    const publicInsights = session.spotifyUserId
+      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
+      : null;
+    const publicPlaylists = publicInsights?.playlistInsights ?? [];
+
+    return (
+      <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
+        <div className="mx-auto max-w-7xl space-y-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Public Playlist Lab</p>
+              <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">Visible playlists from your public Spotify profile</h1>
+              <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
+                This page analyzes public playlists only. It can show structure, genres, mood, and track makeup, but not private listening-history signals.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
+                Back to dashboard
+              </Link>
+            </div>
+          </div>
+
+          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
+            Public playlist analysis uses only playlist contents that Spotify exposes publicly from your profile.
+          </div>
+
+          {publicPlaylists.length === 0 ? (
+            <div className="glass-panel rounded-[30px] p-8 text-sm leading-7 text-[var(--theme-body)]">
+              No public playlists were available from this Spotify profile.
+            </div>
+          ) : (
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {publicPlaylists.map((playlist) => (
+                <Link
+                  key={`${playlist.id ?? playlist.name}`}
+                  href={playlist.id ? `/dashboard/playlists/${playlist.id}` : "/dashboard"}
+                  className="glass-panel rounded-[30px] p-6 transition hover:border-cyan/40 hover:bg-white/[0.05]"
+                >
+                  <div className="flex items-start gap-5">
+                    {playlist.imageUrl ? (
+                      <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
+                        <Image src={playlist.imageUrl} alt={playlist.name} fill sizes="112px" className="object-contain bg-white/[0.2]" />
+                      </div>
+                    ) : (
+                      <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[24px] border border-dashed border-white/15 bg-white/[0.04] text-xs uppercase tracking-[0.2em] text-[var(--theme-muted)]">
+                        Mix
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <h2 className="font-display text-2xl text-[var(--theme-title)]">{playlist.name}</h2>
+                      {playlist.trackCount ? <p className="mt-2 text-sm text-cyan">{playlist.trackCount} tracks analyzed</p> : null}
+                    </div>
+                  </div>
+                  <div className="mt-6 space-y-4">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm text-[var(--theme-muted)]">Mood</p>
+                      <p className="mt-2 text-[var(--theme-title)]">{playlist.mood}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm text-[var(--theme-muted)]">Top genres</p>
+                      <p className="mt-2 text-[var(--theme-title)]">{playlist.topGenresSummary ?? playlist.diversity}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm text-[var(--theme-muted)]">Pattern</p>
+                      <p className="mt-2 text-[var(--theme-title)]">{playlist.listeningCadence ?? playlist.overlap}</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  const spotifySession = await requireSpotifySession("/dashboard/playlists");
   let playlists: PlaylistInsight[] = [];
   let error: string | null = null;
-  const libraryStatus = await getPlaylistLibraryStatus(session.spotifyUserId);
+  const libraryStatus = await getPlaylistLibraryStatus(spotifySession.spotifyUserId);
 
   try {
-    playlists = await getAllPlaylistInsightsFromHistory(session.spotifyUserId, selectedSort);
+    playlists = await getAllPlaylistInsightsFromHistory(spotifySession.spotifyUserId, selectedSort);
   } catch (caughtError) {
     error = `Stored playlist analysis could not be loaded right now. Use Refresh snapshot to update playlist data. (${getErrorMessage(caughtError)})`;
   }

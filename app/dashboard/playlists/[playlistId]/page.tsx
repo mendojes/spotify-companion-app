@@ -1,7 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { requireSpotifySession } from "@/lib/auth";
+import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
+import { getPublicSpotifyPlaylistDetail, getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { getPlaylistDetailFromHistory } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { PlaylistDetailSync } from "./playlist-detail-sync";
@@ -16,10 +17,88 @@ function formatDateLabel(value?: string) {
 }
 
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {
-  const session = await requireSpotifySession("/dashboard/playlists");
-
   const { playlistId } = await params;
-  const detail = await getPlaylistDetailFromHistory(session.spotifyUserId, playlistId);
+  const session = await requireSession();
+
+  if (!hasSpotifyConnection(session)) {
+    const publicInsights = session.spotifyUserId
+      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
+      : null;
+
+    if (!publicInsights?.publicPlaylists.some((playlist) => playlist.id === playlistId)) {
+      notFound();
+    }
+
+    const detail = await getPublicSpotifyPlaylistDetail(playlistId);
+
+    if (!detail) {
+      notFound();
+    }
+
+    return (
+      <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
+        <div className="mx-auto max-w-7xl space-y-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-6">
+              {detail.imageUrl ? (
+                <div className="relative h-36 w-36 overflow-hidden rounded-[32px] border border-white/10 bg-white/5">
+                  <Image src={detail.imageUrl} alt={detail.name} fill sizes="144px" className="object-contain bg-white/[0.2]" />
+                </div>
+              ) : null}
+              <div>
+                <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Public Playlist Lab</p>
+                <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">{detail.name}</h1>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
+                  {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
+                  This playlist is being analyzed from public Spotify playlist data only.
+                </p>
+                <div className="mt-4 space-y-1 text-sm text-[var(--theme-muted)]">
+                  <p>Created estimate: {formatDateLabel(detail.createdAt)}</p>
+                  <p>Last listened estimate: Not available in public mode</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Link href="/dashboard/playlists" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
+                All playlists
+              </Link>
+              <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
+                Dashboard
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="glass-panel rounded-[28px] p-5">
+              <p className="text-sm text-[var(--theme-muted)]">Tracks analyzed</p>
+              <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.trackCount}</p>
+            </div>
+            <div className="glass-panel rounded-[28px] p-5">
+              <p className="text-sm text-[var(--theme-muted)]">Unique artists</p>
+              <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueArtistCount}</p>
+            </div>
+            <div className="glass-panel rounded-[28px] p-5">
+              <p className="text-sm text-[var(--theme-muted)]">Unique albums</p>
+              <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueAlbumCount}</p>
+            </div>
+            <div className="glass-panel rounded-[28px] p-5">
+              <p className="text-sm text-[var(--theme-muted)]">Mood center</p>
+              <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">{detail.mood}</p>
+            </div>
+          </div>
+
+          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
+            This analysis comes from public playlist contents only, so listen timeline and last-listened signals are unavailable in public mode.
+          </div>
+
+          <PlaylistDetailView detail={detail} />
+        </div>
+      </main>
+    );
+  }
+
+  const spotifySession = await requireSpotifySession("/dashboard/playlists");
+  const detail = await getPlaylistDetailFromHistory(spotifySession.spotifyUserId, playlistId);
 
   if (!detail) {
     notFound();

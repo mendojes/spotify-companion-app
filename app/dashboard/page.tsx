@@ -224,7 +224,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     </div>
                     <div className="mt-5 space-y-3">
                       {publicInsights.playlistInsights.length > 0 ? publicInsights.playlistInsights.map((playlist) => (
-                        <div key={playlist.id ?? playlist.name} className="desktop-card p-4">
+                        <Link
+                          key={playlist.id ?? playlist.name}
+                          href={playlist.id ? `/dashboard/playlists/${playlist.id}` : "/dashboard/playlists"}
+                          className="desktop-card block p-4 transition hover:border-cyan/30"
+                        >
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlist.name}</p>
@@ -236,18 +240,25 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                             <p>Genres: {playlist.topGenresSummary ?? playlist.diversity}</p>
                             <p>Pattern: {playlist.listeningCadence ?? playlist.overlap}</p>
                           </div>
-                        </div>
+                        </Link>
                       )) : publicInsights.publicPlaylists.length > 0 ? publicInsights.publicPlaylists.map((playlist) => (
-                        <div key={playlist.id} className="desktop-card p-4">
+                        <Link key={playlist.id} href={`/dashboard/playlists/${playlist.id}`} className="desktop-card block p-4 transition hover:border-cyan/30">
                           <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlist.name}</p>
                           <p className="mt-2 text-sm text-[var(--theme-body)]">{playlist.tracks.total} visible tracks</p>
-                        </div>
+                        </Link>
                       )) : (
                         <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
                           No public playlists were visible from this Spotify profile.
                         </div>
                       )}
                     </div>
+                    {publicInsights.publicPlaylists.length > 0 ? (
+                      <div className="mt-4">
+                        <Link href="/dashboard/playlists" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                          Browse public playlists
+                        </Link>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
