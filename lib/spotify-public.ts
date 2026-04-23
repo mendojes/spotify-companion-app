@@ -70,6 +70,22 @@ function getScriptPayloads(html: string) {
   return [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1]?.trim()).filter(Boolean) as string[];
 }
 
+async function fetchProfilePageHtml(profileUrl: string) {
+  const response = await fetch(profileUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 SoundScope",
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return response.text();
+}
+
 function scrapePlaylistIdsFromProfileHtml(html: string) {
   const matches = [...html.matchAll(/\/playlist\/([A-Za-z0-9]{22})/g)];
   const uniqueIds = new Set<string>();
@@ -81,6 +97,16 @@ function scrapePlaylistIdsFromProfileHtml(html: string) {
   });
 
   return [...uniqueIds];
+}
+
+function scrapeDisplayNameFromProfileHtml(html: string) {
+  const ogTitleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i);
+  if (ogTitleMatch?.[1]) {
+    return ogTitleMatch[1];
+  }
+
+  const titleMatch = html.match(/<title>([^<]+)\s+on\s+Spotify<\/title>/i);
+  return titleMatch?.[1] ?? "Spotify listener";
 }
 
 function normalizeArtistCandidate(value: unknown): PublicProfileArtist | null {
@@ -144,19 +170,11 @@ function collectRecentArtistCandidates(value: unknown, path: string[] = [], resu
 }
 
 async function scrapeRecentArtistsFromProfile(profileUrl: string) {
-  const response = await fetch(profileUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 SoundScope",
-    },
-    cache: "no-store",
-    signal: AbortSignal.timeout(10_000),
-  });
+  const html = await fetchProfilePageHtml(profileUrl);
 
-  if (!response.ok) {
+  if (!html) {
     return [] as PublicProfileArtist[];
   }
-
-  const html = await response.text();
   const scriptPayloads = getScriptPayloads(html);
   const results: PublicProfileArtist[] = [];
 
@@ -184,19 +202,11 @@ async function scrapeRecentArtistsFromProfile(profileUrl: string) {
 }
 
 async function scrapePublicPlaylistsFromProfile(profileUrl: string, accessToken: string) {
-  const response = await fetch(profileUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 SoundScope",
-    },
-    cache: "no-store",
-    signal: AbortSignal.timeout(10_000),
-  });
+  const html = await fetchProfilePageHtml(profileUrl);
 
-  if (!response.ok) {
+  if (!html) {
     return [] as SpotifyPlaylist[];
   }
-
-  const html = await response.text();
   const playlistIds = scrapePlaylistIdsFromProfileHtml(html).slice(0, PUBLIC_PLAYLIST_LIMIT);
 
   if (playlistIds.length === 0) {
@@ -213,15 +223,22 @@ async function scrapePublicPlaylistsFromProfile(profileUrl: string, accessToken:
 export async function getPublicSpotifyProfileInsights(spotifyUserId: string, profileUrl?: string) {
   return getCachedValue(`public-profile:${PUBLIC_PROFILE_CACHE_VERSION}:${spotifyUserId}:${profileUrl ?? "default"}`, PUBLIC_PROFILE_TTL_MS, async (): Promise<PublicSpotifyProfileInsights | null> => {
     const accessToken = await getSpotifyClientCredentialsToken();
+    const resolvedProfileUrl = profileUrl ?? `https://open.spotify.com/user/${spotifyUserId}`;
+    const profileHtml = await fetchProfilePageHtml(resolvedProfileUrl).catch(() => null);
     const user = await fetchPublicSpotifyUser(accessToken, spotifyUserId).catch(() => null);
 
-    if (!user) {
+    if (!user && !profileHtml) {
       return null;
     }
 
-    const resolvedProfileUrl = profileUrl ?? user.external_urls?.spotify ?? `https://open.spotify.com/user/${spotifyUserId}`;
     const apiPlaylists = await fetchAllPublicPlaylists(accessToken, spotifyUserId, PUBLIC_PLAYLIST_LIMIT).catch(() => [] as SpotifyPlaylist[]);
-    const scrapedPlaylists = await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(() => [] as SpotifyPlaylist[]);
+    const scrapedPlaylists = profileHtml
+      ? await Promise.all(
+        scrapePlaylistIdsFromProfileHtml(profileHtml)
+          .slice(0, PUBLIC_PLAYLIST_LIMIT)
+          .map((playlistId) => fetchPlaylistById(accessToken, playlistId).catch(() => null)),
+      ).then((playlists) => playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)))
+      : await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(() => [] as SpotifyPlaylist[]);
     const dedupedPlaylists = new Map<string, SpotifyPlaylist>();
     [...apiPlaylists, ...scrapedPlaylists].forEach((playlist) => {
       if (playlist?.id && !dedupedPlaylists.has(playlist.id)) {
@@ -234,9 +251,9 @@ export async function getPublicSpotifyProfileInsights(spotifyUserId: string, pro
 
     return {
       spotifyUserId,
-      displayName: user.display_name ?? "Spotify listener",
-      imageUrl: user.images?.[0]?.url,
-      profileUrl: resolvedProfileUrl,
+      displayName: user?.display_name ?? (profileHtml ? scrapeDisplayNameFromProfileHtml(profileHtml) : "Spotify listener"),
+      imageUrl: user?.images?.[0]?.url,
+      profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
       publicPlaylistCount: publicPlaylists.length,
       publicPlaylists,
       playlistInsights,
