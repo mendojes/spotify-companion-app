@@ -113,12 +113,12 @@ export function RecentTracksPageView() {
   }
 
   return (
-    <section className="px-6 py-10 md:px-10">
+    <section className="px-4 py-10 sm:px-6 md:px-10">
       <div className="mx-auto max-w-7xl space-y-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-3xl space-y-3">
             <p className="text-sm uppercase tracking-[0.3em] text-coral/80">Recent History</p>
-            <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">Everything still spinning in your orbit.</h1>
+            <h1 className="font-display text-4xl text-[var(--theme-title)] sm:text-5xl md:text-6xl">Everything still spinning in your orbit.</h1>
             <p className="text-base leading-7 text-[var(--theme-body)]">
               A wider look at the tracks Listening Lore has synced from your recent listening history.
             </p>
@@ -173,19 +173,19 @@ export function RecentTracksPageView() {
               recentTracks.map((track) => (
                 <div
                   key={`${track.trackId}:${track.playedAt}`}
-                  className="flex items-center gap-5 rounded-[28px] border border-ink/10 bg-[linear-gradient(180deg,rgba(255,248,232,0.05),rgba(255,255,255,0.02))] p-5"
+                  className="flex flex-col gap-4 rounded-[28px] border border-ink/10 bg-[linear-gradient(180deg,rgba(255,248,232,0.05),rgba(255,255,255,0.02))] p-4 sm:flex-row sm:items-center sm:gap-5 sm:p-5"
                 >
                   {track.imageUrl ? (
-                    <div className="relative h-28 w-28 overflow-hidden rounded-[28px] border border-ink/12 bg-white/5">
+                    <div className="relative h-24 w-24 overflow-hidden rounded-[24px] border border-ink/12 bg-white/5 sm:h-28 sm:w-28 sm:rounded-[28px]">
                       <Image src={track.imageUrl} alt={track.title} fill sizes="112px" className="object-contain bg-white/[0.2]" />
                     </div>
                   ) : null}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-display text-3xl text-[var(--theme-title)]">{track.title}</p>
+                    <p className="truncate font-display text-2xl text-[var(--theme-title)] sm:text-3xl">{track.title}</p>
                     <p className="mt-2 truncate text-base text-[var(--theme-body)]">{track.artist}</p>
                     <p className="mt-2 truncate text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{track.album}</p>
                   </div>
-                  <p className="text-right text-sm text-[var(--theme-muted)]">{formatPlayedAt(track.playedAt)}</p>
+                  <p className="text-left text-sm text-[var(--theme-muted)] sm:text-right">{formatPlayedAt(track.playedAt)}</p>
                 </div>
               ))
             ) : (

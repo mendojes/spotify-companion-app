@@ -154,7 +154,11 @@ function Artwork({
   label: string;
   size?: "sm" | "md" | "lg";
 }) {
-  const dimensions = size === "lg" ? "h-32 w-32 rounded-[26px]" : size === "sm" ? "h-20 w-20 rounded-[20px]" : "h-24 w-24 rounded-[22px]";
+  const dimensions = size === "lg"
+    ? "h-28 w-28 rounded-[24px] sm:h-32 sm:w-32 sm:rounded-[26px]"
+    : size === "sm"
+      ? "h-16 w-16 rounded-[18px] sm:h-20 sm:w-20 sm:rounded-[20px]"
+      : "h-20 w-20 rounded-[20px] sm:h-24 sm:w-24 sm:rounded-[22px]";
 
   if (imageUrl) {
     return (
@@ -175,15 +179,15 @@ function SectionHeader({ kicker, title, copy, meta }: { kicker: string; title: s
   return (
     <div className="max-w-4xl space-y-3">
       <p className="section-kicker">{kicker}</p>
-      <h2 className="font-display text-4xl font-bold uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl xl:text-6xl">{title}</h2>
-      <p className="max-w-3xl text-base leading-8 text-[var(--theme-body)] md:text-lg">{copy}</p>
+      <h2 className="font-display text-3xl font-bold uppercase tracking-[0.06em] text-[var(--theme-title)] sm:text-4xl md:text-5xl xl:text-6xl">{title}</h2>
+      <p className="max-w-3xl text-sm leading-7 text-[var(--theme-body)] sm:text-base md:text-lg">{copy}</p>
       {meta ? <div className="space-y-1 text-sm text-[var(--theme-muted)]">{meta}</div> : null}
     </div>
   );
 }
 
 function TabPill({ active, children, href }: { active: boolean; children: ReactNode; href?: string }) {
-  const className = `rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.16em] transition ${
+  const className = `rounded-full px-3 py-2 text-sm uppercase tracking-[0.14em] transition sm:px-4 sm:font-mono sm:text-lg sm:tracking-[0.16em] ${
     active
       ? "neon-outline bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] text-[#170718]"
       : "chrome-line bg-white/[0.18] text-[var(--theme-text)] hover:border-cyan/40 hover:text-[var(--theme-title)]"
@@ -267,7 +271,7 @@ function MetricWindow({
   const hasArtwork = Boolean(backgroundImage);
 
   return (
-    <div className="window-panel relative flex h-full min-h-[18rem] flex-col overflow-hidden p-5 pt-14 text-[var(--theme-text)]">
+    <div className="window-panel relative flex h-full min-h-[16rem] flex-col overflow-hidden p-4 pt-14 text-[var(--theme-text)] sm:min-h-[18rem] sm:p-5 sm:pt-14">
       {backgroundImage ? (
         <div className="absolute inset-x-0 bottom-0 top-[44px] overflow-hidden">
           <Image src={backgroundImage} alt={label} fill sizes="(max-width: 1280px) 100vw, 420px" className="object-cover opacity-60" />
@@ -276,7 +280,7 @@ function MetricWindow({
       ) : null}
       <div className="relative z-10 flex h-full flex-col">
         <div className="flex items-center justify-between gap-3">
-          <p className="font-mono text-lg uppercase tracking-[0.16em] text-[var(--theme-muted)]">{label}</p>
+          <p className="font-mono text-base uppercase tracking-[0.14em] text-[var(--theme-muted)] sm:text-lg sm:tracking-[0.16em]">{label}</p>
           <div className="icon-bubble h-10 w-10 text-[var(--theme-accent)]">
             <Icon className="h-4 w-4" />
           </div>
@@ -284,7 +288,7 @@ function MetricWindow({
         <div className={hasArtwork ? "mt-5 flex flex-1 items-end" : "mt-5 flex flex-1 items-center justify-center text-center"}>
           <p className={`font-display uppercase tracking-[0.08em] text-white drop-shadow-[0_4px_18px_rgba(44,12,70,0.45)] ${getAdaptiveValueClass(value)}`}>{value}</p>
         </div>
-        <p className={hasArtwork ? "mt-4 max-w-[18rem] text-sm uppercase tracking-[0.1em] text-[#ffeaff]" : "mt-4 text-center text-sm uppercase tracking-[0.1em] text-[var(--theme-muted)]"}>{detail}</p>
+        <p className={hasArtwork ? "mt-4 max-w-[18rem] text-xs uppercase tracking-[0.1em] text-[#ffeaff] sm:text-sm" : "mt-4 text-center text-xs uppercase tracking-[0.1em] text-[var(--theme-muted)] sm:text-sm"}>{detail}</p>
       </div>
     </div>
   );
@@ -309,7 +313,7 @@ function DesktopMiniWindow({
         </div>
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-[92px_1fr] sm:items-center">
-        <div className="media-frame relative h-24 w-full p-1.5 sm:h-24 sm:w-24">
+        <div className="media-frame relative aspect-square w-full p-1.5 sm:h-24 sm:w-24">
           {imageUrl ? <Image src={imageUrl} alt={title} fill sizes="96px" className="rounded-[14px] object-cover" /> : null}
         </div>
         <div>
@@ -334,7 +338,7 @@ function TrackShelfCard({
 
   return (
     <div className="desktop-card p-4">
-      <div className="flex items-start gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         <Artwork imageUrl={track.imageUrl} label={track.title} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{track.title}</p>
@@ -357,7 +361,7 @@ function TrendMarquee({ tracks }: { tracks: TopListsData["tracks"] }) {
   const items = tracks.length > 0 ? tracks : [];
 
   return (
-    <div className="marquee-strip rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.18em] text-[var(--theme-title)]">
+    <div className="marquee-strip rounded-full px-3 py-2 text-sm uppercase tracking-[0.14em] text-[var(--theme-title)] sm:px-4 sm:font-mono sm:text-lg sm:tracking-[0.18em]">
       <div className="marquee-track">
         {[0, 1].map((group) => (
           <div key={group} className="marquee-group" aria-hidden={group === 1}>
@@ -600,13 +604,13 @@ export function DashboardView({
 
   return (
     <>
-      <section id="dashboard" className="px-6 py-10 md:px-10">
+      <section id="dashboard" className="px-4 py-10 sm:px-6 md:px-10">
         <div className="mx-auto max-w-7xl space-y-8">
           <TrendMarquee tracks={heroTopListData.tracks} />
 
           <div className={sidebar && !isPreview ? "grid gap-8 2xl:grid-cols-[minmax(0,1fr)_420px] 2xl:items-start" : "space-y-8"}>
             <div className="min-w-0">
-              <div className="glass-panel rounded-[42px] px-6 py-7 md:px-8 md:py-8 xl:px-10">
+              <div className="glass-panel rounded-[32px] px-4 py-6 sm:px-6 sm:py-7 md:rounded-[42px] md:px-8 md:py-8 xl:px-10">
                 <div className="relative z-10 space-y-8 text-[var(--theme-text)]">
                   <div className="flex flex-wrap gap-3">
                     <div className="sticker-badge inline-flex items-center gap-2 px-4 py-2 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-badge)]">
@@ -639,7 +643,7 @@ export function DashboardView({
                         }
                       />
 
-                      <div className="flex flex-wrap gap-3">
+                      <div className="flex flex-wrap gap-2 sm:gap-3">
                         {timeframeTabs.map((tab) => {
                           const active = (isPreview ? "week" : selectedRange) === tab.key;
                           const href = isPreview
@@ -658,7 +662,7 @@ export function DashboardView({
                             <a
                               key={tab.key}
                               href={href}
-                              className={`rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.16em] transition ${
+                              className={`rounded-full px-3 py-2 text-sm uppercase tracking-[0.14em] transition sm:px-4 sm:font-mono sm:text-lg sm:tracking-[0.16em] ${
                                 active
                                   ? "neon-outline bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] text-[#170718]"
                                   : "chrome-line bg-white/[0.18] text-[var(--theme-text)] hover:border-cyan/40 hover:text-[var(--theme-title)]"
@@ -707,7 +711,7 @@ export function DashboardView({
           </div>
 
           <div className="grid gap-6 2xl:grid-cols-[1.2fr_0.8fr]">
-                <div className="window-panel p-6 pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
+                <div className="window-panel p-4 pt-16 sm:p-6 sm:pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
                   <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Listening trend</p>
@@ -739,7 +743,7 @@ export function DashboardView({
                       </div>
                     </div>
                   </div>
-                  <div className="h-[330px] rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45] p-3">
+                  <div className="h-[280px] rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45] p-2 sm:h-[330px] sm:p-3">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={data.trendData}>
                         <defs>
@@ -767,7 +771,7 @@ export function DashboardView({
                   ) : null}
                 </div>
 
-                <div className="glass-panel rounded-[34px] p-6 md:p-7 text-[var(--theme-text)]">
+                <div className="glass-panel rounded-[34px] p-4 sm:p-6 md:p-7 text-[var(--theme-text)]">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Genre pulse</p>
@@ -781,7 +785,7 @@ export function DashboardView({
                     <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">genre shelf</p>
                     <p className="mt-1 text-sm text-[var(--theme-body)]">your top styles are grouped into a quick summary of the genres driving your listening.</p>
                   </div>
-                  <div className="mt-6 h-[300px] rounded-[24px] border-2 border-[rgba(57,18,98,0.22)] bg-white/[0.62] p-3">
+                  <div className="mt-6 h-[280px] rounded-[24px] border-2 border-[rgba(57,18,98,0.22)] bg-white/[0.62] p-2 sm:h-[300px] sm:p-3">
                     {hasGenrePulseData ? (
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={genrePulseItems} layout="vertical" margin={{ left: 8 }}>
@@ -820,7 +824,7 @@ export function DashboardView({
                 </div>
               </div>
               <div className="grid gap-6 2xl:grid-cols-[0.88fr_1.12fr]">
-                <div className="glass-panel rounded-[34px] p-6 md:p-7 text-[var(--theme-text)]">
+                <div className="glass-panel rounded-[34px] p-4 sm:p-6 md:p-7 text-[var(--theme-text)]">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Mood analysis</p>
@@ -831,7 +835,7 @@ export function DashboardView({
                     </div>
                   </div>
                   <p className="mt-3 max-w-md text-sm leading-7 text-[var(--theme-body)]">{getVibeSummary(data.moodData)}</p>
-                  <div className="mt-6 h-[270px] rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45] p-3">
+                  <div className="mt-6 h-[250px] rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45] p-2 sm:h-[270px] sm:p-3">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie data={data.moodData} dataKey="share" nameKey="mood" innerRadius={62} outerRadius={98} paddingAngle={4}>
@@ -859,7 +863,7 @@ export function DashboardView({
                   </div>
                 </div>
 
-                <div className="window-panel p-6 pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
+                <div className="window-panel p-4 pt-16 sm:p-6 sm:pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
                   <div className="mb-6 flex items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Mood heatmap</p>
@@ -873,8 +877,8 @@ export function DashboardView({
                     <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">session mood map</p>
                     <p className="mt-1 text-sm text-[var(--theme-body)]">brighter cells mark the times of day where each listening mood shows up the most in your recent sessions.</p>
                   </div>
-                  <div className="mt-5 overflow-hidden rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45]">
-                    <div className="grid" style={{ gridTemplateColumns: `minmax(140px, 1.2fr) repeat(${moodHeatmapPeriods.length}, minmax(0, 1fr))` }}>
+                  <div className="mt-5 overflow-x-auto rounded-[24px] border-2 border-[rgba(57,18,98,0.18)] bg-white/[0.45]">
+                    <div className="grid min-w-[44rem]" style={{ gridTemplateColumns: `minmax(140px, 1.2fr) repeat(${moodHeatmapPeriods.length}, minmax(110px, 1fr))` }}>
                       <div className="border-b border-[rgba(57,18,98,0.12)] bg-white/[0.38] p-4 font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">Mood</div>
                       {moodHeatmapPeriods.map((period) => (
                         <div key={period} className="border-b border-l border-[rgba(57,18,98,0.12)] bg-white/[0.38] p-4 text-center font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">
@@ -929,7 +933,7 @@ export function DashboardView({
       </section>
 
       <LazySection placeholderHeight="min-h-[52rem]">
-      <section className="px-6 py-20 md:px-10">
+      <section className="px-4 py-16 sm:px-6 md:px-10 md:py-20">
         <div className="mx-auto max-w-7xl space-y-10">
           <SectionHeader
             kicker="Top lists"
@@ -960,7 +964,7 @@ export function DashboardView({
           </div>
 
           <div className="grid gap-6 xl:grid-cols-3">
-            <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">
+            <div className="glass-panel rounded-[34px] p-4 sm:p-6 text-[var(--theme-text)]">
               <div className="mb-6 flex items-center gap-3">
                 <LibraryBig className="h-5 w-5 text-cyan" />
                 <div>
@@ -971,10 +975,10 @@ export function DashboardView({
               <div className="space-y-4">
                 {summaryTopArtists.map((artist) => (
                   <div key={artist.id} className="desktop-card p-4">
-                    <div className="flex items-start gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                       <Artwork imageUrl={artist.imageUrl} label={artist.name} />
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
                           <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)] md:text-2xl">{artist.name}</p>
                           <p className="font-mono text-xl uppercase text-[var(--theme-highlight)]">#{artist.rank}</p>
                         </div>
@@ -988,7 +992,7 @@ export function DashboardView({
               </div>
             </div>
 
-            <div className="glass-panel rounded-[34px] p-6">
+            <div className="glass-panel rounded-[34px] p-4 sm:p-6">
               <div className="mb-6 flex items-center gap-3">
                 <Flame className="h-5 w-5 text-coral" />
                 <div>
@@ -999,10 +1003,10 @@ export function DashboardView({
               <div className="space-y-4">
                 {summaryTopTracks.map((track) => (
                   <div key={track.id} className="desktop-card p-4">
-                    <div className="flex items-start gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                       <Artwork imageUrl={track.imageUrl} label={track.title} />
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
                           <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)] md:text-2xl">{track.title}</p>
                           <p className="font-mono text-xl uppercase text-[var(--theme-accent)]">#{track.rank}</p>
                         </div>
@@ -1015,7 +1019,7 @@ export function DashboardView({
               </div>
             </div>
 
-            <div className="glass-panel rounded-[34px] p-6">
+            <div className="glass-panel rounded-[34px] p-4 sm:p-6">
               <div className="mb-6 flex items-center gap-3">
                 <Sparkles className="h-5 w-5 text-gold" />
                 <div>
@@ -1026,10 +1030,10 @@ export function DashboardView({
               <div className="space-y-4">
                 {summaryTopAlbums.map((album) => (
                   <div key={album.id} className="desktop-card p-4">
-                    <div className="flex items-start gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                       <Artwork imageUrl={album.imageUrl} label={album.name} />
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
                           <p className="pr-3 font-display text-xl uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)] md:text-2xl">{album.name}</p>
                           <p className="font-mono text-xl uppercase text-[var(--theme-highlight)]">#{album.rank}</p>
                         </div>
@@ -1060,7 +1064,7 @@ export function DashboardView({
       </LazySection>
 
       <LazySection placeholderHeight="min-h-[44rem]">
-      <section className="px-6 py-20 md:px-10">
+      <section className="px-4 py-16 sm:px-6 md:px-10 md:py-20">
         <div className="mx-auto max-w-7xl space-y-10">
           <SectionHeader
             kicker="Rediscovery"
@@ -1068,7 +1072,7 @@ export function DashboardView({
             copy="A short rediscovery preview lives here. The full page keeps the longer archive and both lanes together."
           />
           <div className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
-            <div className="glass-panel rounded-[36px] p-6 md:p-7 text-[var(--theme-text)]">
+            <div className="glass-panel rounded-[36px] p-4 sm:p-6 md:p-7 text-[var(--theme-text)]">
               <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="section-kicker">Forgotten favorites</p>
@@ -1081,7 +1085,7 @@ export function DashboardView({
                 ) : null}
               </div>
               <div className="grid gap-5 md:grid-cols-[1.05fr_0.95fr]">
-                <div className="media-frame relative min-h-[420px] p-2">
+                <div className="media-frame relative min-h-[320px] p-2 sm:min-h-[420px]">
                   {data.forgottenFavorites[0]?.imageUrl ? (
                     <Image
                       src={data.forgottenFavorites[0].imageUrl}
@@ -1092,9 +1096,9 @@ export function DashboardView({
                     />
                   ) : null}
                   <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(72,24,110,0.14)_36%,rgba(72,24,110,0.72))]" />
-                  <div className="absolute bottom-6 left-6 right-6 rounded-[24px] border-2 border-white/35 bg-[rgba(255,245,255,0.72)] p-5 text-[var(--theme-text)] backdrop-blur-md">
+                  <div className="absolute bottom-4 left-4 right-4 rounded-[24px] border-2 border-white/35 bg-[rgba(255,245,255,0.72)] p-4 text-[var(--theme-text)] backdrop-blur-md sm:bottom-6 sm:left-6 sm:right-6 sm:p-5">
                     <p className="section-kicker">Spotlight replay</p>
-                    <h3 className="mt-2 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{data.forgottenFavorites[0]?.title}</h3>
+                    <h3 className="mt-2 font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)] sm:text-4xl">{data.forgottenFavorites[0]?.title}</h3>
                     <p className="mt-2 text-sm uppercase tracking-[0.2em] text-[var(--theme-muted)]">{data.forgottenFavorites[0]?.artist} / {data.forgottenFavorites[0]?.album}</p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <span className="pixel-chip border-mint/35 bg-mint/18 text-[#167a63]">{data.forgottenFavorites[0]?.affinity}% affinity</span>
@@ -1110,7 +1114,7 @@ export function DashboardView({
               </div>
             </div>
 
-            <div className="window-panel p-6 pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
+            <div className="window-panel p-4 pt-16 sm:p-6 sm:pt-16 md:p-7 md:pt-16 text-[var(--theme-text)]">
               <div className="mb-6 flex items-center gap-3">
                 <div className="icon-bubble h-11 w-11 text-[var(--theme-accent)]">
                   <Sparkles className="h-5 w-5" />
@@ -1128,7 +1132,7 @@ export function DashboardView({
               {playlist.length > 0 ? (
                 <div className="mt-4 space-y-3">
                   {playlist.slice(0, 3).map((item, index) => (
-                    <div key={item.slot} className={`desktop-card flex items-center justify-between px-4 py-4 ${index === 0 ? "bg-[rgba(106,244,255,0.14)]" : "bg-[rgba(255,250,255,0.62)]"}`}>
+                    <div key={item.slot} className={`desktop-card px-4 py-4 ${index === 0 ? "bg-[rgba(106,244,255,0.14)]" : "bg-[rgba(255,250,255,0.62)]"}`}>
                       <div className="flex items-center gap-4">
                         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(255,214,243,0.95),rgba(255,94,201,0.95)_32%,rgba(110,130,255,0.95)_68%,rgba(122,247,255,0.95))] font-display text-[#170718]">
                           {item.slot}
@@ -1157,7 +1161,7 @@ export function DashboardView({
       </LazySection>
 
       <LazySection placeholderHeight="min-h-[38rem]">
-      <section className="px-6 py-20 md:px-10">
+      <section className="px-4 py-16 sm:px-6 md:px-10 md:py-20">
         <div className="mx-auto max-w-7xl space-y-10">
           <SectionHeader
             kicker="Playlist lab"
@@ -1165,8 +1169,8 @@ export function DashboardView({
             copy="The dashboard keeps just a couple of stored playlist summaries. Open the full playlist lab for the larger library and detail views."
           />
 
-          <div className="flex items-center justify-between gap-4">
-            <p className="font-mono text-lg uppercase tracking-[0.12em] text-[var(--theme-muted)]">Open the playlist lab for the complete archive.</p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <p className="font-mono text-sm uppercase tracking-[0.12em] text-[var(--theme-muted)] sm:text-lg">Open the playlist lab for the complete archive.</p>
             {!isPreview && playlistsPagePath ? (
               <Link href={playlistsPagePath} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 Open playlist lab
@@ -1189,7 +1193,7 @@ export function DashboardView({
                         Mix
                       </div>
                     )}
-                    <div className="desktop-card min-h-[9rem] p-4 md:min-h-[10rem]">
+                    <div className="desktop-card min-h-[8rem] p-4 md:min-h-[10rem]">
                       <p className="section-kicker">Playlist insight</p>
                       <h3 className={`mt-3 font-display uppercase text-[var(--theme-title)] ${getAdaptivePlaylistTitleClass(playlistCard.name)}`}>
                         {playlistCard.name}

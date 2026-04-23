@@ -13,12 +13,12 @@ type HeroProps = {
 
 export function Hero({ isAuthenticated = false }: HeroProps) {
   return (
-    <section className="relative overflow-hidden px-6 pb-18 pt-10 md:px-10 md:pb-24 md:pt-12">
+    <section className="relative overflow-hidden px-4 pb-16 pt-8 sm:px-6 md:px-10 md:pb-24 md:pt-12">
       <div className="dashboard-mesh" />
       <div className="orbital-orb left-[5%] top-24 h-36 w-36 bg-[#ff9be9]" />
       <div className="orbital-orb right-[8%] top-32 h-40 w-40 bg-[#9af2ff]" />
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="marquee-strip rounded-full px-4 py-2 font-mono text-lg uppercase tracking-[0.18em] text-[#572282]">
+        <div className="marquee-strip rounded-full px-3 py-2 text-sm uppercase tracking-[0.14em] text-[#572282] sm:px-4 sm:font-mono sm:text-lg sm:tracking-[0.18em]">
           <div className="marquee-track">
             {[0, 1].map((group) => (
               <div key={group} className="marquee-group" aria-hidden={group === 1}>
@@ -33,7 +33,7 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
           </div>
         </div>
 
-        <div className="glass-panel scan-lines rounded-[42px] px-6 py-8 md:px-10 md:py-10 xl:px-12">
+        <div className="glass-panel scan-lines rounded-[32px] px-4 py-6 sm:px-6 sm:py-8 md:rounded-[42px] md:px-10 md:py-10 xl:px-12">
           <div>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -41,12 +41,12 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
               transition={{ duration: 0.7, ease: "easeOut" }}
               className="relative z-10 space-y-8"
             >
-              <div className="flex flex-wrap gap-3">
-                <div className="holo-badge inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm text-[var(--theme-text)]">
+              <div className="flex flex-wrap gap-2 sm:gap-3">
+                <div className="holo-badge inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs text-[var(--theme-text)] sm:px-4 sm:text-sm">
                   <SmilePlus className="h-4 w-4 text-[var(--theme-accent)]" />
                   Spotify listening insights
                 </div>
-                <div className="holo-badge inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm text-[var(--theme-text)]">
+                <div className="holo-badge inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs text-[var(--theme-text)] sm:px-4 sm:text-sm">
                   <Star className="h-4 w-4 text-[var(--theme-highlight)]" />
                   dashboard, playlists, and rediscovery tools
                 </div>
@@ -54,27 +54,27 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
 
               <div className="space-y-5">
                 <p className="section-kicker">Listening dashboard</p>
-                <h1 className="max-w-[72rem] font-display text-5xl font-black uppercase leading-[0.9] tracking-[0.08em] text-[var(--theme-title)] md:text-7xl xl:text-[6.25rem]">
+                <h1 className="max-w-[72rem] font-display text-[2.75rem] font-black uppercase leading-[0.92] tracking-[0.06em] text-[var(--theme-title)] sm:text-5xl md:text-7xl xl:text-[6.25rem]">
                   Turn your listening history into a <span className="gradient-text">clear Spotify dashboard</span>.
                 </h1>
-                <p className="max-w-3xl text-lg leading-8 text-[var(--theme-body)] md:text-xl">
+                <p className="max-w-3xl text-base leading-7 text-[var(--theme-body)] sm:text-lg md:text-xl">
                   Sign in to view recent plays, top lists, playlist breakdowns, and rediscovery insights in one place.
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-4">
-                <Button href={isAuthenticated ? "/dashboard" : "/login"}>{isAuthenticated ? "Open your dashboard" : "Sign in"}</Button>
-                <Button href="#dashboard" variant="ghost">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4">
+                <Button href={isAuthenticated ? "/dashboard" : "/login"} className="w-full justify-center sm:w-auto">{isAuthenticated ? "Open your dashboard" : "Sign in"}</Button>
+                <Button href="#dashboard" variant="ghost" className="w-full justify-center sm:w-auto">
                   Explore the preview
                 </Button>
               </div>
 
               <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-                <div className="window-panel p-5 pt-14 text-[#441a68]">
-                  <div className="flex items-center justify-between gap-3">
+                <div className="window-panel p-4 pt-14 text-[#441a68] sm:p-5 sm:pt-14">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="section-kicker">Mood browser</p>
-                      <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">sunset player</h2>
+                      <h2 className="mt-1 font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)] sm:text-3xl">sunset player</h2>
                     </div>
                     <div className="icon-bubble h-11 w-11 text-[var(--theme-accent)]">
                       <Waves className="h-5 w-5" />
@@ -93,7 +93,7 @@ export function Hero({ isAuthenticated = false }: HeroProps) {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                   {heroStats.slice(0, 2).map((stat, index) => {
                     const Icon = index === 0 ? Music4 : Heart;
                     return (

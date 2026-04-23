@@ -81,7 +81,7 @@ function SongCard({
   onPick: () => void;
 }) {
   return (
-    <div className="glass-panel flex h-full flex-col rounded-[32px] p-5 text-[var(--theme-text)]">
+    <div className="glass-panel flex h-full flex-col rounded-[32px] p-4 text-[var(--theme-text)] sm:p-5">
       <div className="media-frame relative aspect-square p-2">
         {track.imageUrl ? (
           <Image src={track.imageUrl} alt={track.name} fill sizes="(max-width: 1024px) 100vw, 420px" className="rounded-[22px] object-cover" />
@@ -92,7 +92,7 @@ function SongCard({
       <div className="mt-5 flex-1 space-y-3">
         <div>
           <p className="section-kicker">Pick your favorite</p>
-          <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{track.name}</h3>
+          <h3 className="mt-2 font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)] sm:text-3xl">{track.name}</h3>
           <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">{track.artistLabel}</p>
           <p className="mt-1 font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">{track.albumName}</p>
         </div>
@@ -103,7 +103,7 @@ function SongCard({
         </div>
       </div>
 
-      <div className="mt-5 flex gap-3">
+      <div className="mt-5 flex flex-wrap gap-3">
         <button onClick={onPick} className="neon-outline inline-flex flex-1 items-center justify-center rounded-full px-5 py-3 text-sm font-medium uppercase tracking-[0.18em] text-[#170718]">
           {buttonLabel}
         </button>
@@ -130,7 +130,7 @@ function TargetCard({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="desktop-card flex items-center gap-4 p-4">
+    <div className="desktop-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
       <TargetArtwork imageUrl={target.imageUrl} label={target.name} />
       <div className="min-w-0 flex-1">
         <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{target.name}</p>
@@ -465,9 +465,9 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
 
   return (
     <div className="space-y-8">
-      <section className="glass-panel rounded-[36px] p-6 text-[var(--theme-text)] md:p-8">
+      <section className="glass-panel rounded-[36px] p-4 text-[var(--theme-text)] sm:p-6 md:p-8">
         <p className="section-kicker">Favorite picker</p>
-        <h1 className="mt-3 font-display text-4xl uppercase tracking-[0.08em] text-[var(--theme-title)] md:text-5xl">
+        <h1 className="mt-3 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)] sm:text-4xl md:text-5xl">
           Rank songs head-to-head until your favorites shake out.
         </h1>
         <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
@@ -500,7 +500,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
       {phase === "build" ? (
         <div className="space-y-6">
           {savedProgress ? (
-            <section className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+            <section className="glass-panel rounded-[32px] p-4 text-[var(--theme-text)] sm:p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p className="section-kicker">Saved picker</p>
@@ -527,7 +527,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
             </section>
           ) : null}
 
-          <section className="window-panel rounded-[32px] p-6 pt-14 text-[var(--theme-text)]">
+          <section className="window-panel rounded-[32px] p-4 pt-14 text-[var(--theme-text)] sm:p-6 sm:pt-14">
             <div className="max-w-3xl">
               <div className="flex items-center gap-3">
                 <Sparkles className="h-5 w-5 text-[var(--theme-accent)]" />
@@ -589,7 +589,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
           </section>
 
           <section className="space-y-6">
-            <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+            <div className="glass-panel rounded-[32px] p-4 text-[var(--theme-text)] sm:p-6">
               <div className="flex items-center gap-3">
                 <Link2 className="h-5 w-5 text-[var(--theme-highlight)]" />
                 <div>
@@ -613,7 +613,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
               </div>
             </div>
 
-            <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+            <div className="glass-panel rounded-[32px] p-4 text-[var(--theme-text)] sm:p-6">
               <div className="flex items-center gap-3">
                 <Search className="h-5 w-5 text-[var(--theme-accent)]" />
                 <div>
@@ -719,7 +719,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
             </div>
 
             {spotifyConnected ? (
-              <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+              <div className="glass-panel rounded-[32px] p-4 text-[var(--theme-text)] sm:p-6">
                 <div className="flex items-center gap-3">
                   <LibraryBig className="h-5 w-5 text-cyan" />
                   <div>
@@ -766,14 +766,14 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
       {phase !== "build" && pickerState && currentChoice ? (
         <div className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-[0.85fr_1.3fr_1.3fr]">
-            <div className="window-panel rounded-[32px] p-6 pt-14 text-[var(--theme-text)]">
+            <div className="window-panel rounded-[32px] p-4 pt-14 text-[var(--theme-text)] sm:p-6 sm:pt-14">
               <p className="section-kicker">Round status</p>
               <h2 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">
                 {pickerTracks.length} songs in play
               </h2>
               <div className="mt-6 desktop-card p-5 text-center">
                 <p className="font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">More eliminations until next favorite</p>
-                <p className="mt-3 font-display text-6xl uppercase tracking-[0.08em] text-[var(--theme-title)]">
+                <p className="mt-3 font-display text-5xl uppercase tracking-[0.08em] text-[var(--theme-title)] sm:text-6xl">
                   {pickerState.eliminationCountdown}
                 </p>
               </div>
@@ -821,7 +821,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
           </div>
 
           {rankedTracks.length > 0 ? (
-            <section className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+            <section className="glass-panel rounded-[32px] p-4 text-[var(--theme-text)] sm:p-6">
               <div className="flex items-center gap-3">
                 <Trophy className="h-5 w-5 text-[var(--theme-highlight)]" />
                 <div>
@@ -851,7 +851,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
 
       {phase === "done" && pickerState ? (
         <section className="space-y-6">
-          <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">
+          <div className="glass-panel rounded-[34px] p-4 text-[var(--theme-text)] sm:p-6">
             <div className="flex items-center gap-3">
               <Trophy className="h-5 w-5 text-[var(--theme-highlight)]" />
               <div>
@@ -862,7 +862,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
             <p className="mt-4 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
               This run ranked {rankedTracks.length} songs across {selectedTargets.length} selected Spotify targets.
             </p>
-            <div className="mt-5 flex gap-3">
+            <div className="mt-5 flex flex-wrap gap-3">
               <button onClick={saveProgress} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-5 py-3 text-sm text-[var(--theme-text)]">
                 Save progress
               </button>
@@ -906,7 +906,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
       ) : null}
 
       {phase === "pick" && pickerState && !currentChoice ? (
-        <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+        <div className="glass-panel rounded-[32px] p-4 text-[var(--theme-text)] sm:p-6">
           <p className="section-kicker">Finishing up</p>
           <h2 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">One more moment while the final ranking settles.</h2>
         </div>
