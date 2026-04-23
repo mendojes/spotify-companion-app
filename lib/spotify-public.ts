@@ -32,9 +32,9 @@ type PublicSpotifyUser = {
   };
 };
 
-const PUBLIC_PROFILE_TTL_MS = 1000 * 60 * 30;
+const PUBLIC_PROFILE_TTL_MS = 1000 * 60 * 5;
 const PUBLIC_PLAYLIST_LIMIT = 6;
-const PUBLIC_PROFILE_CACHE_VERSION = "v2";
+const PUBLIC_PROFILE_CACHE_VERSION = "v3";
 
 async function fetchPublicSpotifyUser(accessToken: string, spotifyUserId: string) {
   return spotifyFetch<PublicSpotifyUser>(`/users/${spotifyUserId}`, accessToken);
