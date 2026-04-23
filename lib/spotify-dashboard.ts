@@ -1222,11 +1222,46 @@ function buildAnalysisArtistGenreLookup(snapshots: SpotifyDashboardSnapshot[]) {
   return lookup;
 }
 
-function buildAnalysisHighlights(
+function deriveMoodDataFromGenreNames(genreNames: string[]) {
+  const buckets = [
+    { mood: "Energetic", energy: 84, matchers: ["dance", "house", "edm", "electro", "hyperpop", "punk"] },
+    { mood: "Chill", energy: 38, matchers: ["ambient", "chill", "dream", "lo-fi", "indie pop"] },
+    { mood: "Moody", energy: 47, matchers: ["sad", "emo", "singer-songwriter", "grunge", "melanch"] },
+    { mood: "Joyful", energy: 69, matchers: ["pop", "funk", "disco", "soul", "groove"] },
+    { mood: "Focus", energy: 56, matchers: ["classical", "instrumental", "study", "jazz", "soundtrack"] },
+  ] as const;
+
+  const scores = new Map<string, number>(buckets.map((bucket) => [bucket.mood, 1]));
+
+  genreNames.forEach((genre) => {
+    const normalized = genre.toLowerCase();
+    let matched = false;
+
+    for (const bucket of buckets) {
+      if (bucket.matchers.some((matcher) => normalized.includes(matcher))) {
+        scores.set(bucket.mood, (scores.get(bucket.mood) ?? 0) + 1.4);
+        matched = true;
+      }
+    }
+
+    if (!matched) {
+      scores.set("Joyful", (scores.get("Joyful") ?? 0) + 0.5);
+    }
+  });
+
+  const total = [...scores.values()].reduce((sum, value) => sum + value, 0) || 1;
+  return moodOrder.map((mood) => ({
+    mood,
+    share: Math.round(((scores.get(mood) ?? 0) / total) * 100),
+  }));
+}
+
+async function buildAnalysisHighlights(
   recent: SpotifyRecentlyPlayedItem[],
   snapshots: SpotifyDashboardSnapshot[],
   filterLabel: string,
-): Omit<DashboardAnalysisDetail, "section" | "title" | "subtitle" | "range" | "entries" | "from" | "to"> {
+  moodEntries: Array<(typeof moodOrder)[number] | undefined>,
+): Promise<Omit<DashboardAnalysisDetail, "section" | "title" | "subtitle" | "range" | "entries" | "from" | "to">> {
   const totalMinutes = recent.reduce((sum, item) => sum + minutesFromMs(item.track.duration_ms), 0);
   const uniqueTracks = new Set(recent.map((item) => item.track.id)).size;
   const uniqueArtists = new Set(
@@ -1242,6 +1277,7 @@ function buildAnalysisHighlights(
   const albumTotals = new Map<string, { plays: number; minutes: number; artist: string }>();
   const genreTotals = new Map<string, { minutes: number; plays: number }>();
   const genreLookup = buildAnalysisArtistGenreLookup(snapshots);
+  let fallbackArtistTags: Map<string, string[]> | null = null;
   const dayTotals = new Map<string, number>();
 
   recent.forEach((item) => {
@@ -1332,6 +1368,28 @@ function buildAnalysisHighlights(
       detail: `${value.artist} • ${value.plays} play${value.plays === 1 ? "" : "s"}`,
     }));
 
+  if (genreTotals.size === 0) {
+    const fallbackArtistNames = [...new Set(recent.flatMap((item) => item.track.artists.map((artist) => artist.name)).filter(Boolean))];
+    fallbackArtistTags = await fetchMusicBrainzArtistTags(fallbackArtistNames);
+
+    recent.forEach((item) => {
+      const minutes = minutesFromMs(item.track.duration_ms);
+      const fallbackGenres = new Set<string>();
+
+      item.track.artists.forEach((artist) => {
+        (fallbackArtistTags?.get(artist.name.toLowerCase()) ?? []).slice(0, 3).forEach((genre) => fallbackGenres.add(genre));
+      });
+
+      fallbackGenres.forEach((genre) => {
+        const existingGenre = genreTotals.get(genre) ?? { minutes: 0, plays: 0 };
+        genreTotals.set(genre, {
+          minutes: existingGenre.minutes + minutes / Math.max(1, fallbackGenres.size),
+          plays: existingGenre.plays + 1,
+        });
+      });
+    });
+  }
+
   const topGenres = [...genreTotals.entries()]
     .sort((a, b) => b[1].minutes - a[1].minutes || b[1].plays - a[1].plays)
     .slice(0, 4)
@@ -1339,6 +1397,30 @@ function buildAnalysisHighlights(
       label: genre,
       value: `${Math.round(value.minutes)} min`,
       detail: `${value.plays} contributing play${value.plays === 1 ? "" : "s"}`,
+    }));
+
+  const moodCounts = new Map<string, number>(moodOrder.map((mood) => [mood, 0]));
+  moodEntries.forEach((mood) => {
+    if (mood) {
+      moodCounts.set(mood, (moodCounts.get(mood) ?? 0) + 1);
+    }
+  });
+
+  if ([...moodCounts.values()].every((value) => value === 0)) {
+    const inferredMoods = deriveMoodDataFromGenreNames(topGenres.map((item) => item.label));
+    inferredMoods.forEach((entry) => {
+      moodCounts.set(entry.mood, entry.share);
+    });
+  }
+
+  const totalMoodScore = [...moodCounts.values()].reduce((sum, value) => sum + value, 0) || 1;
+  const topMoods = [...moodCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map<DashboardAnalysisHighlight>(([mood, value]) => ({
+      label: mood,
+      value: `${Math.round((value / totalMoodScore) * 100)}%`,
+      detail: value > 0 ? `${value} matched play${value === 1 ? "" : "s"} in this slice` : "Estimated from genre fallback",
     }));
 
   const periodBreakdown = heatmapPeriods.map<DashboardAnalysisHighlight>((period) => {
@@ -1356,6 +1438,7 @@ function buildAnalysisHighlights(
     topArtists,
     topAlbums,
     topGenres,
+    topMoods,
     periodBreakdown,
   };
 }
@@ -1718,8 +1801,15 @@ export async function getDashboardAnalysisDetail(
     const scopedMeta = targetBucket
       ? recentMoodMeta.filter((meta) => getTrendBucketKeyForPlay(meta.item.played_at, range) === targetBucket.key)
       : recentMoodMeta;
-    const entries = scopedMeta.map(toAnalysisEntry);
-    const highlights = buildAnalysisHighlights(scopedMeta.map((meta) => meta.item), sortedSnapshots, filterLabel);
+    const playCountByTrackId = new Map<string, number>();
+    scopedMeta.forEach((meta) => {
+      playCountByTrackId.set(meta.item.track.id, (playCountByTrackId.get(meta.item.track.id) ?? 0) + 1);
+    });
+    const entries = scopedMeta.map((meta) => ({
+      ...toAnalysisEntry(meta),
+      playCount: playCountByTrackId.get(meta.item.track.id) ?? 1,
+    }));
+    const highlights = await buildAnalysisHighlights(scopedMeta.map((meta) => meta.item), sortedSnapshots, filterLabel, scopedMeta.map((meta) => meta.mood));
 
     return {
       section: "trend",
@@ -1758,7 +1848,11 @@ export async function getDashboardAnalysisDetail(
     subtitle = `Listening sessions grouped under ${targetPeriod.toLowerCase()} for ${filterLabel.toLowerCase()}.`;
   }
 
-  const highlights = buildAnalysisHighlights(filtered.map((meta) => meta.item), sortedSnapshots, filterLabel);
+  const playCountByTrackId = new Map<string, number>();
+  filtered.forEach((meta) => {
+    playCountByTrackId.set(meta.item.track.id, (playCountByTrackId.get(meta.item.track.id) ?? 0) + 1);
+  });
+  const highlights = await buildAnalysisHighlights(filtered.map((meta) => meta.item), sortedSnapshots, filterLabel, filtered.map((meta) => meta.mood));
 
   return {
     section: "heatmap",
@@ -1771,7 +1865,10 @@ export async function getDashboardAnalysisDetail(
     range,
     from,
     to,
-    entries: filtered.map(toAnalysisEntry),
+    entries: filtered.map((meta) => ({
+      ...toAnalysisEntry(meta),
+      playCount: playCountByTrackId.get(meta.item.track.id) ?? 1,
+    })),
     ...highlights,
   };
 }
@@ -1820,6 +1917,10 @@ export async function getDashboardAnalysisDetailFromHistory(
     const scopedRecent = targetBucket
       ? recent.filter((item) => getTrendBucketKeyForPlay(item.played_at, range) === targetBucket.key)
       : recent;
+    const playCountByTrackId = new Map<string, number>();
+    scopedRecent.forEach((item) => {
+      playCountByTrackId.set(item.track.id, (playCountByTrackId.get(item.track.id) ?? 0) + 1);
+    });
     const entries = scopedRecent
       .map((item) => ({
         trackId: item.track.id,
@@ -1830,8 +1931,9 @@ export async function getDashboardAnalysisDetailFromHistory(
         playedAt: item.played_at,
         durationMs: item.track.duration_ms,
         period: getDayPeriod(new Date(item.played_at)),
+        playCount: playCountByTrackId.get(item.track.id) ?? 1,
       }));
-    const highlights = buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel);
+    const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);
 
     return {
       section: "trend",
@@ -1853,6 +1955,10 @@ export async function getDashboardAnalysisDetailFromHistory(
   const scopedRecent = targetPeriod
     ? recent.filter((item) => getDayPeriod(new Date(item.played_at)) === targetPeriod)
     : recent;
+  const playCountByTrackId = new Map<string, number>();
+  scopedRecent.forEach((item) => {
+    playCountByTrackId.set(item.track.id, (playCountByTrackId.get(item.track.id) ?? 0) + 1);
+  });
   const entries = scopedRecent
     .map((item) => ({
       trackId: item.track.id,
@@ -1863,8 +1969,9 @@ export async function getDashboardAnalysisDetailFromHistory(
       playedAt: item.played_at,
       durationMs: item.track.duration_ms,
       period: getDayPeriod(new Date(item.played_at)),
+      playCount: playCountByTrackId.get(item.track.id) ?? 1,
     }));
-  const highlights = buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel);
+  const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);
 
   return {
     section: "heatmap",

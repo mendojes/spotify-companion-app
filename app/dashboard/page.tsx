@@ -385,7 +385,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   ]);
 
   if (cachedSnapshots.value && cachedSnapshots.value.length > 0) {
-    insights = (await getDashboardInsightsFromSnapshots(cachedSnapshots.value, selectedRange)) ?? undefined;
+    insights = (await getDashboardInsightsFromSnapshots(
+      cachedSnapshots.value,
+      selectedRange,
+      activeSession.accessToken,
+      activeSession.spotifyUserId,
+    )) ?? undefined;
   }
 
   topLists = cachedTopLists.value ?? undefined;

@@ -19,11 +19,11 @@
   --mint: #b3ffe2;
   --gold: #ffe48f;
   --theme-title: #35164f;
-  --theme-text: #4f1f77;
-  --theme-body: #522970;
-  --theme-muted: #4a236c;
-  --theme-faint: #654783;
-  --theme-badge: #4c1d73;
+  --theme-text: #3a135c;
+  --theme-body: #472164;
+  --theme-muted: #3d1b59;
+  --theme-faint: #5a3a77;
+  --theme-badge: #42185f;
   --theme-accent: #b5348d;
   --theme-highlight: #1188a8;
   --chart-axis: #2b0d46;
@@ -408,6 +408,31 @@ html[data-theme="dark"] .desktop-card .section-kicker {
   border: 2px solid rgba(57, 18, 98, 0.26);
   background: rgba(255, 250, 255, 0.58);
   box-shadow: 0 0 0 1px rgba(255,255,255,0.28) inset;
+}
+
+html:not([data-theme="dark"]) .text-cyan,
+html:not([data-theme="dark"]) .hover\:text-cyan:hover {
+  color: #0f6f88;
+}
+
+html:not([data-theme="dark"]) .text-gold,
+html:not([data-theme="dark"]) .hover\:text-gold:hover {
+  color: #8a5a00;
+}
+
+html:not([data-theme="dark"]) .text-ink {
+  color: var(--theme-title);
+}
+
+html:not([data-theme="dark"]) input,
+html:not([data-theme="dark"]) select,
+html:not([data-theme="dark"]) textarea {
+  color: var(--theme-title);
+}
+
+html:not([data-theme="dark"]) input::placeholder,
+html:not([data-theme="dark"]) textarea::placeholder {
+  color: var(--theme-faint);
 }
 
 :root[data-theme="dark"] {

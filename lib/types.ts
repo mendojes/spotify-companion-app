@@ -180,6 +180,7 @@ export type DashboardAnalysisEntry = {
   durationMs: number;
   mood?: string;
   period?: string;
+  playCount?: number;
 };
 
 export type DashboardAnalysisHighlight = {
@@ -200,6 +201,7 @@ export type DashboardAnalysisDetail = {
   topArtists: DashboardAnalysisHighlight[];
   topAlbums: DashboardAnalysisHighlight[];
   topGenres: DashboardAnalysisHighlight[];
+  topMoods: DashboardAnalysisHighlight[];
   periodBreakdown: DashboardAnalysisHighlight[];
   entries: DashboardAnalysisEntry[];
 };
