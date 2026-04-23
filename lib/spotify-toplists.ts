@@ -437,28 +437,6 @@ function buildArtistMetadataFromSnapshots(snapshots: SpotifyDashboardSnapshot[])
       metadata.set(key, existing);
     });
 
-    const snapshotTracks = [
-      ...snapshot.topTracks,
-      ...(snapshot.mediumTermTopTracks ?? []),
-      ...(snapshot.longTermTopTracks ?? []),
-    ];
-
-    snapshotTracks.forEach((track) => {
-      const imageUrl = track.album.images?.[0]?.url;
-      if (!imageUrl) {
-        return;
-      }
-
-      track.artists.forEach((artist) => {
-        const key = artist.name.toLowerCase();
-        const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
-        if (!existing.imageUrl) {
-          existing.imageUrl = imageUrl;
-        }
-        metadata.set(key, existing);
-      });
-    });
-
     Object.values(snapshot.cachedTopLists ?? {}).forEach((cachedList) => {
       cachedList.artists.forEach((artist) => {
         const key = artist.name.toLowerCase();
@@ -568,7 +546,7 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
         name: artistName,
         score: 0,
         playCount: 0,
-        imageUrl: metadata?.imageUrl ?? play.imageUrl,
+        imageUrl: metadata?.imageUrl,
         genres: metadata?.genres ?? [],
       };
 
@@ -576,9 +554,6 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
       existing.playCount += 1;
       if (!existing.imageUrl && metadata?.imageUrl) {
         existing.imageUrl = metadata.imageUrl;
-      }
-      if (!existing.imageUrl && play.imageUrl) {
-        existing.imageUrl = play.imageUrl;
       }
       if (existing.genres.length === 0 && metadata?.genres?.length) {
         existing.genres = metadata.genres;

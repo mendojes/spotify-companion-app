@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
-import { touchConnectedUser } from "@/lib/connected-users";
+import { getSession, hasSpotifyConnection } from "@/lib/auth";
 import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
@@ -52,18 +51,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Spotify connection required." }, { status: 403 });
   }
 
-  let authorizedSession: AuthorizedSession;
-
-  try {
-    authorizedSession = await getAuthorizedSession(session);
-  } catch (error) {
-    if (isSessionRefreshFailure(error)) {
-      return NextResponse.json({ error: "Session refresh failed." }, { status: 401 });
-    }
-
-    throw error;
-  }
-
   const { searchParams } = new URL(request.url);
   const selectedRange = normalizeRange(searchParams.get("range") ?? undefined);
   const selectedTopRange = normalizeTopRange(searchParams.get("topRange") ?? undefined);
@@ -72,10 +59,8 @@ export async function GET(request: NextRequest) {
   const selectedHeroRange = dashboardRangeToTopListRange(selectedRange);
 
   try {
-    await touchConnectedUser(session.spotifyUserId);
-
     const [insights, topLists, heroTopLists] = await Promise.all([
-      getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange, authorizedSession.accessToken),
+      getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange),
       getSpotifyTopListsFromHistory(session.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
       getSpotifyTopListsFromHistory(session.spotifyUserId, selectedHeroRange),
     ]);

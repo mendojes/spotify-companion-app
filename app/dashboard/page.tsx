@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
-import { AuthorizedSession, getAuthorizedSession, hasSpotifyConnection, isSessionRefreshFailure, requireSession } from "@/lib/auth";
+import { hasSpotifyConnection, requireSession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { getDashboardPlaylistInsights } from "@/lib/spotify-playlists";
@@ -336,18 +336,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     );
   }
 
-  let activeSession: AuthorizedSession;
-
-  try {
-    activeSession = await getAuthorizedSession(session);
-  } catch (error) {
-    if (isSessionRefreshFailure(error)) {
-      redirect("/login?error=session_refresh_failed");
-    }
-
-    throw error;
-  }
-
   const selectedRange = normalizeRange(range);
   const selectedTopRange = normalizeTopRange(topRange);
   const selectedTopFrom = normalizeDate(topFrom);
@@ -360,26 +348,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let dashboardError: string | null = null;
 
   const [cachedSnapshots, cachedPlaylistInsights, cachedTopLists, cachedHeroTopLists] = await Promise.all([
-    settleCacheLoad("dashboard cache", () => getSharedDashboardCacheSnapshots(activeSession.spotifyUserId)),
-    settleCacheLoad("playlist insights", () => getDashboardPlaylistInsights(activeSession.spotifyUserId)),
+    settleCacheLoad("dashboard cache", () => getSharedDashboardCacheSnapshots(session.spotifyUserId)),
+    settleCacheLoad("playlist insights", () => getDashboardPlaylistInsights(session.spotifyUserId)),
     settleCacheLoad("top lists", () =>
       getSpotifyTopListsFromHistory(
-        activeSession.spotifyUserId,
+        session.spotifyUserId,
         selectedTopRange,
         undefined,
         selectedTopFrom,
         selectedTopTo,
-        activeSession.accessToken,
       ),
     ),
     settleCacheLoad("hero top lists", () =>
       getSpotifyTopListsFromHistory(
-        activeSession.spotifyUserId,
+        session.spotifyUserId,
         selectedHeroRange,
-        undefined,
-        undefined,
-        undefined,
-        activeSession.accessToken,
       ),
     ),
   ]);
@@ -388,8 +371,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     insights = (await getDashboardInsightsFromSnapshots(
       cachedSnapshots.value,
       selectedRange,
-      activeSession.accessToken,
-      activeSession.spotifyUserId,
+      undefined,
+      session.spotifyUserId,
     )) ?? undefined;
   }
 
