@@ -712,7 +712,7 @@ function scrapePlaylistTrackItemsFromHtml(html: string) {
   return chunks
     .map((chunk): PlaylistTrackWithMeta | null => {
       const trackId = chunk.match(/href="\/track\/([A-Za-z0-9]{22})"/)?.[1];
-      const title = chunk.match(/aria-label="([^"]+)"/)?.[1];
+      const title = chunk.match(/data-encore-id="listRowTitle"[^>]*><span[^>]*>([^<]+)<\/span>/)?.[1];
       const imageUrl = chunk.match(/<img[^>]+src="([^"]+)"/)?.[1];
       const artists = [...chunk.matchAll(/href="\/artist\/([A-Za-z0-9]{22})"[^>]*>([^<]+)<\/a>/g)]
         .map((match) => ({
@@ -846,6 +846,7 @@ async function fetchAllPlaylists(accessToken: string) {
 async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) {
   const tracks: PlaylistTrackWithMeta[] = [];
   let offset = 0;
+  let shouldUsePublicFallback = false;
 
   while (true) {
     let response: SpotifyPlaylistTracksResponse;
@@ -859,7 +860,8 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
         break;
       }
 
-      throw new Error("Could not fetch playlist items.");
+      shouldUsePublicFallback = true;
+      break;
     }
 
     const pageTracks = response.items
@@ -888,6 +890,10 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
 
   if (tracks.length > 0) {
     return tracks;
+  }
+
+  if (shouldUsePublicFallback) {
+    return fetchPublicPlaylistTrackItems(accessToken, playlistId);
   }
 
   return fetchPublicPlaylistTrackItems(accessToken, playlistId);
