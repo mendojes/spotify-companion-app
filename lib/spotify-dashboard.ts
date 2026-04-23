@@ -30,9 +30,9 @@ import { getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-act
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { buildCachedTopListsForSnapshot, SNAPSHOT_TOP_LISTS_SCHEMA_VERSION } from "@/lib/spotify-toplists";
 import { PST_TIME_ZONE } from "@/lib/time";
+import { moodOrder } from "@/lib/moods";
 
 const genreColors = ["#31E7FF", "#53F8B7", "#FFD166", "#FF6B6B", "#2B59FF"];
-const moodOrder = ["Energetic", "Chill", "Moody", "Joyful", "Focus"] as const;
 const heatmapPeriods = ["Morning", "Afternoon", "Evening", "Late Night"] as const;
 const SNAPSHOT_REFRESH_TTL_MS = 1000 * 60 * 15;
 const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = true;
@@ -654,13 +654,23 @@ async function fetchMusicBrainzArtistTags(artistNames: string[]) {
 
 function getMoodScores(feature: SpotifyAudioFeature) {
   const tempoNorm = Math.min(1, Math.max(0, (feature.tempo - 70) / 90));
+  const lowValence = 1 - feature.valence;
+  const lowEnergy = 1 - feature.energy;
+  const midEnergy = 1 - Math.min(1, Math.abs(feature.energy - 0.58) / 0.58);
+  const highAcoustic = feature.acousticness;
+  const highInstrumental = feature.instrumentalness;
+  const lowSpeech = 1 - feature.speechiness;
+  const nightDriveBalance = 1 - Math.min(1, Math.abs(feature.valence - 0.45) / 0.55);
 
   return {
-    Energetic: feature.energy * 0.45 + feature.danceability * 0.25 + tempoNorm * 0.2 + feature.valence * 0.1,
-    Chill: (1 - feature.energy) * 0.45 + feature.acousticness * 0.35 + (1 - tempoNorm) * 0.2,
-    Moody: (1 - feature.valence) * 0.5 + (1 - feature.energy) * 0.25 + feature.acousticness * 0.25,
-    Joyful: feature.valence * 0.5 + feature.danceability * 0.3 + feature.energy * 0.2,
-    Focus: feature.instrumentalness * 0.45 + (1 - feature.speechiness) * 0.3 + (1 - Math.abs(feature.energy - 0.45)) * 0.25,
+    "Adrenaline Rush": feature.energy * 0.4 + feature.danceability * 0.2 + tempoNorm * 0.25 + feature.valence * 0.15,
+    "Neon Drift": midEnergy * 0.3 + nightDriveBalance * 0.2 + feature.danceability * 0.2 + lowSpeech * 0.15 + lowValence * 0.15,
+    Dreamwash: lowEnergy * 0.28 + highAcoustic * 0.32 + lowSpeech * 0.15 + (1 - tempoNorm) * 0.15 + midEnergy * 0.1,
+    "Melancholy Glow": lowValence * 0.45 + highAcoustic * 0.2 + lowEnergy * 0.2 + lowSpeech * 0.15,
+    "Bright Pulse": feature.valence * 0.42 + feature.danceability * 0.28 + feature.energy * 0.2 + tempoNorm * 0.1,
+    "Flow State": highInstrumental * 0.42 + lowSpeech * 0.28 + (1 - Math.abs(feature.energy - 0.42)) * 0.2 + highAcoustic * 0.1,
+    Cathartic: lowValence * 0.28 + feature.energy * 0.28 + feature.danceability * 0.12 + tempoNorm * 0.16 + highAcoustic * 0.16,
+    Swagger: feature.danceability * 0.35 + feature.energy * 0.18 + lowSpeech * 0.12 + feature.valence * 0.1 + (1 - highAcoustic) * 0.15 + midEnergy * 0.1,
   } as const;
 }
 
@@ -689,11 +699,14 @@ function getDayPeriod(date: Date) {
 
 function deriveMoodDataFromGenres(topArtists: SpotifyArtist[]) {
   const buckets = [
-    { mood: "Energetic", energy: 84, matchers: ["dance", "house", "edm", "electro", "hyperpop", "punk"] },
-    { mood: "Chill", energy: 38, matchers: ["ambient", "chill", "dream", "lo-fi", "indie pop"] },
-    { mood: "Moody", energy: 47, matchers: ["sad", "emo", "singer-songwriter", "grunge", "melanch"] },
-    { mood: "Joyful", energy: 69, matchers: ["pop", "funk", "disco", "soul", "groove"] },
-    { mood: "Focus", energy: 56, matchers: ["classical", "instrumental", "study", "jazz", "soundtrack"] },
+    { mood: "Adrenaline Rush", energy: 88, matchers: ["dance", "house", "edm", "electro", "hyperpop", "drum and bass", "punk", "hardcore"] },
+    { mood: "Neon Drift", energy: 58, matchers: ["synthwave", "night", "alternative r&b", "trip-hop", "downtempo", "neo-soul"] },
+    { mood: "Dreamwash", energy: 34, matchers: ["ambient", "chill", "dream", "lo-fi", "shoegaze", "bedroom pop"] },
+    { mood: "Melancholy Glow", energy: 42, matchers: ["sad", "emo", "singer-songwriter", "grunge", "melanch", "slowcore"] },
+    { mood: "Bright Pulse", energy: 72, matchers: ["pop", "funk", "disco", "soul", "groove", "nu-disco"] },
+    { mood: "Flow State", energy: 50, matchers: ["classical", "instrumental", "study", "jazz", "soundtrack", "post-rock"] },
+    { mood: "Cathartic", energy: 68, matchers: ["metalcore", "post-hardcore", "alt rock", "indie rock", "arena rock", "gospel"] },
+    { mood: "Swagger", energy: 66, matchers: ["hip hop", "rap", "trap", "phonk", "afrobeats", "dancehall"] },
   ] as const;
 
   const scores = new Map<string, number>(buckets.map((bucket) => [bucket.mood, 1]));
@@ -711,7 +724,7 @@ function deriveMoodDataFromGenres(topArtists: SpotifyArtist[]) {
     }
 
     if (!matched) {
-      scores.set("Joyful", (scores.get("Joyful") ?? 0) + 1);
+      scores.set("Bright Pulse", (scores.get("Bright Pulse") ?? 0) + 1);
     }
   });
 
@@ -729,10 +742,10 @@ function deriveMoodDataFromGenres(topArtists: SpotifyArtist[]) {
 
 function deriveMoodHeatmapFallback(moodData: MoodPoint[]): MoodHeatmapCell[] {
   const emphasis: Record<(typeof heatmapPeriods)[number], Partial<Record<(typeof moodOrder)[number], number>>> = {
-    Morning: { Focus: 1.2, Chill: 1.05, Joyful: 0.8, Energetic: 0.5, Moody: 0.35 },
-    Afternoon: { Energetic: 1.15, Joyful: 1.05, Focus: 0.8, Chill: 0.5, Moody: 0.3 },
-    Evening: { Energetic: 0.95, Joyful: 0.9, Moody: 0.85, Chill: 0.7, Focus: 0.35 },
-    "Late Night": { Chill: 1.2, Moody: 1.1, Focus: 0.8, Joyful: 0.45, Energetic: 0.3 },
+    Morning: { "Flow State": 1.22, Dreamwash: 1.05, "Bright Pulse": 0.82, "Adrenaline Rush": 0.58, "Melancholy Glow": 0.34, Cathartic: 0.42, Swagger: 0.52, "Neon Drift": 0.4 },
+    Afternoon: { "Adrenaline Rush": 1.12, "Bright Pulse": 1.06, Swagger: 0.94, "Flow State": 0.86, Cathartic: 0.72, Dreamwash: 0.48, "Neon Drift": 0.42, "Melancholy Glow": 0.3 },
+    Evening: { "Neon Drift": 1.12, Cathartic: 1.02, Swagger: 0.9, "Bright Pulse": 0.88, "Adrenaline Rush": 0.82, "Melancholy Glow": 0.86, Dreamwash: 0.74, "Flow State": 0.38 },
+    "Late Night": { "Neon Drift": 1.24, "Melancholy Glow": 1.08, Dreamwash: 1.02, Swagger: 0.82, Cathartic: 0.72, "Flow State": 0.62, "Bright Pulse": 0.42, "Adrenaline Rush": 0.28 },
   };
 
   const rawCells = heatmapPeriods.flatMap((period) =>
@@ -1224,11 +1237,14 @@ function buildAnalysisArtistGenreLookup(snapshots: SpotifyDashboardSnapshot[]) {
 
 function deriveMoodDataFromGenreNames(genreNames: string[]) {
   const buckets = [
-    { mood: "Energetic", energy: 84, matchers: ["dance", "house", "edm", "electro", "hyperpop", "punk"] },
-    { mood: "Chill", energy: 38, matchers: ["ambient", "chill", "dream", "lo-fi", "indie pop"] },
-    { mood: "Moody", energy: 47, matchers: ["sad", "emo", "singer-songwriter", "grunge", "melanch"] },
-    { mood: "Joyful", energy: 69, matchers: ["pop", "funk", "disco", "soul", "groove"] },
-    { mood: "Focus", energy: 56, matchers: ["classical", "instrumental", "study", "jazz", "soundtrack"] },
+    { mood: "Adrenaline Rush", energy: 88, matchers: ["dance", "house", "edm", "electro", "hyperpop", "drum and bass", "punk", "hardcore"] },
+    { mood: "Neon Drift", energy: 58, matchers: ["synthwave", "night", "alternative r&b", "trip-hop", "downtempo", "neo-soul"] },
+    { mood: "Dreamwash", energy: 34, matchers: ["ambient", "chill", "dream", "lo-fi", "shoegaze", "bedroom pop"] },
+    { mood: "Melancholy Glow", energy: 42, matchers: ["sad", "emo", "singer-songwriter", "grunge", "melanch", "slowcore"] },
+    { mood: "Bright Pulse", energy: 72, matchers: ["pop", "funk", "disco", "soul", "groove", "nu-disco"] },
+    { mood: "Flow State", energy: 50, matchers: ["classical", "instrumental", "study", "jazz", "soundtrack", "post-rock"] },
+    { mood: "Cathartic", energy: 68, matchers: ["metalcore", "post-hardcore", "alt rock", "indie rock", "arena rock", "gospel"] },
+    { mood: "Swagger", energy: 66, matchers: ["hip hop", "rap", "trap", "phonk", "afrobeats", "dancehall"] },
   ] as const;
 
   const scores = new Map<string, number>(buckets.map((bucket) => [bucket.mood, 1]));
@@ -1245,7 +1261,7 @@ function deriveMoodDataFromGenreNames(genreNames: string[]) {
     }
 
     if (!matched) {
-      scores.set("Joyful", (scores.get("Joyful") ?? 0) + 0.5);
+      scores.set("Bright Pulse", (scores.get("Bright Pulse") ?? 0) + 0.5);
     }
   });
 

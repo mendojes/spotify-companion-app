@@ -30,6 +30,7 @@ import {
   trendData,
 } from "@/lib/mock-data";
 import { buildRediscoveryPlaylist, getVibeSummary } from "@/lib/insights";
+import { getMoodDescription, moodColors, moodOrder } from "@/lib/moods";
 import { formatPstDateTime, PST_LABEL, PST_TIME_ZONE } from "@/lib/time";
 import {
   DashboardInsights,
@@ -93,9 +94,6 @@ type DashboardData = {
   snapshotCount?: number;
   range: DashboardRange;
 };
-
-const moodColors = ["#7AF7FF", "#6E82FF", "#FF5EC9", "#FFD37B", "#8EFFD1"];
-const moodOrder = ["Energetic", "Chill", "Moody", "Joyful", "Focus"];
 
 function getData(mode: DashboardViewProps["mode"], insights?: DashboardInsights): DashboardData {
   if (mode === "authenticated" && insights) {
@@ -844,6 +842,20 @@ export function DashboardView({
                         <Tooltip contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }} />
                       </PieChart>
                     </ResponsiveContainer>
+                  </div>
+                  <div className="mt-5 grid gap-3">
+                    {[...data.moodData]
+                      .sort((a, b) => b.share - a.share)
+                      .slice(0, 3)
+                      .map((entry) => (
+                        <div key={entry.mood} className="desktop-card px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{entry.mood}</p>
+                            <p className="font-mono text-lg uppercase text-[var(--theme-highlight)]">{entry.share}%</p>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{getMoodDescription(entry.mood)}</p>
+                        </div>
+                      ))}
                   </div>
                 </div>
 

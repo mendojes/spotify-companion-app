@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSpotifySession } from "@/lib/auth";
+import { getMoodDescription } from "@/lib/moods";
 import { getDashboardAnalysisDetailFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
@@ -391,6 +392,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                       <p className="font-mono text-lg uppercase text-gold">{item.value}</p>
                     </div>
                     <p className="mt-1 text-sm text-[var(--theme-body)]">{item.detail}</p>
+                    <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{getMoodDescription(item.label)}</p>
                   </div>
                 ))}
               </div>
