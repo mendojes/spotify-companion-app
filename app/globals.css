@@ -229,6 +229,14 @@ body::-webkit-scrollbar-thumb {
   color: rgba(74, 35, 108, 0.92);
 }
 
+.panel-eyebrow {
+  font-family: var(--font-vt323), monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8a5a00;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
 .scan-lines {
   position: relative;
 }
@@ -581,6 +589,11 @@ html[data-theme="dark"] .gradient-text {
 
 html[data-theme="dark"] .section-kicker {
   color: rgba(255, 214, 243, 0.84);
+}
+
+html[data-theme="dark"] .panel-eyebrow {
+  color: rgba(255, 214, 243, 0.84);
+  text-shadow: none;
 }
 
 html[data-theme="dark"] .scan-lines::after {

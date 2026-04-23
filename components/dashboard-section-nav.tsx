@@ -7,13 +7,21 @@ export function DashboardSectionNav({ spotifyConnected = true }: { spotifyConnec
   const pathname = usePathname();
   const sections = [
     { href: "/dashboard", label: "Overview", match: (value: string) => value === "/dashboard" },
-    { href: "/dashboard/favorite-picker", label: "Favorite Picker", match: (value: string) => value.startsWith("/dashboard/favorite-picker") },
+    ...(spotifyConnected
+      ? [
+        { href: "/dashboard/top-lists", label: "Top Lists", match: (value: string) => value.startsWith("/dashboard/top-lists") },
+        { href: "/dashboard/analysis", label: "Analysis", match: (value: string) => value.startsWith("/dashboard/analysis") },
+      ]
+      : []),
     { href: "/dashboard/playlists", label: "Playlists", match: (value: string) => value.startsWith("/dashboard/playlists") },
     ...(spotifyConnected
       ? [
-        { href: "/dashboard/analysis", label: "Analysis", match: (value: string) => value.startsWith("/dashboard/analysis") },
-        { href: "/dashboard/top-lists", label: "Top Lists", match: (value: string) => value.startsWith("/dashboard/top-lists") },
         { href: "/dashboard/rediscovery", label: "Rediscovery", match: (value: string) => value.startsWith("/dashboard/rediscovery") },
+      ]
+      : []),
+    { href: "/dashboard/favorite-picker", label: "Favorite Picker", match: (value: string) => value.startsWith("/dashboard/favorite-picker") },
+    ...(spotifyConnected
+      ? [
         { href: "/dashboard/recent", label: "Recent", match: (value: string) => value.startsWith("/dashboard/recent") },
       ]
       : []),

@@ -225,7 +225,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
       <div className="mx-auto max-w-7xl space-y-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-3xl space-y-3">
-            <p className="text-sm uppercase tracking-[0.3em] text-gold/75">Analysis Drilldown</p>
+            <p className="panel-eyebrow text-sm tracking-[0.3em]">Analysis Drilldown</p>
             <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">{detail.title}</h1>
             <p className="text-base leading-7 text-[var(--theme-body)]">{detail.subtitle}</p>
           </div>
@@ -292,7 +292,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
         <div className="glass-panel rounded-[34px] p-6 md:p-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-gold/70">{detail.section === "trend" ? "Trend analysis" : "Time-of-day analysis"}</p>
+              <p className="panel-eyebrow text-sm tracking-[0.24em]">{detail.section === "trend" ? "Trend analysis" : "Time-of-day analysis"}</p>
               <h2 className="mt-2 font-display text-3xl text-[var(--theme-title)]">{detail.filterLabel}</h2>
             </div>
             <div className="text-right text-sm text-[var(--theme-muted)]">
@@ -319,7 +319,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
             <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-gold/70">Top artists</p>
+                  <p className="panel-eyebrow text-xs">Top artists</p>
                   <h3 className="mt-2 font-display text-2xl text-[var(--theme-title)]">Who drove the window</h3>
                 </div>
                 <Link href={`/dashboard/top-lists?range=${selectedRange}${topListsQuery}`} className="text-sm text-cyan transition hover:text-gold">
@@ -344,7 +344,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
             </div>
 
             <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-gold/70">Time pattern</p>
+              <p className="panel-eyebrow text-xs">Time pattern</p>
               <h3 className="mt-2 font-display text-2xl text-[var(--theme-title)]">When you showed up</h3>
               <div className="mt-5 space-y-3">
                 {detail.periodBreakdown.map((item) => (
@@ -362,7 +362,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
 
           <div className="mt-6 grid gap-6 xl:grid-cols-2">
             <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-gold/70">Top albums</p>
+              <p className="panel-eyebrow text-xs">Top albums</p>
               <h3 className="mt-2 font-display text-2xl text-[var(--theme-title)]">Repeat homes in the mix</h3>
               <div className="mt-5 space-y-3">
                 {detail.topAlbums.length === 0 ? (
@@ -382,7 +382,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
             </div>
 
             <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-gold/70">Mood mix</p>
+              <p className="panel-eyebrow text-xs">Mood mix</p>
               <h3 className="mt-2 font-display text-2xl text-[var(--theme-title)]">Vibes in this window</h3>
               <div className="mt-5 space-y-3">
                 {detail.topMoods.map((item) => (
@@ -399,7 +399,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
             </div>
 
             <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-gold/70">Genre pulse</p>
+              <p className="panel-eyebrow text-xs">Genre pulse</p>
               <h3 className="mt-2 font-display text-2xl text-[var(--theme-title)]">Styles behind this window</h3>
               <div className="mt-5 space-y-3">
                 {detail.topGenres.length === 0 ? (
@@ -427,7 +427,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
             <div className="mt-8 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-gold/70">Play history</p>
+                  <p className="panel-eyebrow text-xs">Play history</p>
                   <h3 className="mt-2 font-display text-2xl text-[var(--theme-title)]">Every stored play in this slice</h3>
                 </div>
                 <p className="text-sm text-[var(--theme-muted)]">
