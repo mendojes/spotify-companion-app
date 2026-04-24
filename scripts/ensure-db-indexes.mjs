@@ -7,7 +7,10 @@ const CONNECTED_USERS_COLLECTION = "connected_users";
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const DASHBOARD_OVERVIEW_COLLECTION = "dashboard_overview_cache";
-const DASHBOARD_SECTION_CACHE_COLLECTION = "dashboard_section_cache";
+const DASHBOARD_TOP_LISTS_CACHE_COLLECTION = "dashboard_top_lists_cache";
+const DASHBOARD_ANALYSIS_CACHE_COLLECTION = "dashboard_analysis_cache";
+const DASHBOARD_REDISCOVERY_CACHE_COLLECTION = "dashboard_rediscovery_cache";
+const DASHBOARD_PLAYLISTS_CACHE_COLLECTION = "dashboard_playlists_cache";
 const PLAYLIST_TRACK_CACHE_COLLECTION = "spotify_playlist_track_cache";
 const PLAYLIST_TRACK_SYNC_COLLECTION = "spotify_playlist_track_sync";
 
@@ -36,7 +39,10 @@ try {
     db.collection(RECENT_PLAYS_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, playedAt: -1 }),
     db.collection(SNAPSHOT_HISTORY_COLLECTION).createIndex({ spotifyUserId: 1, fetchedAt: -1 }),
     db.collection(DASHBOARD_OVERVIEW_COLLECTION).createIndex({ spotifyUserId: 1 }, { unique: true }),
-    db.collection(DASHBOARD_SECTION_CACHE_COLLECTION).createIndex({ spotifyUserId: 1 }, { unique: true }),
+    db.collection(DASHBOARD_TOP_LISTS_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, range: 1 }, { unique: true }),
+    db.collection(DASHBOARD_ANALYSIS_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, key: 1 }, { unique: true }),
+    db.collection(DASHBOARD_REDISCOVERY_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, range: 1 }, { unique: true }),
+    db.collection(DASHBOARD_PLAYLISTS_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, sort: 1 }, { unique: true }),
     db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, position: 1 }, { unique: true }),
     db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, updatedAt: -1 }),
     db.collection(PLAYLIST_TRACK_SYNC_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1 }, { unique: true }),

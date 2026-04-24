@@ -5,34 +5,56 @@ import { getPlaylistPageDataFromHistory, PlaylistPageData } from "@/lib/spotify-
 import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { DashboardAnalysisDetail, DashboardInsights, DashboardRange, PlaylistSortOption, TopListRange, TopListsData } from "@/lib/types";
 
-const DASHBOARD_SECTION_CACHE_COLLECTION = "dashboard_section_cache";
 const DASHBOARD_SECTION_RUNTIME_TTL_MS = 1000 * 30;
 const DASHBOARD_RANGE_VALUES: DashboardRange[] = ["week", "month", "all"];
 const TOP_LIST_RANGE_VALUES: Exclude<TopListRange, "custom">[] = ["week", "month", "year", "all"];
 const PLAYLIST_SORT_VALUES: PlaylistSortOption[] = ["created_desc", "created_asc", "last_listened_desc", "last_listened_asc"];
 
-type AnalysisSectionKey = `${DashboardRange}:trend` | `${DashboardRange}:heatmap`;
+const TOP_LISTS_CACHE_COLLECTION = "dashboard_top_lists_cache";
+const ANALYSIS_CACHE_COLLECTION = "dashboard_analysis_cache";
+const REDISCOVERY_CACHE_COLLECTION = "dashboard_rediscovery_cache";
+const PLAYLISTS_CACHE_COLLECTION = "dashboard_playlists_cache";
 
+type AnalysisSectionKey = `${DashboardRange}:trend` | `${DashboardRange}:heatmap`;
 type RediscoverySectionData = Pick<DashboardInsights, "forgottenFavorites" | "quietSavedTracks" | "cachedAt" | "range" | "sourceLabel">;
 
-type StoredDashboardSectionCache = {
+type StoredTopListsCache = {
   spotifyUserId: string;
+  range: Exclude<TopListRange, "custom">;
   updatedAt: string;
-  topListsByRange: Partial<Record<Exclude<TopListRange, "custom">, TopListsData>>;
-  analysisByKey: Partial<Record<AnalysisSectionKey, DashboardAnalysisDetail>>;
-  rediscoveryByRange: Partial<Record<DashboardRange, RediscoverySectionData>>;
-  playlistsBySort: Partial<Record<PlaylistSortOption, PlaylistPageData>>;
+  data: TopListsData;
+};
+
+type StoredAnalysisCache = {
+  spotifyUserId: string;
+  key: AnalysisSectionKey;
+  updatedAt: string;
+  data: DashboardAnalysisDetail;
+};
+
+type StoredRediscoveryCache = {
+  spotifyUserId: string;
+  range: DashboardRange;
+  updatedAt: string;
+  data: RediscoverySectionData;
+};
+
+type StoredPlaylistsCache = {
+  spotifyUserId: string;
+  sort: PlaylistSortOption;
+  updatedAt: string;
+  data: PlaylistPageData;
 };
 
 function logSectionTiming(spotifyUserId: string, section: string, step: string, startedAt: number) {
   console.log(`[dashboard-section] user=${spotifyUserId} section=${section} step=${step} elapsedMs=${Date.now() - startedAt}`);
 }
 
-function sectionRuntimeKey(spotifyUserId: string, section: string) {
-  return `dashboard-section:${spotifyUserId}:${section}`;
+function sectionRuntimeKey(spotifyUserId: string, section: string, suffix: string) {
+  return `dashboard-section:${spotifyUserId}:${section}:${suffix}`;
 }
 
-async function readStoredDashboardSectionCache(spotifyUserId: string): Promise<StoredDashboardSectionCache | null> {
+async function readStoredTopListsCache(spotifyUserId: string, range: Exclude<TopListRange, "custom">) {
   if (!hasMongoConfig()) {
     return null;
   }
@@ -43,17 +65,71 @@ async function readStoredDashboardSectionCache(spotifyUserId: string): Promise<S
       return null;
     }
 
-    return db.collection<StoredDashboardSectionCache>(DASHBOARD_SECTION_CACHE_COLLECTION).findOne({ spotifyUserId });
+    return db.collection<StoredTopListsCache>(TOP_LISTS_CACHE_COLLECTION).findOne({ spotifyUserId, range });
+  } catch {
+    return null;
+  }
+}
+
+async function readStoredAnalysisCache(spotifyUserId: string, key: AnalysisSectionKey) {
+  if (!hasMongoConfig()) {
+    return null;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return null;
+    }
+
+    return db.collection<StoredAnalysisCache>(ANALYSIS_CACHE_COLLECTION).findOne({ spotifyUserId, key });
+  } catch {
+    return null;
+  }
+}
+
+async function readStoredRediscoveryCache(spotifyUserId: string, range: DashboardRange) {
+  if (!hasMongoConfig()) {
+    return null;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return null;
+    }
+
+    return db.collection<StoredRediscoveryCache>(REDISCOVERY_CACHE_COLLECTION).findOne({ spotifyUserId, range });
+  } catch {
+    return null;
+  }
+}
+
+async function readStoredPlaylistsCache(spotifyUserId: string, sort: PlaylistSortOption) {
+  if (!hasMongoConfig()) {
+    return null;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return null;
+    }
+
+    return db.collection<StoredPlaylistsCache>(PLAYLISTS_CACHE_COLLECTION).findOne({ spotifyUserId, sort });
   } catch {
     return null;
   }
 }
 
 export function invalidateDashboardSectionRuntimeCache(spotifyUserId: string) {
-  invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "top-lists"));
-  invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "analysis"));
-  invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "rediscovery"));
-  invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "playlists"));
+  TOP_LIST_RANGE_VALUES.forEach((range) => invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "top-lists", range)));
+  DASHBOARD_RANGE_VALUES.forEach((range) => {
+    invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "analysis", `${range}:trend`));
+    invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "analysis", `${range}:heatmap`));
+    invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "rediscovery", range));
+  });
+  PLAYLIST_SORT_VALUES.forEach((sort) => invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "playlists", sort)));
 }
 
 export async function writeStoredDashboardSectionCache(spotifyUserId: string) {
@@ -62,7 +138,6 @@ export async function writeStoredDashboardSectionCache(spotifyUserId: string) {
   }
 
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
-
   const [topListsEntries, analysisEntries, rediscoveryEntries, playlistsEntries] = await Promise.all([
     Promise.all(
       TOP_LIST_RANGE_VALUES.map(async (range) => [range, await getSpotifyTopListsFromHistory(spotifyUserId, range, FULL_TOP_LIST_LIMIT)] as const),
@@ -98,43 +173,78 @@ export async function writeStoredDashboardSectionCache(spotifyUserId: string) {
     ),
   ]);
 
-  const topListsByRange = Object.fromEntries(
-    topListsEntries.filter((entry): entry is readonly [Exclude<TopListRange, "custom">, TopListsData] => Boolean(entry[1])),
-  ) as Partial<Record<Exclude<TopListRange, "custom">, TopListsData>>;
-  const analysisByKey = Object.fromEntries(
-    analysisEntries.filter((entry): entry is readonly [AnalysisSectionKey, DashboardAnalysisDetail] => Boolean(entry[1])),
-  ) as Partial<Record<AnalysisSectionKey, DashboardAnalysisDetail>>;
-  const rediscoveryByRange = rediscoveryEntries.reduce<Partial<Record<DashboardRange, RediscoverySectionData>>>((acc, [range, value]) => {
-    if (value) {
-      acc[range] = value;
-    }
-
-    return acc;
-  }, {});
-  const playlistsBySort = Object.fromEntries(
-    playlistsEntries.filter((entry): entry is readonly [PlaylistSortOption, PlaylistPageData] => Boolean(entry[1])),
-  ) as Partial<Record<PlaylistSortOption, PlaylistPageData>>;
-
   try {
     const db = await getDatabase();
     if (!db) {
       return;
     }
 
-    await db.collection<StoredDashboardSectionCache>(DASHBOARD_SECTION_CACHE_COLLECTION).updateOne(
-      { spotifyUserId },
-      {
-        $set: {
-          spotifyUserId,
-          updatedAt: new Date().toISOString(),
-          topListsByRange,
-          analysisByKey,
-          rediscoveryByRange,
-          playlistsBySort,
-        },
-      },
-      { upsert: true },
-    );
+    const updatedAt = new Date().toISOString();
+
+    await Promise.all([
+      topListsEntries.length > 0
+        ? db.collection<StoredTopListsCache>(TOP_LISTS_CACHE_COLLECTION).bulkWrite(
+          topListsEntries
+            .filter((entry): entry is readonly [Exclude<TopListRange, "custom">, TopListsData] => Boolean(entry[1]))
+            .map(([range, data]) => ({
+              updateOne: {
+                filter: { spotifyUserId, range },
+                update: { $set: { spotifyUserId, range, updatedAt, data } },
+                upsert: true,
+              },
+            })),
+          { ordered: false },
+        )
+        : Promise.resolve(),
+      analysisEntries.length > 0
+        ? db.collection<StoredAnalysisCache>(ANALYSIS_CACHE_COLLECTION).bulkWrite(
+          analysisEntries
+            .filter((entry): entry is readonly [AnalysisSectionKey, DashboardAnalysisDetail] => Boolean(entry[1]))
+            .map(([key, data]) => ({
+              updateOne: {
+                filter: { spotifyUserId, key },
+                update: { $set: { spotifyUserId, key, updatedAt, data } },
+                upsert: true,
+              },
+            })),
+          { ordered: false },
+        )
+        : Promise.resolve(),
+      rediscoveryEntries.length > 0
+        ? db.collection<StoredRediscoveryCache>(REDISCOVERY_CACHE_COLLECTION).bulkWrite(
+          rediscoveryEntries
+            .reduce<Array<{ range: DashboardRange; data: RediscoverySectionData }>>((acc, [range, data]) => {
+              if (data) {
+                acc.push({ range, data });
+              }
+
+              return acc;
+            }, [])
+            .map(({ range, data }) => ({
+              updateOne: {
+                filter: { spotifyUserId, range },
+                update: { $set: { spotifyUserId, range, updatedAt, data } },
+                upsert: true,
+              },
+            })),
+          { ordered: false },
+        )
+        : Promise.resolve(),
+      playlistsEntries.length > 0
+        ? db.collection<StoredPlaylistsCache>(PLAYLISTS_CACHE_COLLECTION).bulkWrite(
+          playlistsEntries
+            .filter((entry): entry is readonly [PlaylistSortOption, PlaylistPageData] => Boolean(entry[1]))
+            .map(([sort, data]) => ({
+              updateOne: {
+                filter: { spotifyUserId, sort },
+                update: { $set: { spotifyUserId, sort, updatedAt, data } },
+                upsert: true,
+              },
+            })),
+          { ordered: false },
+        )
+        : Promise.resolve(),
+    ]);
   } catch {
     return;
   }
@@ -147,12 +257,12 @@ export async function getStoredTopListsSection(spotifyUserId: string, range: Top
   }
 
   const startedAt = Date.now();
-  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "top-lists"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "top-lists", range), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
     const readStartedAt = Date.now();
-    const stored = await readStoredDashboardSectionCache(spotifyUserId);
+    const stored = await readStoredTopListsCache(spotifyUserId, range);
     logSectionTiming(spotifyUserId, "top-lists", "read-stored-cache", readStartedAt);
-    return stored?.topListsByRange ?? {};
-  }).then((entries) => (entries as Partial<Record<Exclude<TopListRange, "custom">, TopListsData>>)[range] ?? null);
+    return stored?.data ?? null;
+  });
   logSectionTiming(spotifyUserId, "top-lists", result ? "cache-hit" : "cache-miss", startedAt);
   return result;
 }
@@ -170,36 +280,36 @@ export async function getStoredAnalysisSection(
 
   const key = `${range}:${section}` as AnalysisSectionKey;
   const startedAt = Date.now();
-  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "analysis"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "analysis", key), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
     const readStartedAt = Date.now();
-    const stored = await readStoredDashboardSectionCache(spotifyUserId);
+    const stored = await readStoredAnalysisCache(spotifyUserId, key);
     logSectionTiming(spotifyUserId, "analysis", "read-stored-cache", readStartedAt);
-    return stored?.analysisByKey ?? {};
-  }).then((entries) => (entries as Partial<Record<AnalysisSectionKey, DashboardAnalysisDetail>>)[key] ?? null);
+    return stored?.data ?? null;
+  });
   logSectionTiming(spotifyUserId, "analysis", result ? "cache-hit" : "cache-miss", startedAt);
   return result;
 }
 
 export async function getStoredRediscoverySection(spotifyUserId: string, range: DashboardRange) {
   const startedAt = Date.now();
-  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "rediscovery"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "rediscovery", range), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
     const readStartedAt = Date.now();
-    const stored = await readStoredDashboardSectionCache(spotifyUserId);
+    const stored = await readStoredRediscoveryCache(spotifyUserId, range);
     logSectionTiming(spotifyUserId, "rediscovery", "read-stored-cache", readStartedAt);
-    return stored?.rediscoveryByRange ?? {};
-  }).then((entries) => (entries as Partial<Record<DashboardRange, RediscoverySectionData>>)[range] ?? null);
+    return stored?.data ?? null;
+  });
   logSectionTiming(spotifyUserId, "rediscovery", result ? "cache-hit" : "cache-miss", startedAt);
   return result;
 }
 
 export async function getStoredPlaylistsSection(spotifyUserId: string, sort: PlaylistSortOption) {
   const startedAt = Date.now();
-  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "playlists"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "playlists", sort), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
     const readStartedAt = Date.now();
-    const stored = await readStoredDashboardSectionCache(spotifyUserId);
+    const stored = await readStoredPlaylistsCache(spotifyUserId, sort);
     logSectionTiming(spotifyUserId, "playlists", "read-stored-cache", readStartedAt);
-    return stored?.playlistsBySort ?? {};
-  }).then((entries) => (entries as Partial<Record<PlaylistSortOption, PlaylistPageData>>)[sort] ?? null);
+    return stored?.data ?? null;
+  });
   logSectionTiming(spotifyUserId, "playlists", result ? "cache-hit" : "cache-miss", startedAt);
   return result;
 }

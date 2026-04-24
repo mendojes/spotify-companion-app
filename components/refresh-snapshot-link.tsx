@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCcw } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type RefreshSnapshotLinkProps = {
   href: string;
@@ -10,7 +10,17 @@ type RefreshSnapshotLinkProps = {
 
 export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (!isRefreshing) {
+      return;
+    }
+
+    setIsRefreshing(false);
+  }, [isRefreshing, pathname, searchParams]);
 
   async function handleRefresh() {
     if (isRefreshing) {
