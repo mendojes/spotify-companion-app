@@ -143,7 +143,13 @@ export async function writeStoredDashboardOverviewCache(spotifyUserId: string, a
     rangesToBuild.map(async (range) => {
       const rangeAccessToken = accessToken && prioritizedRange === range ? accessToken : undefined;
       const insights = snapshots.length > 0
-        ? await getDashboardInsightsFromSnapshots(snapshots, range, rangeAccessToken, spotifyUserId)
+        ? await getDashboardInsightsFromSnapshots(
+          snapshots,
+          range,
+          rangeAccessToken,
+          spotifyUserId,
+          { includeLivePlaylistInsights: false },
+        )
         : null;
 
       return [

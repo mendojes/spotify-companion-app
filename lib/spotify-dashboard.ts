@@ -53,6 +53,10 @@ type MoodAnalyticsResult = {
   moodHeatmap: MoodHeatmapCell[];
 };
 
+type DashboardInsightOptions = {
+  includeLivePlaylistInsights?: boolean;
+};
+
 type RecentTrackMoodMeta = {
   item: SpotifyRecentlyPlayedItem;
   mood?: (typeof moodOrder)[number];
@@ -1667,6 +1671,7 @@ async function deriveInsights(
   range: DashboardRange,
   accessToken?: string,
   spotifyUserId?: string,
+  options?: DashboardInsightOptions,
 ): Promise<DashboardInsights> {
   const metadataSnapshots = accessToken ? await enrichSnapshotsWithArtistMetadata(snapshots, accessToken) : snapshots;
   const sortedSnapshots = [...metadataSnapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
@@ -1744,7 +1749,9 @@ async function deriveInsights(
       audioFeatureTrackIds.length > 0
         ? spotifyFetchOptional<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${audioFeatureTrackIds.join(",")}`, accessToken)
         : Promise.resolve(null),
-      spotifyUserId ? getAllPlaylistInsights(accessToken, spotifyUserId, "last_listened_desc").then((items) => items.slice(0, 3)).catch(() => null) : Promise.resolve(null),
+      spotifyUserId && options?.includeLivePlaylistInsights !== false
+        ? getAllPlaylistInsights(accessToken, spotifyUserId, "last_listened_desc").then((items) => items.slice(0, 3)).catch(() => null)
+        : Promise.resolve(null),
     ]);
 
     const features = audioFeatureResponse?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
@@ -2228,7 +2235,13 @@ export function invalidateDashboardSnapshotCaches(spotifyUserId: string) {
   });
 }
 
-export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange, accessToken?: string, spotifyUserId?: string) {
+export async function getDashboardInsightsFromSnapshots(
+  snapshots: SpotifyDashboardSnapshot[],
+  range: DashboardRange,
+  accessToken?: string,
+  spotifyUserId?: string,
+  options?: DashboardInsightOptions,
+) {
   const scopedSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
   const relevantSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
   const historicalSnapshots = downsampleSnapshotsForDashboardRange(relevantSnapshots, range);
@@ -2238,9 +2251,9 @@ export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashbo
   }
 
   const latestFetchedAt = historicalSnapshots[0]?.fetchedAt ?? "";
-  const cacheKey = `dashboard-insights:${spotifyUserId ?? "anonymous"}:${range}:${accessToken ? "live" : "cached"}:${latestFetchedAt}:${historicalSnapshots.length}`;
+  const cacheKey = `dashboard-insights:${spotifyUserId ?? "anonymous"}:${range}:${accessToken ? "live" : "cached"}:${options?.includeLivePlaylistInsights === false ? "no-playlists" : "with-playlists"}:${latestFetchedAt}:${historicalSnapshots.length}`;
 
-  return getCachedValue(cacheKey, DASHBOARD_INSIGHTS_CACHE_TTL_MS, () => deriveInsights(historicalSnapshots, range, accessToken, spotifyUserId));
+  return getCachedValue(cacheKey, DASHBOARD_INSIGHTS_CACHE_TTL_MS, () => deriveInsights(historicalSnapshots, range, accessToken, spotifyUserId, options));
 }
 
 export async function getDashboardInsightsFromHistory(spotifyUserId: string, range: DashboardRange, accessToken?: string) {
