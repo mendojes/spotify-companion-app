@@ -132,7 +132,7 @@ export function invalidateDashboardSectionRuntimeCache(spotifyUserId: string) {
   PLAYLIST_SORT_VALUES.forEach((sort) => invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "playlists", sort)));
 }
 
-export async function writeStoredDashboardSectionCache(spotifyUserId: string) {
+export async function writeStoredDashboardSectionCache(spotifyUserId: string, accessToken?: string) {
   if (!hasMongoConfig()) {
     return;
   }
@@ -140,7 +140,10 @@ export async function writeStoredDashboardSectionCache(spotifyUserId: string) {
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
   const [topListsEntries, analysisEntries, rediscoveryEntries, playlistsEntries] = await Promise.all([
     Promise.all(
-      TOP_LIST_RANGE_VALUES.map(async (range) => [range, await getSpotifyTopListsFromHistory(spotifyUserId, range, FULL_TOP_LIST_LIMIT)] as const),
+      TOP_LIST_RANGE_VALUES.map(async (range) => [
+        range,
+        await getSpotifyTopListsFromHistory(spotifyUserId, range, FULL_TOP_LIST_LIMIT, undefined, undefined, accessToken),
+      ] as const),
     ),
     Promise.all(
       DASHBOARD_RANGE_VALUES.flatMap((range) => ([
@@ -151,7 +154,7 @@ export async function writeStoredDashboardSectionCache(spotifyUserId: string) {
     Promise.all(
       DASHBOARD_RANGE_VALUES.map(async (range) => {
         const insights = snapshots.length > 0
-          ? await getDashboardInsightsFromSnapshots(snapshots, range, undefined, spotifyUserId)
+          ? await getDashboardInsightsFromSnapshots(snapshots, range, accessToken, spotifyUserId)
           : null;
 
         return [

@@ -58,8 +58,8 @@ export async function GET(request: NextRequest) {
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
     invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
-    await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId).catch(() => undefined);
-    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
+    await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined);
+    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined);
     invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
   } catch (error) {

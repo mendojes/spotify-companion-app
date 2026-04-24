@@ -684,18 +684,19 @@ function getDominantMood(feature: SpotifyAudioFeature): (typeof moodOrder)[numbe
   return moodOrder.reduce((best, mood) => (scores[mood] > scores[best] ? mood : best), moodOrder[0]);
 }
 
-function getDayPeriod(date: Date) {
-  const hour = date.getHours();
+function getDayPeriod(value: string | Date) {
+  const { hour } = getPacificDateParts(value);
+  const normalizedHour = Number(hour);
 
-  if (hour >= 5 && hour < 11) {
+  if (normalizedHour >= 5 && normalizedHour < 11) {
     return "Morning";
   }
 
-  if (hour >= 11 && hour < 17) {
+  if (normalizedHour >= 11 && normalizedHour < 17) {
     return "Afternoon";
   }
 
-  if (hour >= 17 && hour < 22) {
+  if (normalizedHour >= 17 && normalizedHour < 22) {
     return "Evening";
   }
 
@@ -824,12 +825,21 @@ function deriveMoodAnalytics(
   });
 
   weightedTracks.forEach(({ feature, weight }) => {
-    const dominantMood = getDominantMood(feature);
-    shareScores.set(dominantMood, (shareScores.get(dominantMood) ?? 0) + weight);
-    const energyEntry = energyTotals.get(dominantMood) ?? { total: 0, count: 0 };
-    energyEntry.total += feature.energy * 100 * weight;
-    energyEntry.count += weight;
-    energyTotals.set(dominantMood, energyEntry);
+    const scores = getMoodScores(feature);
+    const normalizedEntries = moodOrder.map((mood) => {
+      const softenedScore = Math.pow(scores[mood], 1.15);
+      return [mood, softenedScore] as const;
+    });
+    const totalScore = normalizedEntries.reduce((sum, [, value]) => sum + value, 0) || 1;
+
+    normalizedEntries.forEach(([mood, value]) => {
+      const contribution = (value / totalScore) * weight;
+      shareScores.set(mood, (shareScores.get(mood) ?? 0) + contribution);
+      const energyEntry = energyTotals.get(mood) ?? { total: 0, count: 0 };
+      energyEntry.total += feature.energy * 100 * contribution;
+      energyEntry.count += contribution;
+      energyTotals.set(mood, energyEntry);
+    });
   });
 
   const totalShare = [...shareScores.values()].reduce((sum, value) => sum + value, 0) || 1;
@@ -850,10 +860,19 @@ function deriveMoodAnalytics(
       return;
     }
 
-    const mood = getDominantMood(feature);
-    const period = getDayPeriod(new Date(item.played_at));
-    const key = `${period}::${mood}`;
-    rawHeatmap.set(key, (rawHeatmap.get(key) ?? 0) + minutesFromMs(item.track.duration_ms));
+    const period = getDayPeriod(item.played_at);
+    const scores = getMoodScores(feature);
+    const normalizedEntries = moodOrder.map((mood) => {
+      const softenedScore = Math.pow(scores[mood], 1.1);
+      return [mood, softenedScore] as const;
+    });
+    const totalScore = normalizedEntries.reduce((sum, [, value]) => sum + value, 0) || 1;
+
+    normalizedEntries.forEach(([mood, value]) => {
+      const key = `${period}::${mood}`;
+      const minutes = (value / totalScore) * minutesFromMs(item.track.duration_ms);
+      rawHeatmap.set(key, (rawHeatmap.get(key) ?? 0) + minutes);
+    });
   });
 
   const maxMinutes = Math.max(...rawHeatmap.values(), 1);
@@ -1174,7 +1193,7 @@ function buildRecentMoodMeta(recent: SpotifyRecentlyPlayedItem[], audioFeatures:
     return {
       item,
       mood: feature ? getDominantMood(feature) : undefined,
-      period: getDayPeriod(new Date(item.played_at)),
+      period: getDayPeriod(item.played_at),
     };
   });
 }
@@ -1303,7 +1322,7 @@ async function buildAnalysisHighlights(
 
   recent.forEach((item) => {
     const minutes = minutesFromMs(item.track.duration_ms);
-    const period = getDayPeriod(new Date(item.played_at));
+    const period = getDayPeriod(item.played_at);
     const dayKey = toPacificDateKey(item.played_at);
 
     periodTotals.set(period, {
@@ -1971,7 +1990,7 @@ export async function getDashboardAnalysisDetailFromHistory(
           imageUrl: item.track.album.images?.[0]?.url,
           playedAt: item.played_at,
           durationMs: item.track.duration_ms,
-          period: getDayPeriod(new Date(item.played_at)),
+          period: getDayPeriod(item.played_at),
           playCount: playCountByTrackId.get(item.track.id) ?? 1,
         }));
       const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);
@@ -1994,7 +2013,7 @@ export async function getDashboardAnalysisDetailFromHistory(
       ? options.period as (typeof heatmapPeriods)[number]
       : undefined;
     const scopedRecent = targetPeriod
-      ? recent.filter((item) => getDayPeriod(new Date(item.played_at)) === targetPeriod)
+    ? recent.filter((item) => getDayPeriod(item.played_at) === targetPeriod)
       : recent;
     const playCountByTrackId = new Map<string, number>();
     scopedRecent.forEach((item) => {
@@ -2009,7 +2028,7 @@ export async function getDashboardAnalysisDetailFromHistory(
         imageUrl: item.track.album.images?.[0]?.url,
         playedAt: item.played_at,
         durationMs: item.track.duration_ms,
-        period: getDayPeriod(new Date(item.played_at)),
+      period: getDayPeriod(item.played_at),
         playCount: playCountByTrackId.get(item.track.id) ?? 1,
       }));
     const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);

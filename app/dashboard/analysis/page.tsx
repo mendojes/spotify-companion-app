@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { requireSpotifySession } from "@/lib/auth";
 import { getStoredAnalysisSection } from "@/lib/dashboard-section-cache";
 import { getMoodDescription } from "@/lib/moods";
-import { getDashboardAnalysisDetailFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
 
@@ -152,6 +151,106 @@ function normalizePage(value?: string) {
 
 const PAGE_SIZE = 20;
 
+function getPacificDateParts(value: string | Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(value));
+
+  const lookup = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    year: Number(lookup.year),
+    month: Number(lookup.month),
+    day: Number(lookup.day),
+    hour: Number(lookup.hour),
+  };
+}
+
+function getPacificDaySerial(value: string | Date) {
+  const { year, month, day } = getPacificDateParts(value);
+  return Math.floor(Date.UTC(year, month - 1, day) / (1000 * 60 * 60 * 24));
+}
+
+function pacificSerialToDate(daySerial: number) {
+  return new Date(daySerial * 1000 * 60 * 60 * 24 + 1000 * 60 * 60 * 12);
+}
+
+function buildTrendBuckets(range: DashboardRange) {
+  const now = new Date();
+  const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/Los_Angeles" });
+  const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "America/Los_Angeles" });
+
+  if (range === "week") {
+    const todaySerial = getPacificDaySerial(now);
+    return Array.from({ length: 7 }, (_, index) => {
+      const daySerial = todaySerial - (6 - index);
+      return {
+        key: `day:${daySerial}`,
+        label: weekdayFormatter.format(pacificSerialToDate(daySerial)),
+      };
+    });
+  }
+
+  if (range === "month") {
+    const todaySerial = getPacificDaySerial(now);
+    const firstBucketStart = todaySerial - 29;
+
+    return Array.from({ length: 5 }, (_, index) => {
+      const bucketStart = firstBucketStart + index * 6;
+      const labelDate = pacificSerialToDate(bucketStart);
+      const { day } = getPacificDateParts(labelDate);
+      return {
+        key: `window:${index}`,
+        label: `${monthFormatter.format(labelDate)} ${day}`,
+      };
+    });
+  }
+
+  const monthFormatterLong = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "America/Los_Angeles" });
+  const { year, month } = getPacificDateParts(now);
+  const currentMonthSerial = year * 12 + (month - 1);
+
+  return Array.from({ length: 6 }, (_, index) => {
+    const monthSerial = currentMonthSerial - (5 - index);
+    const bucketDate = new Date(Date.UTC(Math.floor(monthSerial / 12), monthSerial % 12, 1, 12));
+    return {
+      key: `month:${monthSerial}`,
+      label: monthFormatterLong.format(bucketDate),
+    };
+  });
+}
+
+function getTrendBucketKeyForPlay(playedAt: string, range: DashboardRange) {
+  if (range === "week") {
+    const todaySerial = getPacificDaySerial(new Date());
+    const playSerial = getPacificDaySerial(playedAt);
+    return playSerial >= todaySerial - 6 && playSerial <= todaySerial ? `day:${playSerial}` : null;
+  }
+
+  if (range === "month") {
+    const todaySerial = getPacificDaySerial(new Date());
+    const firstBucketStart = todaySerial - 29;
+    const playSerial = getPacificDaySerial(playedAt);
+
+    if (playSerial < firstBucketStart || playSerial > todaySerial) {
+      return null;
+    }
+
+    const index = Math.min(4, Math.floor((playSerial - firstBucketStart) / 6));
+    return `window:${index}`;
+  }
+
+  const { year: currentYear, month: currentMonth } = getPacificDateParts(new Date());
+  const currentMonthSerial = currentYear * 12 + (currentMonth - 1);
+  const { year, month } = getPacificDateParts(playedAt);
+  const playMonthSerial = year * 12 + (month - 1);
+  return playMonthSerial >= currentMonthSerial - 5 && playMonthSerial <= currentMonthSerial ? `month:${playMonthSerial}` : null;
+}
+
 export default async function DashboardAnalysisPage({ searchParams }: AnalysisPageProps) {
   const session = await requireSpotifySession("/dashboard/analysis");
 
@@ -173,29 +272,67 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
       ? `${selectedFrom ? `&from=${selectedFrom}` : ""}${selectedTo ? `&to=${selectedTo}` : ""}`
       : "";
 
-  const detail = await getStoredAnalysisSection(session.spotifyUserId, selectedRange, selectedSection, {
-    label,
-    mood,
-    period,
-    day: selectedDay,
-    from: selectedFrom,
-    to: selectedTo,
-  }) ?? await getDashboardAnalysisDetailFromHistory(session.spotifyUserId, selectedRange, {
-    section: selectedSection,
-    label,
-    mood,
-    period,
-    day: selectedDay,
-    from: selectedFrom,
-    to: selectedTo,
-  });
+  const detail = await getStoredAnalysisSection(session.spotifyUserId, selectedRange, selectedSection);
   console.log(`[dashboard-page] user=${session.spotifyUserId} page=analysis step=load elapsedMs=${Date.now() - loadStartedAt}`);
 
   if (!detail) {
     redirect(`/dashboard?range=${selectedRange}`);
   }
 
-  const filteredEntries = detail.entries.filter((entry) => {
+  const scopedEntries = detail.entries.filter((entry) => {
+    if (selectedSection === "trend" && label) {
+      const targetBucket = buildTrendBuckets(selectedRange).find((bucket) => bucket.label === label);
+      if (targetBucket && getTrendBucketKeyForPlay(entry.playedAt, selectedRange) !== targetBucket.key) {
+        return false;
+      }
+    }
+
+    if (selectedSection === "heatmap" && period && entry.period !== period) {
+      return false;
+    }
+
+    const entryDateKey = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(entry.playedAt));
+
+    if (selectedDay && entryDateKey !== selectedDay) {
+      return false;
+    }
+
+    if (selectedFrom && entryDateKey < selectedFrom) {
+      return false;
+    }
+
+    if (selectedTo && entryDateKey > selectedTo) {
+      return false;
+    }
+
+    return true;
+  });
+
+  const periodBreakdownMap = new Map<string, { minutes: number; plays: number }>();
+  scopedEntries.forEach((entry) => {
+    const key = entry.period ?? "Unknown";
+    const existing = periodBreakdownMap.get(key) ?? { minutes: 0, plays: 0 };
+    periodBreakdownMap.set(key, {
+      minutes: existing.minutes + entry.durationMs / 60000,
+      plays: existing.plays + 1,
+    });
+  });
+
+  const periodBreakdown = ["Morning", "Afternoon", "Evening", "Late Night"].map((periodKey) => {
+    const data = periodBreakdownMap.get(periodKey) ?? { minutes: 0, plays: 0 };
+    return {
+      label: periodKey,
+      value: `${Math.round(data.minutes)} min`,
+      detail: `${data.plays} play${data.plays === 1 ? "" : "s"}`,
+    };
+  }).sort((a, b) => Number.parseInt(b.value, 10) - Number.parseInt(a.value, 10));
+
+  const filteredEntries = scopedEntries.filter((entry) => {
     const matchesQuery = !selectedQuery || `${entry.title} ${entry.artist} ${entry.album}`.toLowerCase().includes(selectedQuery.toLowerCase());
     const matchesArtist = !selectedArtist || entry.artist.toLowerCase().includes(selectedArtist.toLowerCase());
     const matchesAlbum = !selectedAlbum || entry.album.toLowerCase().includes(selectedAlbum.toLowerCase());
@@ -357,7 +494,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
               <p className="panel-eyebrow text-xs">Time pattern</p>
               <h3 className="mt-2 font-display text-2xl text-[var(--theme-title)]">When you showed up</h3>
               <div className="mt-5 space-y-3">
-                {detail.periodBreakdown.map((item) => (
+                {periodBreakdown.map((item) => (
                   <div key={item.label} className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-display text-xl text-[var(--theme-title)]">{item.label}</p>

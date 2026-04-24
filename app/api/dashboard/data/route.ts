@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, hasSpotifyConnection } from "@/lib/auth";
+import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { getDashboardOverviewData } from "@/lib/dashboard-overview";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
   const selectedHeroRange = dashboardRangeToTopListRange(selectedRange);
 
   try {
+    const authorizedSession = await getAuthorizedSession(session);
     const { insights, topLists, heroTopLists } = await getDashboardOverviewData(
       session.spotifyUserId,
       selectedRange,
@@ -65,10 +66,15 @@ export async function GET(request: NextRequest) {
       selectedHeroRange,
       selectedTopFrom,
       selectedTopTo,
+      authorizedSession.accessToken,
     );
 
     return NextResponse.json({ insights, topLists, heroTopLists });
   } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      return NextResponse.json({ error: "Session refresh failed." }, { status: 401 });
+    }
+
     const message = error instanceof Error ? error.message : "Could not load dashboard data.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

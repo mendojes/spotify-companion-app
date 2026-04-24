@@ -2,7 +2,7 @@ import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, getDashboardPlaylistInsightPreview } from "@/lib/spotify-playlists";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
-import { getSpotifyTopListsFromHistoryData, getTopListHistoryData, invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
+import { getSpotifyTopListsFromHistory, getSpotifyTopListsFromHistoryData, getTopListHistoryData, invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
 import { DashboardInsights, DashboardRange, TopListRange, TopListsData } from "@/lib/types";
 
 const DASHBOARD_OVERVIEW_TTL_MS = 1000 * 30;
@@ -107,7 +107,7 @@ function resolveStoredOverview(
   };
 }
 
-export async function writeStoredDashboardOverviewCache(spotifyUserId: string) {
+export async function writeStoredDashboardOverviewCache(spotifyUserId: string, accessToken?: string) {
   if (!hasMongoConfig()) {
     return;
   }
@@ -121,7 +121,7 @@ export async function writeStoredDashboardOverviewCache(spotifyUserId: string) {
   const insightsByRangeEntries = await Promise.all(
     DASHBOARD_RANGE_VALUES.map(async (range) => {
       const insights = snapshots.length > 0
-        ? await getDashboardInsightsFromSnapshots(snapshots, range, undefined, spotifyUserId)
+        ? await getDashboardInsightsFromSnapshots(snapshots, range, accessToken, spotifyUserId)
         : null;
 
       return [
@@ -137,7 +137,12 @@ export async function writeStoredDashboardOverviewCache(spotifyUserId: string) {
   );
 
   const topListsByRangeEntries = await Promise.all(
-    TOP_LIST_RANGE_VALUES.map(async (range) => [range, await getSpotifyTopListsFromHistoryData(topListHistory, range)] as const),
+    TOP_LIST_RANGE_VALUES.map(async (range) => [
+      range,
+      accessToken
+        ? await getSpotifyTopListsFromHistory(spotifyUserId, range, undefined, undefined, undefined, accessToken)
+        : await getSpotifyTopListsFromHistoryData(topListHistory, range),
+    ] as const),
   );
 
   const insightsByRange = Object.fromEntries(
@@ -194,6 +199,7 @@ export async function getDashboardOverviewData(
   selectedHeroRange: TopListRange,
   selectedTopFrom?: string,
   selectedTopTo?: string,
+  accessToken?: string,
 ): Promise<DashboardOverviewData> {
   const cacheKey = overviewCacheKey(spotifyUserId, selectedRange, selectedTopRange, selectedHeroRange, selectedTopFrom, selectedTopTo);
 
@@ -212,15 +218,6 @@ export async function getDashboardOverviewData(
     );
     logOverviewTiming(spotifyUserId, "overview-stored-cache", storedStart);
 
-    if (storedOverview && storedOverview.topLists && storedOverview.heroTopLists) {
-      logOverviewTiming(spotifyUserId, "overview-total", totalStart);
-      return storedOverview;
-    }
-
-    const snapshotsStart = Date.now();
-    const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
-    logOverviewTiming(spotifyUserId, "overview-snapshots", snapshotsStart);
-
     const historyStart = Date.now();
     const [topListHistory, playlistPreview] = await Promise.all([
       getTopListHistoryData(spotifyUserId),
@@ -228,15 +225,13 @@ export async function getDashboardOverviewData(
     ]);
     logOverviewTiming(spotifyUserId, "overview-history-preview", historyStart);
 
-    const insights = storedOverview?.insights ?? (snapshots.length > 0
-      ? await getDashboardInsightsFromSnapshots(snapshots, selectedRange, undefined, spotifyUserId)
-      : null);
-
     const topListsStart = Date.now();
     const [dynamicTopLists, dynamicHeroTopLists] = await Promise.all([
       storedOverview?.topLists
         ? Promise.resolve(storedOverview.topLists)
-        : getSpotifyTopListsFromHistoryData(topListHistory, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+        : selectedTopRange === "custom"
+          ? Promise.resolve(null)
+          : getSpotifyTopListsFromHistoryData(topListHistory, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
       storedOverview?.heroTopLists
         ? Promise.resolve(storedOverview.heroTopLists)
         : getSpotifyTopListsFromHistoryData(topListHistory, selectedHeroRange),
@@ -245,10 +240,10 @@ export async function getDashboardOverviewData(
     logOverviewTiming(spotifyUserId, "overview-total", totalStart);
 
     return {
-      insights: insights
+      insights: storedOverview?.insights
         ? {
-          ...insights,
-          playlistInsights: insights.playlistInsights.length > 0 ? insights.playlistInsights : playlistPreview,
+          ...storedOverview.insights,
+          playlistInsights: storedOverview.insights.playlistInsights.length > 0 ? storedOverview.insights.playlistInsights : playlistPreview,
         }
         : null,
       topLists: dynamicTopLists,

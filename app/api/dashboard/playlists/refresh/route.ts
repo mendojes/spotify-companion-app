@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId);
     invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
     invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
-    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
+    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined);
     return NextResponse.redirect(getAppUrl("/dashboard/playlists?refreshed=1", request));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Playlist refresh failed.";

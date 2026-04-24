@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
-import { hasSpotifyConnection, requireSession } from "@/lib/auth";
+import { getAuthorizedSession, hasSpotifyConnection, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getDashboardOverviewData } from "@/lib/dashboard-overview";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { DashboardRange, TopListRange } from "@/lib/types";
@@ -334,6 +334,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     );
   }
 
+  let authorizedSession;
+
+  try {
+    authorizedSession = await getAuthorizedSession(session);
+  } catch (error) {
+    if (isSessionRefreshFailure(error)) {
+      redirect("/login?error=session_refresh_failed");
+    }
+
+    throw error;
+  }
+
   const selectedRange = normalizeRange(range);
   const selectedTopRange = normalizeTopRange(topRange);
   const selectedTopFrom = normalizeDate(topFrom);
@@ -352,6 +364,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       selectedHeroRange,
       selectedTopFrom,
       selectedTopTo,
+      authorizedSession.accessToken,
     ),
   );
   insights = overviewLoad.value?.insights ?? undefined;

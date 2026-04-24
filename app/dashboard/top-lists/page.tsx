@@ -237,8 +237,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   const loadStartedAt = Date.now();
 
   try {
-    data = await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo)
-      ?? await getSpotifyTopListsFromHistory(session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+    data = await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo);
     console.log(`[dashboard-page] user=${session.spotifyUserId} page=top-lists step=load elapsedMs=${Date.now() - loadStartedAt}`);
   } catch (error) {
     if (isSessionRefreshFailure(error)) {
@@ -246,20 +245,27 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
     }
 
     const message = error instanceof Error ? error.message : String(error);
-    data = {
-      range: selectedRange,
-      artists: [],
-      tracks: [],
-      albums: [],
-      sourceLabel: "No cached Listening Lore rankings yet",
-      from: selectedFrom,
-      to: selectedTo,
-    };
-    rankingsNotice = `Cached rankings could not be loaded yet. Use Refresh snapshot to update stored rankings. (${message})`;
+    data = null;
+
+    if (!data) {
+      data = {
+        range: selectedRange,
+        artists: [],
+        tracks: [],
+        albums: [],
+        sourceLabel: "No cached Listening Lore rankings yet",
+        from: selectedFrom,
+        to: selectedTo,
+      };
+    }
+
+    rankingsNotice = `Stored rankings could not be loaded right now. Refresh your snapshot to rebuild the tab caches. (${message})`;
   }
 
   if (!rankingsNotice) {
-    rankingsNotice = "This page is using stored Listening Lore rankings so it can load without waiting on live Spotify requests.";
+    rankingsNotice = selectedRange === "custom" || selectedFrom || selectedTo
+      ? "Custom top-list windows are not precomputed yet. Refresh snapshot support is currently focused on the cached tab ranges."
+      : "This page is using stored Listening Lore rankings so it can load without waiting on live Spotify requests.";
   }
 
   if (!data) {
