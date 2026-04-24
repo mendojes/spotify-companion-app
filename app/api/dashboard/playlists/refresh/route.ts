@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
+import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
 import { getAppUrl } from "@/lib/spotify";
 import { invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
 
@@ -29,6 +30,8 @@ export async function GET(request: NextRequest) {
   try {
     await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId);
     invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
+    invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
+    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
     return NextResponse.redirect(getAppUrl("/dashboard/playlists?refreshed=1", request));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Playlist refresh failed.";

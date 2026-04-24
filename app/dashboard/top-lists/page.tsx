@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isSessionRefreshFailure, requireSpotifySession } from "@/lib/auth";
+import { getStoredTopListsSection } from "@/lib/dashboard-section-cache";
 import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { TopListAlbum, TopListArtist, TopListRange, TopListTrack } from "@/lib/types";
 
@@ -235,7 +236,8 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   let rankingsNotice: string | null = null;
 
   try {
-    data = await getSpotifyTopListsFromHistory(session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo, session.accessToken);
+    data = await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo)
+      ?? await getSpotifyTopListsFromHistory(session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
   } catch (error) {
     if (isSessionRefreshFailure(error)) {
       redirect("/login?error=session_refresh_failed");

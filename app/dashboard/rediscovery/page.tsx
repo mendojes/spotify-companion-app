@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
 import { requireSpotifySession } from "@/lib/auth";
+import { getStoredRediscoverySection } from "@/lib/dashboard-section-cache";
 import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange, FavoriteTrack } from "@/lib/types";
 import { PST_TIME_ZONE } from "@/lib/time";
@@ -74,7 +75,8 @@ export default async function RediscoveryPage({
 
   const { range } = await searchParams;
   const selectedRange = normalizeRange(range);
-  const insights = await getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange);
+  const insights = await getStoredRediscoverySection(session.spotifyUserId, selectedRange)
+    ?? await getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange);
 
   if (!insights) {
     redirect(`/dashboard?range=${selectedRange}`);

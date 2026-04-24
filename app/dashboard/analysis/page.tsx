@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSpotifySession } from "@/lib/auth";
+import { getStoredAnalysisSection } from "@/lib/dashboard-section-cache";
 import { getMoodDescription } from "@/lib/moods";
 import { getDashboardAnalysisDetailFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
@@ -171,7 +172,14 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
       ? `${selectedFrom ? `&from=${selectedFrom}` : ""}${selectedTo ? `&to=${selectedTo}` : ""}`
       : "";
 
-  const detail = await getDashboardAnalysisDetailFromHistory(session.spotifyUserId, selectedRange, {
+  const detail = await getStoredAnalysisSection(session.spotifyUserId, selectedRange, selectedSection, {
+    label,
+    mood,
+    period,
+    day: selectedDay,
+    from: selectedFrom,
+    to: selectedTo,
+  }) ?? await getDashboardAnalysisDetailFromHistory(session.spotifyUserId, selectedRange, {
     section: selectedSection,
     label,
     mood,

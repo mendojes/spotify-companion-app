@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
+import { getStoredPlaylistsSection } from "@/lib/dashboard-section-cache";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { getPlaylistPageDataFromHistory } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
@@ -150,7 +151,8 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
   let lastSyncedAt: string | undefined;
 
   try {
-    const pageData = await getPlaylistPageDataFromHistory(spotifySession.spotifyUserId, selectedSort);
+    const pageData = await getStoredPlaylistsSection(spotifySession.spotifyUserId, selectedSort)
+      ?? await getPlaylistPageDataFromHistory(spotifySession.spotifyUserId, selectedSort);
     playlists = pageData.playlists;
     playlistCount = pageData.playlistCount;
     lastSyncedAt = pageData.lastSyncedAt;
