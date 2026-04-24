@@ -706,7 +706,7 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: TopListRange
   }
 
   try {
-    const db = await getDatabase({ forceRetry: true });
+    const db = await getDatabase();
     if (!db) {
       return [] as SpotifyDashboardSnapshot[];
     }
@@ -731,7 +731,7 @@ async function getRecentPlaysForTopLists(spotifyUserId: string, range: TopListRa
   }
 
   try {
-    const db = await getDatabase({ forceRetry: true });
+    const db = await getDatabase();
     if (!db) {
       return [] as StoredRecentPlay[];
     }

@@ -1623,7 +1623,7 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: DashboardRan
   }
 
   try {
-    const db = await getDatabase({ forceRetry: true });
+    const db = await getDatabase();
     if (!db) {
       return [] as SpotifyDashboardSnapshot[];
     }
@@ -1648,7 +1648,7 @@ async function getLatestSnapshot(spotifyUserId: string) {
   }
 
   try {
-    const db = await getDatabase({ forceRetry: true });
+    const db = await getDatabase();
     if (!db) {
       return null;
     }
@@ -2027,13 +2027,6 @@ export async function getDashboardAnalysisDetailFromHistory(
 
 export async function getSharedDashboardCacheSnapshots(spotifyUserId: string) {
   return getCachedValue(`dashboard-snapshots:${spotifyUserId}`, DASHBOARD_SNAPSHOT_CACHE_TTL_MS, async () => {
-    let latestSnapshot;
-    try {
-      latestSnapshot = await getLatestSnapshot(spotifyUserId);
-    } catch (error) {
-      throw dashboardCacheError("getLatestSnapshot", error);
-    }
-
     let snapshots;
     try {
       snapshots = await getHistoricalSnapshots(spotifyUserId, "all");

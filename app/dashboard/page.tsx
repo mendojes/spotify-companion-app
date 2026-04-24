@@ -6,10 +6,8 @@ import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { hasSpotifyConnection, requireSession } from "@/lib/auth";
+import { getDashboardOverviewData } from "@/lib/dashboard-overview";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
-import { getDashboardPlaylistInsightPreview } from "@/lib/spotify-playlists";
-import { getSpotifyTopListsFromHistoryData, getTopListHistoryData } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
@@ -109,10 +107,6 @@ async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>
       error: `${label}: ${getErrorMessage(error)}`,
     };
   }
-}
-
-function logDashboardTiming(spotifyUserId: string, step: string, startedAt: number) {
-  console.log(`[dashboard] user=${spotifyUserId} step=${step} elapsedMs=${Date.now() - startedAt}`);
 }
 
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
@@ -350,55 +344,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let topLists;
   let heroTopLists;
   let dashboardError: string | null = null;
-  const pageStart = Date.now();
-
-  const [cachedSnapshots, cachedHistory, cachedPlaylistInsights] = await Promise.all([
-    settleCacheLoad("dashboard snapshots", () => getSharedDashboardCacheSnapshots(session.spotifyUserId)),
-    settleCacheLoad("dashboard history", () => getTopListHistoryData(session.spotifyUserId)),
-    settleCacheLoad("playlist insights", () => getDashboardPlaylistInsightPreview(session.spotifyUserId)),
-  ]);
-  logDashboardTiming(session.spotifyUserId, "base-loaders", pageStart);
-
-  if (cachedSnapshots.value && cachedSnapshots.value.length > 0) {
-    const insightsStart = Date.now();
-    insights = (await getDashboardInsightsFromSnapshots(
-      cachedSnapshots.value,
-      selectedRange,
-      undefined,
+  const overviewLoad = await settleCacheLoad("dashboard overview", () =>
+    getDashboardOverviewData(
       session.spotifyUserId,
-    )) ?? undefined;
-    logDashboardTiming(session.spotifyUserId, "insights-from-snapshots", insightsStart);
-  }
+      selectedRange,
+      selectedTopRange,
+      selectedHeroRange,
+      selectedTopFrom,
+      selectedTopTo,
+    ),
+  );
+  insights = overviewLoad.value?.insights ?? undefined;
+  topLists = overviewLoad.value?.topLists ?? undefined;
+  heroTopLists = overviewLoad.value?.heroTopLists ?? undefined;
 
-  if (cachedHistory.value) {
-    const topListsStart = Date.now();
-    const [resolvedTopLists, resolvedHeroTopLists] = await Promise.all([
-      getSpotifyTopListsFromHistoryData(
-        cachedHistory.value,
-        selectedTopRange,
-        undefined,
-        selectedTopFrom,
-        selectedTopTo,
-      ),
-      getSpotifyTopListsFromHistoryData(
-        cachedHistory.value,
-        selectedHeroRange,
-      ),
-    ]);
-
-    topLists = resolvedTopLists ?? undefined;
-    heroTopLists = resolvedHeroTopLists ?? undefined;
-    logDashboardTiming(session.spotifyUserId, "top-lists", topListsStart);
-  }
-
-  if (insights) {
-    insights = {
-      ...insights,
-      playlistInsights: cachedPlaylistInsights.value ?? [],
-    };
-  }
-
-  const cacheErrors = [cachedSnapshots.error, cachedHistory.error, cachedPlaylistInsights.error].filter((value): value is string => Boolean(value));
+  const cacheErrors = [overviewLoad.error].filter((value): value is string => Boolean(value));
   const missingCachedSections = [!insights ? "insights" : null, !topLists ? "top lists" : null, !heroTopLists ? "hero top lists" : null].filter(
     (value): value is string => Boolean(value),
   );
@@ -408,7 +368,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   } else if (missingCachedSections.length > 0) {
     dashboardError = `Dashboard data is missing ${missingCachedSections.join(", ")}. Use Refresh snapshot to update the dashboard.`;
   }
-  logDashboardTiming(session.spotifyUserId, "total", pageStart);
 
   return (
     <main className="relative overflow-hidden pb-10">
