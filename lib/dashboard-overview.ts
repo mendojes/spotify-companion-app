@@ -128,14 +128,19 @@ export async function writeStoredDashboardOverviewCache(spotifyUserId: string, a
     return;
   }
 
+  const existingStored = await readStoredDashboardOverviewCache(spotifyUserId);
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
+  const rangesToBuild = prioritizedRange ? [prioritizedRange] : DASHBOARD_RANGE_VALUES;
+  const topRangesToBuild = prioritizedRange
+    ? [...new Set<TopListRange>(["week", heroRangeToTopRange(prioritizedRange)])].filter((range): range is Exclude<TopListRange, "custom"> => range !== "custom")
+    : TOP_LIST_RANGE_VALUES;
   const [topListHistory, playlistPreview] = await Promise.all([
     getTopListHistoryData(spotifyUserId),
     getDashboardPlaylistInsightPreview(spotifyUserId),
   ]);
 
   const insightsByRangeEntries = await Promise.all(
-    DASHBOARD_RANGE_VALUES.map(async (range) => {
+    rangesToBuild.map(async (range) => {
       const rangeAccessToken = accessToken && prioritizedRange === range ? accessToken : undefined;
       const insights = snapshots.length > 0
         ? await getDashboardInsightsFromSnapshots(snapshots, range, rangeAccessToken, spotifyUserId)
@@ -154,21 +159,34 @@ export async function writeStoredDashboardOverviewCache(spotifyUserId: string, a
   );
 
   const topListsByRangeEntries = await Promise.all(
-    TOP_LIST_RANGE_VALUES.map(async (range) => [
+    topRangesToBuild.map(async (range) => [
       range,
       await getSpotifyTopListsFromHistoryData(topListHistory, range),
     ] as const),
   );
 
-  const insightsByRange = Object.fromEntries(
+  const nextInsightsByRange = Object.fromEntries(
     insightsByRangeEntries.filter((entry): entry is readonly [DashboardRange, DashboardInsights] => Boolean(entry[1])),
   ) as Partial<Record<DashboardRange, DashboardInsights>>;
-  const topListsByRange = Object.fromEntries(
+  const nextTopListsByRange = Object.fromEntries(
     topListsByRangeEntries.filter((entry): entry is readonly [Exclude<TopListRange, "custom">, TopListsData] => Boolean(entry[1])),
   ) as Partial<Record<Exclude<TopListRange, "custom">, TopListsData>>;
-  const heroTopListsByRange = Object.fromEntries(
-    DASHBOARD_RANGE_VALUES.map((range) => [range, topListsByRange[heroRangeToTopRange(range)]]).filter((entry): entry is [DashboardRange, TopListsData] => Boolean(entry[1])),
-  ) as Partial<Record<DashboardRange, TopListsData>>;
+  const insightsByRange = {
+    ...(existingStored?.insightsByRange ?? {}),
+    ...nextInsightsByRange,
+  } satisfies Partial<Record<DashboardRange, DashboardInsights>>;
+  const topListsByRange = {
+    ...(existingStored?.topListsByRange ?? {}),
+    ...nextTopListsByRange,
+  } satisfies Partial<Record<Exclude<TopListRange, "custom">, TopListsData>>;
+  const heroTopListsByRange = {
+    ...(existingStored?.heroTopListsByRange ?? {}),
+    ...Object.fromEntries(
+      rangesToBuild
+        .map((range) => [range, topListsByRange[heroRangeToTopRange(range)]])
+        .filter((entry): entry is [DashboardRange, TopListsData] => Boolean(entry[1])),
+    ),
+  } satisfies Partial<Record<DashboardRange, TopListsData>>;
 
   try {
     const db = await getDatabase();
