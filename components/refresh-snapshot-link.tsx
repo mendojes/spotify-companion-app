@@ -13,14 +13,21 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const search = searchParams.toString();
 
   useEffect(() => {
     if (!isRefreshing) {
       return;
     }
 
-    setIsRefreshing(false);
-  }, [isRefreshing, pathname, searchParams]);
+    if (pathname !== "/dashboard") {
+      return;
+    }
+
+    if (searchParams.get("refreshed") === "1" || searchParams.get("refresh_error") === "1") {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing, pathname, search, searchParams]);
 
   async function handleRefresh() {
     if (isRefreshing) {
