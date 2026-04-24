@@ -440,6 +440,10 @@ export async function getDashboardPlaylistInsightPreview(spotifyUserId: string):
   });
 }
 
+export function invalidateDashboardPlaylistPreviewCache(spotifyUserId: string) {
+  invalidateCachedValue(`dashboard-playlist-preview:${spotifyUserId}`);
+}
+
 export async function promoteRecentlyPlayedPlaylist(
   spotifyUserId: string,
   playlist: { id: string; name?: string; imageUrl?: string },

@@ -28,7 +28,7 @@ import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
 import { getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-activity";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
-import { getCachedValue } from "@/lib/runtime-cache";
+import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import { buildCachedTopListsForSnapshot, SNAPSHOT_TOP_LISTS_SCHEMA_VERSION } from "@/lib/spotify-toplists";
 import { PST_TIME_ZONE } from "@/lib/time";
 import { moodOrder } from "@/lib/moods";
@@ -45,6 +45,7 @@ const PUBLIC_TAG_FETCH_LIMIT = 12;
 const ANALYSIS_DETAIL_TTL_MS = 1000 * 60 * 5;
 const DASHBOARD_SNAPSHOT_CACHE_TTL_MS = 1000 * 30;
 const DASHBOARD_INSIGHTS_CACHE_TTL_MS = 1000 * 30;
+const DASHBOARD_RANGE_VALUES: DashboardRange[] = ["week", "month", "all"];
 
 type MoodAnalyticsResult = {
   moodData: MoodPoint[];
@@ -2053,6 +2054,15 @@ export async function getSharedDashboardCacheSnapshots(spotifyUserId: string) {
   });
 }
 
+export function invalidateDashboardSnapshotCaches(spotifyUserId: string) {
+  invalidateCachedValue(`dashboard-snapshots:${spotifyUserId}`);
+
+  DASHBOARD_RANGE_VALUES.forEach((range) => {
+    invalidateCachedValue(`dashboard-insights:${spotifyUserId}:${range}:cached`);
+    invalidateCachedValue(`dashboard-insights:${spotifyUserId}:${range}:live`);
+  });
+}
+
 export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange, accessToken?: string, spotifyUserId?: string) {
   const scopedSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
   const relevantSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
@@ -2063,14 +2073,7 @@ export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashbo
   }
 
   const latestFetchedAt = historicalSnapshots[0]?.fetchedAt ?? "";
-  const cacheKey = [
-    "dashboard-insights",
-    spotifyUserId ?? "anonymous",
-    range,
-    accessToken ? "live" : "cached",
-    latestFetchedAt,
-    historicalSnapshots.length,
-  ].join(":");
+  const cacheKey = `dashboard-insights:${spotifyUserId ?? "anonymous"}:${range}:${accessToken ? "live" : "cached"}:${latestFetchedAt}:${historicalSnapshots.length}`;
 
   return getCachedValue(cacheKey, DASHBOARD_INSIGHTS_CACHE_TTL_MS, () => deriveInsights(historicalSnapshots, range, accessToken, spotifyUserId));
 }

@@ -6,6 +6,7 @@ const dbName = process.env.MONGODB_DB_NAME || "spotify-app-db";
 const CONNECTED_USERS_COLLECTION = "connected_users";
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
+const DASHBOARD_OVERVIEW_COLLECTION = "dashboard_overview_cache";
 const PLAYLIST_TRACK_CACHE_COLLECTION = "spotify_playlist_track_cache";
 const PLAYLIST_TRACK_SYNC_COLLECTION = "spotify_playlist_track_sync";
 
@@ -33,6 +34,7 @@ try {
     ),
     db.collection(RECENT_PLAYS_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, playedAt: -1 }),
     db.collection(SNAPSHOT_HISTORY_COLLECTION).createIndex({ spotifyUserId: 1, fetchedAt: -1 }),
+    db.collection(DASHBOARD_OVERVIEW_COLLECTION).createIndex({ spotifyUserId: 1 }, { unique: true }),
     db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, position: 1 }, { unique: true }),
     db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, updatedAt: -1 }),
     db.collection(PLAYLIST_TRACK_SYNC_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1 }, { unique: true }),

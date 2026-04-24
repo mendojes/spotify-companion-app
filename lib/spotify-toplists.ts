@@ -1,5 +1,5 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
-import { getCachedValue } from "@/lib/runtime-cache";
+import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import { spotifyFetch } from "@/lib/spotify";
 import {
   SpotifyArtist,
@@ -844,6 +844,10 @@ export async function getTopListHistoryData(spotifyUserId: string): Promise<TopL
 
     return { snapshots, recentPlays };
   });
+}
+
+export function invalidateTopListHistoryCache(spotifyUserId: string) {
+  invalidateCachedValue(`top-list-history:${spotifyUserId}`);
 }
 
 async function getFallbackSpotifyTopLists(accessToken: string, range: TopListRange, limit: number): Promise<TopListsData> {

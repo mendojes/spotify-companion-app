@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { markConnectedUserRecentSync, markConnectedUserSnapshotStatus, touchConnectedUser } from "@/lib/connected-users";
+import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
 import { getAppUrl } from "@/lib/spotify";
-import { refreshDashboardSnapshot } from "@/lib/spotify-dashboard";
-import { invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
+import { invalidateDashboardSnapshotCaches, refreshDashboardSnapshot } from "@/lib/spotify-dashboard";
+import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
 import { syncRecentPlays } from "@/lib/spotify-activity";
+import { invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
 
 function normalizeRange(range?: string) {
   if (range === "month" || range === "all") {
@@ -50,6 +52,11 @@ export async function GET(request: NextRequest) {
     await refreshDashboardSnapshot(authorizedSession.accessToken, authorizedSession.spotifyUserId, recentPlays);
     await markConnectedUserSnapshotStatus(authorizedSession.spotifyUserId, "success");
     await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId).catch(() => []);
+    invalidateDashboardSnapshotCaches(authorizedSession.spotifyUserId);
+    invalidateTopListHistoryCache(authorizedSession.spotifyUserId);
+    invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
+    invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
+    await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId).catch(() => undefined);
     invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
   } catch (error) {
