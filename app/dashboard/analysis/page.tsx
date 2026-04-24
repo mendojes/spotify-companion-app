@@ -392,7 +392,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
             <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">{detail.title}</h1>
             <p className="text-base leading-7 text-[var(--theme-body)]">{detail.subtitle}</p>
           </div>
-          <Link href={`/dashboard?range=${selectedRange}`} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold">
+          <Link href={`/dashboard?range=${selectedRange}`} prefetch={false} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold">
             Back to dashboard
           </Link>
         </div>
@@ -417,6 +417,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                   album: selectedAlbum,
                   sort: selectedSort,
                 })}
+                prefetch={false}
                 className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-gold text-[#24160f]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}
               >
                 {option.label}
@@ -447,7 +448,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
           <button type="submit" className="rounded-full border border-gold/25 bg-gold/15 px-4 py-2 text-sm text-gold transition hover:border-gold/40 hover:bg-gold/20">
             Apply period
           </button>
-          <Link href={buildAnalysisHref({ section: selectedSection, range: selectedRange, label, mood, period, q: selectedQuery, artist: selectedArtist, album: selectedAlbum, sort: selectedSort })} className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-cyan/30 hover:text-cyan">
+          <Link href={buildAnalysisHref({ section: selectedSection, range: selectedRange, label, mood, period, q: selectedQuery, artist: selectedArtist, album: selectedAlbum, sort: selectedSort })} prefetch={false} className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-cyan/30 hover:text-cyan">
             Clear dates
           </Link>
         </form>
@@ -485,7 +486,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                   <p className="panel-eyebrow text-xs">Top artists</p>
                   <h3 className="mt-2 font-display text-2xl text-[var(--theme-title)]">Who drove the window</h3>
                 </div>
-                <Link href={`/dashboard/top-lists?range=${selectedRange}${topListsQuery}`} className="text-sm text-cyan transition hover:text-gold">
+                <Link href={`/dashboard/top-lists?range=${selectedRange}${topListsQuery}`} prefetch={false} className="text-sm text-cyan transition hover:text-gold">
                   Open rankings
                 </Link>
               </div>
@@ -637,6 +638,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                   </button>
                   <Link
                     href={buildAnalysisHref({ section: selectedSection, range: selectedRange, label, mood, period, day: selectedDay, from: selectedFrom, to: selectedTo })}
+                    prefetch={false}
                     className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-cyan/30 hover:text-cyan"
                   >
                     Reset
@@ -662,6 +664,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                       sort: selectedSort,
                       page: Math.max(1, safePage - 1),
                     })}
+                    prefetch={false}
                     className={`rounded-full px-3 py-1 ${safePage <= 1 ? "pointer-events-none border border-white/10 bg-white/5 text-[var(--theme-faint)]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}
                   >
                     Prev
@@ -683,6 +686,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
                       sort: selectedSort,
                       page: Math.min(totalPages, safePage + 1),
                     })}
+                    prefetch={false}
                     className={`rounded-full px-3 py-1 ${safePage >= totalPages ? "pointer-events-none border border-white/10 bg-white/5 text-[var(--theme-faint)]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}
                   >
                     Next

@@ -303,7 +303,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
             <h1 className="font-display text-5xl text-[var(--theme-title)] md:text-6xl">Your full ranking shelves.</h1>
             <p className="text-base leading-7 text-[var(--theme-body)]">Browse your rankings over 1 week, 1 month, 1 year, all time, or a custom window.</p>
           </div>
-          <Link href={`/dashboard?topRange=${selectedRange}${customQuery ? `&topFrom=${selectedFrom}&topTo=${selectedTo}` : ""}`} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold">
+          <Link href={`/dashboard?topRange=${selectedRange}${customQuery ? `&topFrom=${selectedFrom}&topTo=${selectedTo}` : ""}`} prefetch={false} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold">
             Back to dashboard
           </Link>
         </div>
@@ -314,7 +314,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
             const href = `/dashboard/top-lists?range=${option.key}&tab=${selectedTab}&page=1${option.key === "custom" ? customQuery : ""}`;
 
             return (
-              <Link key={option.key} href={href} className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-gold text-[#24160f]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}>
+              <Link key={option.key} href={href} prefetch={false} className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-gold text-[#24160f]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}>
                 {option.label}
               </Link>
             );
@@ -342,7 +342,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
           {tabs.map((option) => {
             const active = option.key === selectedTab;
             return (
-              <Link key={option.key} href={`/dashboard/top-lists?range=${selectedRange}&tab=${option.key}&page=1${customQuery}`} className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-cyan text-[#1c1511]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}>
+              <Link key={option.key} href={`/dashboard/top-lists?range=${selectedRange}&tab=${option.key}&page=1${customQuery}`} prefetch={false} className={`rounded-full px-4 py-2 text-sm transition ${active ? "bg-cyan text-[#1c1511]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}>
                 {option.label}
               </Link>
             );
@@ -370,11 +370,11 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
 
           {totalPages > 1 ? (
             <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-              <Link href={`/dashboard/top-lists?range=${selectedRange}&tab=${selectedTab}&page=${Math.max(1, currentPage - 1)}${customQuery}`} className={`rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm ${currentPage === 1 ? "pointer-events-none opacity-40" : "text-ink hover:text-gold"}`}>
+              <Link href={`/dashboard/top-lists?range=${selectedRange}&tab=${selectedTab}&page=${Math.max(1, currentPage - 1)}${customQuery}`} prefetch={false} className={`rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm ${currentPage === 1 ? "pointer-events-none opacity-40" : "text-ink hover:text-gold"}`}>
                 Previous
               </Link>
               <p className="text-sm text-[var(--theme-muted)]">Page {currentPage} of {totalPages}</p>
-              <Link href={`/dashboard/top-lists?range=${selectedRange}&tab=${selectedTab}&page=${Math.min(totalPages, currentPage + 1)}${customQuery}`} className={`rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm ${currentPage === totalPages ? "pointer-events-none opacity-40" : "text-ink hover:text-gold"}`}>
+              <Link href={`/dashboard/top-lists?range=${selectedRange}&tab=${selectedTab}&page=${Math.min(totalPages, currentPage + 1)}${customQuery}`} prefetch={false} className={`rounded-full border border-ink/15 bg-white/5 px-4 py-2 text-sm ${currentPage === totalPages ? "pointer-events-none opacity-40" : "text-ink hover:text-gold"}`}>
                 Next
               </Link>
             </div>

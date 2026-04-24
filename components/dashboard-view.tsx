@@ -198,7 +198,7 @@ function TabPill({ active, children, href }: { active: boolean; children: ReactN
   }
 
   return (
-    <Link href={href} className={className}>
+    <Link href={href} prefetch={false} className={className}>
       {children}
     </Link>
   );
@@ -223,6 +223,30 @@ function buildGenreFallback(artists: TopListsData["artists"]) {
       hours: Number((score * 0.4).toFixed(1)),
       color: palette[index % palette.length],
     }));
+}
+
+function mergeTopListArtistsForGenreFallback(...groups: TopListsData["artists"][]) {
+  const merged = new Map<string, TopListsData["artists"][number]>();
+
+  groups.flat().forEach((artist) => {
+    const key = artist.id || artist.name.toLowerCase();
+    const existing = merged.get(key);
+
+    if (!existing) {
+      merged.set(key, artist);
+      return;
+    }
+
+    merged.set(key, {
+      ...existing,
+      ...artist,
+      genres: [...new Set([...(existing.genres ?? []), ...(artist.genres ?? [])])],
+      imageUrl: existing.imageUrl ?? artist.imageUrl,
+      listenCount: Math.max(existing.listenCount ?? 0, artist.listenCount ?? 0),
+    });
+  });
+
+  return [...merged.values()];
 }
 
 function getAdaptiveValueClass(value: string) {
@@ -447,7 +471,9 @@ export function DashboardView({
     mode === "authenticated" && data.playlistInsights.length > 0 ? data.playlistInsights : null
   ));
   const playlistCards = livePlaylistInsights ?? data.playlistInsights;
-  const genrePulseItems = data.genrePulse.length > 0 ? data.genrePulse : buildGenreFallback(topListData.artists);
+  const genrePulseItems = data.genrePulse.length > 0
+    ? data.genrePulse
+    : buildGenreFallback(mergeTopListArtistsForGenreFallback(topListData.artists, heroTopListData.artists));
   const hasGenrePulseData = genrePulseItems.length > 0;
   const summaryTopArtists = topListData.artists.slice(0, 3);
   const summaryTopTracks = topListData.tracks.slice(0, 3);
@@ -764,7 +790,7 @@ export function DashboardView({
                   {!isPreview && analysisBasePath ? (
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                       <p className="text-sm text-[var(--theme-muted)]">Open the analysis page for bucket-by-bucket breakdowns and mood-session drilldowns.</p>
-                      <Link href={`${analysisBasePath}?section=trend&range=${selectedRange}`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                      <Link href={`${analysisBasePath}?section=trend&range=${selectedRange}`} prefetch={false} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                         Open full analysis
                       </Link>
                     </div>
@@ -923,6 +949,7 @@ export function DashboardView({
                               <Link
                                 key={`${mood}-${period}`}
                                 href={`${analysisBasePath}?section=heatmap&range=${selectedRange}&mood=${encodeURIComponent(mood)}&period=${encodeURIComponent(period)}`}
+                                prefetch={false}
                                 className="border-b border-l border-[rgba(57,18,98,0.12)] p-4 text-center transition hover:brightness-110"
                                 style={{
                                   background: `linear-gradient(135deg, rgba(255,255,255,0.16), ${moodColors[rowIndex % moodColors.length]}${alpha})`,
@@ -965,6 +992,7 @@ export function DashboardView({
               {!isPreview && topListsPagePath ? (
                 <Link
                   href={`${topListsPagePath}?range=${selectedTopRange}&tab=artists&page=1${selectedTopRange === "custom" && selectedTopFrom && selectedTopTo ? `&from=${selectedTopFrom}&to=${selectedTopTo}` : ""}`}
+                  prefetch={false}
                   className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
                 >
                   Open rankings page
@@ -1063,6 +1091,7 @@ export function DashboardView({
             <div className="flex justify-end">
               <Link
                 href={`${topListsPagePath}?range=${selectedTopRange}&tab=artists&page=1${selectedTopRange === "custom" && selectedTopFrom && selectedTopTo ? `&from=${selectedTopFrom}&to=${selectedTopTo}` : ""}`}
+                prefetch={false}
                 className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]"
               >
                 See complete rankings
@@ -1089,7 +1118,7 @@ export function DashboardView({
                   <h3 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Big songs that fell out of orbit</h3>
                 </div>
                 {!isPreview && rediscoveryPagePath ? (
-                  <Link href={`${rediscoveryPagePath}?range=${selectedRange}`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                  <Link href={`${rediscoveryPagePath}?range=${selectedRange}`} prefetch={false} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                     View more
                   </Link>
                 ) : null}
@@ -1161,7 +1190,7 @@ export function DashboardView({
 
           {!isPreview && rediscoveryPagePath ? (
             <div className="flex justify-end">
-              <Link href={`${rediscoveryPagePath}?range=${selectedRange}`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+              <Link href={`${rediscoveryPagePath}?range=${selectedRange}`} prefetch={false} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 View more rediscovery
               </Link>
             </div>
@@ -1182,7 +1211,7 @@ export function DashboardView({
           <div className="flex flex-wrap items-center justify-between gap-4">
             <p className="font-mono text-sm uppercase tracking-[0.12em] text-[var(--theme-muted)] sm:text-lg">Open the playlist lab for the complete archive.</p>
             {!isPreview && playlistsPagePath ? (
-              <Link href={playlistsPagePath} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+              <Link href={playlistsPagePath} prefetch={false} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 Open playlist lab
               </Link>
             ) : null}
@@ -1231,7 +1260,7 @@ export function DashboardView({
 
               if (!isPreview && playlistCard.id && playlistsPagePath) {
                 return (
-                  <Link key={playlistCard.id} href={`${playlistsPagePath ?? "/dashboard/playlists"}/${playlistCard.id}`} className={`${className} hover:border-cyan/40 hover:bg-white/[0.05]`}>
+                  <Link key={playlistCard.id} href={`${playlistsPagePath ?? "/dashboard/playlists"}/${playlistCard.id}`} prefetch={false} className={`${className} hover:border-cyan/40 hover:bg-white/[0.05]`}>
                     {content}
                   </Link>
                 );
@@ -1247,7 +1276,7 @@ export function DashboardView({
 
           {!isPreview && playlistsPagePath ? (
             <div className="flex justify-end">
-              <Link href={playlistsPagePath} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+              <Link href={playlistsPagePath} prefetch={false} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                 Browse all playlists
               </Link>
             </div>

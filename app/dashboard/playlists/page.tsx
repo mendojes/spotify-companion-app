@@ -84,7 +84,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
               </p>
             </div>
             <div className="flex gap-3">
-              <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
+              <Link href="/dashboard" prefetch={false} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
                 Back to dashboard
               </Link>
             </div>
@@ -104,6 +104,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
                 <Link
                   key={`${playlist.id ?? playlist.name}`}
                   href={playlist.id ? `/dashboard/playlists/${playlist.id}` : "/dashboard"}
+                  prefetch={false}
                   className="glass-panel rounded-[30px] p-6 transition hover:border-cyan/40 hover:bg-white/[0.05]"
                 >
                   <div className="flex items-start gap-5">
@@ -181,7 +182,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
             </div>
           </div>
           <div className="flex gap-3">
-            <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
+            <Link href="/dashboard" prefetch={false} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               Back to dashboard
             </Link>
             <a href="/api/dashboard/playlists/refresh" className="rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-sm text-cyan">
@@ -200,6 +201,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
               <Link
                 key={option.key}
                 href={`/dashboard/playlists?sort=${option.key}`}
+                prefetch={false}
                 className={`rounded-full px-4 py-2 text-sm transition ${
                   active ? "bg-white text-slate-950" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"
                 }`}
@@ -240,6 +242,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
               <Link
                 key={`${playlist.id ?? playlist.name}`}
                 href={playlist.id ? `/dashboard/playlists/${playlist.id}` : "/dashboard"}
+                prefetch={false}
                 className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)] transition hover:border-cyan/40 hover:bg-white/[0.05]"
               >
                 <div className="space-y-4">

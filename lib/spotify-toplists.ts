@@ -562,7 +562,7 @@ async function enrichRecentPlayTopListArtists(
 }
 
 function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, artistMetadata: Map<string, { genres: string[]; imageUrl?: string }>): TopListArtist[] {
-  const artistMap = new Map<string, { id: string; name: string; score: number; playCount: number; imageUrl?: string; fallbackImageUrl?: string; genres: string[] }>();
+  const artistMap = new Map<string, { id: string; name: string; score: number; playCount: number; imageUrl?: string; genres: string[] }>();
 
   recentPlays.forEach((play, index) => {
     const recencyWeight = Math.max(1, recentPlays.length - index);
@@ -577,7 +577,6 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
         score: 0,
         playCount: 0,
         imageUrl: metadata?.imageUrl,
-        fallbackImageUrl: play.imageUrl,
         genres: metadata?.genres ?? [],
       };
 
@@ -585,9 +584,6 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
       existing.playCount += 1;
       if (!existing.imageUrl && metadata?.imageUrl) {
         existing.imageUrl = metadata.imageUrl;
-      }
-      if (!existing.fallbackImageUrl && play.imageUrl) {
-        existing.fallbackImageUrl = play.imageUrl;
       }
       if (existing.genres.length === 0 && metadata?.genres?.length) {
         existing.genres = metadata.genres;
@@ -604,7 +600,7 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
       rank: index + 1,
       name: artist.name,
       genres: artist.genres,
-      imageUrl: artist.imageUrl ?? artist.fallbackImageUrl,
+      imageUrl: artist.imageUrl,
       listenCount: artist.playCount,
     }));
 }

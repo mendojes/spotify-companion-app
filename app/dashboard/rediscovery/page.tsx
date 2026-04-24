@@ -93,7 +93,7 @@ export default async function RediscoveryPage({
               Forgotten favorites stay in one lane, and older saved deep cuts live in another so you can revisit both the obvious classics and the quieter library pulls.
             </p>
           </div>
-          <Link href={`/dashboard?range=${selectedRange}`} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+          <Link href={`/dashboard?range=${selectedRange}`} prefetch={false} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
             Back to dashboard
           </Link>
         </div>
@@ -105,6 +105,7 @@ export default async function RediscoveryPage({
               <Link
                 key={option.key}
                 href={`/dashboard/rediscovery?range=${option.key}`}
+                prefetch={false}
                 className={`rounded-full px-4 py-2 text-sm uppercase tracking-[0.16em] transition ${active ? "bg-gold text-[#24160f]" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"}`}
               >
                 {option.label}

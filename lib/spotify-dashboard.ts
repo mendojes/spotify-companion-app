@@ -1296,6 +1296,97 @@ function deriveMoodDataFromGenreNames(genreNames: string[]) {
   }));
 }
 
+function normalizeMoodShares(points: MoodPoint[]): MoodPoint[] {
+  const base = moodOrder.map((mood) => points.find((point) => point.mood === mood) ?? { mood, share: 0, energy: 50 });
+  const total = base.reduce((sum, point) => sum + point.share, 0);
+
+  if (total <= 0) {
+    return base.map((point) => ({
+      ...point,
+      share: point.mood === "Bright Pulse" ? 100 : 0,
+    }));
+  }
+
+  let remainder = 100;
+  const normalized = base.map((point, index) => {
+    if (index === base.length - 1) {
+      return {
+        ...point,
+        share: remainder,
+      };
+    }
+
+    const share = Math.round((point.share / total) * 100);
+    remainder -= share;
+    return {
+      ...point,
+      share,
+    };
+  });
+
+  return normalized;
+}
+
+function blendMoodData(primary: MoodPoint[], secondary: Array<{ mood: string; share: number }>, secondaryWeight = 0.32): MoodPoint[] {
+  const primaryByMood = new Map(primary.map((point) => [point.mood, point]));
+  const secondaryByMood = new Map(secondary.map((point) => [point.mood, point]));
+
+  const blended = moodOrder.map((mood) => {
+    const primaryPoint = primaryByMood.get(mood) ?? { mood, share: 0, energy: 50 };
+    const secondaryPoint = secondaryByMood.get(mood) ?? { mood, share: 0 };
+
+    return {
+      mood,
+      share: primaryPoint.share * (1 - secondaryWeight) + secondaryPoint.share * secondaryWeight,
+      energy: primaryPoint.energy,
+    };
+  });
+
+  return normalizeMoodShares(blended);
+}
+
+function smoothMoodHeatmap(cells: MoodHeatmapCell[], moodData: MoodPoint[], baselineWeight = 0.18): MoodHeatmapCell[] {
+  if (cells.length === 0) {
+    return cells;
+  }
+
+  const moodShareByMood = new Map(moodData.map((point) => [point.mood, point.share / 100]));
+  const totalMinutesByPeriod = new Map<string, number>();
+
+  cells.forEach((cell) => {
+    totalMinutesByPeriod.set(cell.period, (totalMinutesByPeriod.get(cell.period) ?? 0) + cell.minutes);
+  });
+
+  const adjusted = cells.map((cell) => {
+    const baselineMinutes = (totalMinutesByPeriod.get(cell.period) ?? 0) * (moodShareByMood.get(cell.mood) ?? 0) * baselineWeight;
+    return {
+      ...cell,
+      minutes: Number((cell.minutes + baselineMinutes).toFixed(1)),
+    };
+  });
+
+  const maxMinutes = Math.max(...adjusted.map((cell) => cell.minutes), 1);
+  return adjusted.map((cell) => ({
+    ...cell,
+    intensity: cell.minutes > 0 ? Math.max(8, Math.round((cell.minutes / maxMinutes) * 100)) : 0,
+  }));
+}
+
+function applyOverviewMoodSmoothing(moodResult: MoodAnalyticsResult, fallbackGenres: string[]): MoodAnalyticsResult {
+  if (fallbackGenres.length === 0) {
+    return moodResult;
+  }
+
+  const fallbackMoodData = deriveMoodDataFromGenreNames(fallbackGenres);
+  const blendedMoodData = blendMoodData(moodResult.moodData, fallbackMoodData);
+
+  return {
+    ...moodResult,
+    moodData: blendedMoodData,
+    moodHeatmap: smoothMoodHeatmap(moodResult.moodHeatmap, blendedMoodData),
+  };
+}
+
 async function buildAnalysisHighlights(
   recent: SpotifyRecentlyPlayedItem[],
   snapshots: SpotifyDashboardSnapshot[],
@@ -1610,6 +1701,8 @@ async function deriveInsights(
       playlistInsights = livePlaylistInsights;
     }
   }
+
+  moodResult = applyOverviewMoodSmoothing(moodResult, genrePulse.map((item) => item.genre));
 
   const forgottenFavorites = deriveForgottenFavorites(topTracks, recent, longTermTopTracks, savedTracks);
   const quietSavedTracks = deriveQuietSavedTracks(
