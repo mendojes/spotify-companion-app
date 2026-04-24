@@ -24,6 +24,10 @@ type StoredDashboardSectionCache = {
   playlistsBySort: Partial<Record<PlaylistSortOption, PlaylistPageData>>;
 };
 
+function logSectionTiming(spotifyUserId: string, section: string, step: string, startedAt: number) {
+  console.log(`[dashboard-section] user=${spotifyUserId} section=${section} step=${step} elapsedMs=${Date.now() - startedAt}`);
+}
+
 function sectionRuntimeKey(spotifyUserId: string, section: string) {
   return `dashboard-section:${spotifyUserId}:${section}`;
 }
@@ -138,13 +142,19 @@ export async function writeStoredDashboardSectionCache(spotifyUserId: string) {
 
 export async function getStoredTopListsSection(spotifyUserId: string, range: TopListRange, from?: string, to?: string) {
   if (range === "custom" || from || to) {
+    console.log(`[dashboard-section] user=${spotifyUserId} section=top-lists step=skip-cache reason=custom-window`);
     return null;
   }
 
-  return getCachedValue(sectionRuntimeKey(spotifyUserId, "top-lists"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+  const startedAt = Date.now();
+  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "top-lists"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+    const readStartedAt = Date.now();
     const stored = await readStoredDashboardSectionCache(spotifyUserId);
+    logSectionTiming(spotifyUserId, "top-lists", "read-stored-cache", readStartedAt);
     return stored?.topListsByRange ?? {};
   }).then((entries) => (entries as Partial<Record<Exclude<TopListRange, "custom">, TopListsData>>)[range] ?? null);
+  logSectionTiming(spotifyUserId, "top-lists", result ? "cache-hit" : "cache-miss", startedAt);
+  return result;
 }
 
 export async function getStoredAnalysisSection(
@@ -154,26 +164,42 @@ export async function getStoredAnalysisSection(
   options?: { label?: string; mood?: string; period?: string; day?: string; from?: string; to?: string },
 ) {
   if (options?.label || options?.mood || options?.period || options?.day || options?.from || options?.to) {
+    console.log(`[dashboard-section] user=${spotifyUserId} section=analysis step=skip-cache reason=custom-filter`);
     return null;
   }
 
   const key = `${range}:${section}` as AnalysisSectionKey;
-  return getCachedValue(sectionRuntimeKey(spotifyUserId, "analysis"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+  const startedAt = Date.now();
+  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "analysis"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+    const readStartedAt = Date.now();
     const stored = await readStoredDashboardSectionCache(spotifyUserId);
+    logSectionTiming(spotifyUserId, "analysis", "read-stored-cache", readStartedAt);
     return stored?.analysisByKey ?? {};
   }).then((entries) => (entries as Partial<Record<AnalysisSectionKey, DashboardAnalysisDetail>>)[key] ?? null);
+  logSectionTiming(spotifyUserId, "analysis", result ? "cache-hit" : "cache-miss", startedAt);
+  return result;
 }
 
 export async function getStoredRediscoverySection(spotifyUserId: string, range: DashboardRange) {
-  return getCachedValue(sectionRuntimeKey(spotifyUserId, "rediscovery"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+  const startedAt = Date.now();
+  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "rediscovery"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+    const readStartedAt = Date.now();
     const stored = await readStoredDashboardSectionCache(spotifyUserId);
+    logSectionTiming(spotifyUserId, "rediscovery", "read-stored-cache", readStartedAt);
     return stored?.rediscoveryByRange ?? {};
   }).then((entries) => (entries as Partial<Record<DashboardRange, RediscoverySectionData>>)[range] ?? null);
+  logSectionTiming(spotifyUserId, "rediscovery", result ? "cache-hit" : "cache-miss", startedAt);
+  return result;
 }
 
 export async function getStoredPlaylistsSection(spotifyUserId: string, sort: PlaylistSortOption) {
-  return getCachedValue(sectionRuntimeKey(spotifyUserId, "playlists"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+  const startedAt = Date.now();
+  const result = await getCachedValue(sectionRuntimeKey(spotifyUserId, "playlists"), DASHBOARD_SECTION_RUNTIME_TTL_MS, async () => {
+    const readStartedAt = Date.now();
     const stored = await readStoredDashboardSectionCache(spotifyUserId);
+    logSectionTiming(spotifyUserId, "playlists", "read-stored-cache", readStartedAt);
     return stored?.playlistsBySort ?? {};
   }).then((entries) => (entries as Partial<Record<PlaylistSortOption, PlaylistPageData>>)[sort] ?? null);
+  logSectionTiming(spotifyUserId, "playlists", result ? "cache-hit" : "cache-miss", startedAt);
+  return result;
 }

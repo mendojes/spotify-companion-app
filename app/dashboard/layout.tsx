@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { LogOut, RefreshCcw, Settings2, Sparkles, Users } from "lucide-react";
+import { LogOut, Settings2, Sparkles, Users } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DashboardSectionNav } from "@/components/dashboard-section-nav";
+import { RefreshSnapshotLink } from "@/components/refresh-snapshot-link";
 import { getSession, hasSpotifyConnection } from "@/lib/auth";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -34,9 +35,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 <Link href="/privacy" className="pixel-chip inline-flex min-h-11 items-center gap-2 px-3 text-xs text-[var(--theme-text)] transition hover:text-[#2d0d46] sm:px-4 sm:text-sm">
                   <Sparkles className="h-4 w-4" /> Privacy
                 </Link>
-                <a href="/api/dashboard/refresh?range=week" className="pixel-chip inline-flex min-h-11 items-center gap-2 px-3 text-xs text-[var(--theme-text)] transition hover:text-[#2d0d46] sm:px-4 sm:text-sm">
-                  <RefreshCcw className="h-4 w-4" /> Refresh snapshot
-                </a>
+                <RefreshSnapshotLink href="/api/dashboard/refresh?range=week" />
               </>
             ) : null}
             {session?.displayName ? (

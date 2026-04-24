@@ -234,10 +234,12 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   const pageSize = FULL_TOP_LIST_LIMIT;
   let data;
   let rankingsNotice: string | null = null;
+  const loadStartedAt = Date.now();
 
   try {
     data = await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo)
       ?? await getSpotifyTopListsFromHistory(session.spotifyUserId, selectedRange, FULL_TOP_LIST_LIMIT, selectedFrom, selectedTo);
+    console.log(`[dashboard-page] user=${session.spotifyUserId} page=top-lists step=load elapsedMs=${Date.now() - loadStartedAt}`);
   } catch (error) {
     if (isSessionRefreshFailure(error)) {
       redirect("/login?error=session_refresh_failed");

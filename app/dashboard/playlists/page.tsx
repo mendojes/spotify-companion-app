@@ -149,6 +149,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
   let error: string | null = null;
   let playlistCount = 0;
   let lastSyncedAt: string | undefined;
+  const loadStartedAt = Date.now();
 
   try {
     const pageData = await getStoredPlaylistsSection(spotifySession.spotifyUserId, selectedSort)
@@ -156,6 +157,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
     playlists = pageData.playlists;
     playlistCount = pageData.playlistCount;
     lastSyncedAt = pageData.lastSyncedAt;
+    console.log(`[dashboard-page] user=${spotifySession.spotifyUserId} page=playlists step=load elapsedMs=${Date.now() - loadStartedAt}`);
   } catch (caughtError) {
     error = `Stored playlist analysis could not be loaded right now. Use Refresh snapshot to update playlist data. (${getErrorMessage(caughtError)})`;
   }

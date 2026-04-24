@@ -166,6 +166,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
   const selectedAlbum = normalizeTextFilter(album);
   const selectedSort = normalizeSort(sort);
   const currentPage = normalizePage(page);
+  const loadStartedAt = Date.now();
   const topListsQuery = selectedDay
     ? `&from=${selectedDay}&to=${selectedDay}`
     : selectedFrom || selectedTo
@@ -188,6 +189,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
     from: selectedFrom,
     to: selectedTo,
   });
+  console.log(`[dashboard-page] user=${session.spotifyUserId} page=analysis step=load elapsedMs=${Date.now() - loadStartedAt}`);
 
   if (!detail) {
     redirect(`/dashboard?range=${selectedRange}`);

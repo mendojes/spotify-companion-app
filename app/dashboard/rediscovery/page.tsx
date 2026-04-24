@@ -75,8 +75,10 @@ export default async function RediscoveryPage({
 
   const { range } = await searchParams;
   const selectedRange = normalizeRange(range);
+  const loadStartedAt = Date.now();
   const insights = await getStoredRediscoverySection(session.spotifyUserId, selectedRange)
     ?? await getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange);
+  console.log(`[dashboard-page] user=${session.spotifyUserId} page=rediscovery step=load elapsedMs=${Date.now() - loadStartedAt}`);
 
   if (!insights) {
     redirect(`/dashboard?range=${selectedRange}`);
