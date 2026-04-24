@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { markConnectedUserRecentSync, markConnectedUserSnapshotStatus, touchConnectedUser } from "@/lib/connected-users";
 import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
-import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
 import { getAppUrl } from "@/lib/spotify";
 import { invalidateDashboardSnapshotCaches, refreshDashboardSnapshot } from "@/lib/spotify-dashboard";
-import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
+import { invalidateDashboardPlaylistPreviewCache } from "@/lib/spotify-playlists";
 import { syncRecentPlays } from "@/lib/spotify-activity";
 import { invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
 
@@ -15,6 +14,10 @@ function normalizeRange(range?: string) {
   }
 
   return "week";
+}
+
+function logRefreshTiming(spotifyUserId: string, step: string, startedAt: number) {
+  console.log(`[dashboard-refresh] user=${spotifyUserId} step=${step} elapsedMs=${Date.now() - startedAt}`);
 }
 
 export async function GET(request: NextRequest) {
@@ -43,24 +46,28 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const refreshStartedAt = Date.now();
     await touchConnectedUser(session.spotifyUserId);
+    const recentSyncStartedAt = Date.now();
     const recentPlays = await syncRecentPlays(
       authorizedSession.accessToken,
       authorizedSession.spotifyUserId,
-      { fullBackfill: true },
+      { fullBackfill: false },
     ).catch(() => []);
+    logRefreshTiming(authorizedSession.spotifyUserId, "recent-sync", recentSyncStartedAt);
     await markConnectedUserRecentSync(authorizedSession.spotifyUserId).catch(() => undefined);
+    const snapshotStartedAt = Date.now();
     await refreshDashboardSnapshot(authorizedSession.accessToken, authorizedSession.spotifyUserId, recentPlays);
+    logRefreshTiming(authorizedSession.spotifyUserId, "snapshot", snapshotStartedAt);
     await markConnectedUserSnapshotStatus(authorizedSession.spotifyUserId, "success");
-    await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId).catch(() => []);
     invalidateDashboardSnapshotCaches(authorizedSession.spotifyUserId);
     invalidateTopListHistoryCache(authorizedSession.spotifyUserId);
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
-    invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
+    const overviewCacheStartedAt = Date.now();
     await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined);
-    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined);
-    invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
+    logRefreshTiming(authorizedSession.spotifyUserId, "overview-cache", overviewCacheStartedAt);
+    logRefreshTiming(authorizedSession.spotifyUserId, "total", refreshStartedAt);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Snapshot refresh failed.";

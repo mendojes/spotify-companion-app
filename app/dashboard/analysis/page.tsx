@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requireSpotifySession } from "@/lib/auth";
 import { getStoredAnalysisSection } from "@/lib/dashboard-section-cache";
 import { getMoodDescription } from "@/lib/moods";
+import { getDashboardAnalysisDetailFromHistory } from "@/lib/spotify-dashboard";
 import { DashboardRange } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
 
@@ -272,7 +273,22 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
       ? `${selectedFrom ? `&from=${selectedFrom}` : ""}${selectedTo ? `&to=${selectedTo}` : ""}`
       : "";
 
-  const detail = await getStoredAnalysisSection(session.spotifyUserId, selectedRange, selectedSection);
+  const detail = await getStoredAnalysisSection(session.spotifyUserId, selectedRange, selectedSection, {
+    label,
+    mood,
+    period,
+    day: selectedDay,
+    from: selectedFrom,
+    to: selectedTo,
+  }) ?? await getDashboardAnalysisDetailFromHistory(session.spotifyUserId, selectedRange, {
+    section: selectedSection,
+    label,
+    mood,
+    period,
+    day: selectedDay,
+    from: selectedFrom,
+    to: selectedTo,
+  });
   console.log(`[dashboard-page] user=${session.spotifyUserId} page=analysis step=load elapsedMs=${Date.now() - loadStartedAt}`);
 
   if (!detail) {
