@@ -55,6 +55,7 @@ type MoodAnalyticsResult = {
 
 type DashboardInsightOptions = {
   includeLivePlaylistInsights?: boolean;
+  includePublicTagFallback?: boolean;
 };
 
 type RecentTrackMoodMeta = {
@@ -1722,7 +1723,7 @@ async function deriveInsights(
       genrePulse = snapshotGenrePulse;
     } else if (mergedArtistGenrePulse.length > 0) {
       genrePulse = mergedArtistGenrePulse;
-    } else {
+    } else if (options?.includePublicTagFallback !== false) {
       const fallbackArtistNames = [
         ...storedRecent.flatMap((play) => play.artistName.split(/,\s*/)),
         ...recent.flatMap((item) => item.track.artists.map((artist) => artist.name)),

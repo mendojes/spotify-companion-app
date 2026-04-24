@@ -148,7 +148,10 @@ export async function writeStoredDashboardOverviewCache(spotifyUserId: string, a
           range,
           rangeAccessToken,
           spotifyUserId,
-          { includeLivePlaylistInsights: false },
+          {
+            includeLivePlaylistInsights: false,
+            includePublicTagFallback: false,
+          },
         )
         : null;
 
