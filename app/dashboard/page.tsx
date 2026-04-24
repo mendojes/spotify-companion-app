@@ -8,7 +8,7 @@ import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { hasSpotifyConnection, requireSession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
-import { getDashboardPlaylistInsights } from "@/lib/spotify-playlists";
+import { getDashboardPlaylistInsightPreview } from "@/lib/spotify-playlists";
 import { getSpotifyTopListsFromHistoryData, getTopListHistoryData } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
@@ -109,6 +109,10 @@ async function settleCacheLoad<T>(label: string, loader: () => Promise<T | null>
       error: `${label}: ${getErrorMessage(error)}`,
     };
   }
+}
+
+function logDashboardTiming(spotifyUserId: string, step: string, startedAt: number) {
+  console.log(`[dashboard] user=${spotifyUserId} step=${step} elapsedMs=${Date.now() - startedAt}`);
 }
 
 function Notice({ tone, children }: { tone: "cyan" | "coral" | "gold"; children: React.ReactNode }) {
@@ -346,23 +350,28 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let topLists;
   let heroTopLists;
   let dashboardError: string | null = null;
+  const pageStart = Date.now();
 
   const [cachedSnapshots, cachedHistory, cachedPlaylistInsights] = await Promise.all([
     settleCacheLoad("dashboard snapshots", () => getSharedDashboardCacheSnapshots(session.spotifyUserId)),
     settleCacheLoad("dashboard history", () => getTopListHistoryData(session.spotifyUserId)),
-    settleCacheLoad("playlist insights", () => getDashboardPlaylistInsights(session.spotifyUserId)),
+    settleCacheLoad("playlist insights", () => getDashboardPlaylistInsightPreview(session.spotifyUserId)),
   ]);
+  logDashboardTiming(session.spotifyUserId, "base-loaders", pageStart);
 
   if (cachedSnapshots.value && cachedSnapshots.value.length > 0) {
+    const insightsStart = Date.now();
     insights = (await getDashboardInsightsFromSnapshots(
       cachedSnapshots.value,
       selectedRange,
       undefined,
       session.spotifyUserId,
     )) ?? undefined;
+    logDashboardTiming(session.spotifyUserId, "insights-from-snapshots", insightsStart);
   }
 
   if (cachedHistory.value) {
+    const topListsStart = Date.now();
     const [resolvedTopLists, resolvedHeroTopLists] = await Promise.all([
       getSpotifyTopListsFromHistoryData(
         cachedHistory.value,
@@ -379,6 +388,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
     topLists = resolvedTopLists ?? undefined;
     heroTopLists = resolvedHeroTopLists ?? undefined;
+    logDashboardTiming(session.spotifyUserId, "top-lists", topListsStart);
   }
 
   if (insights) {
@@ -398,6 +408,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   } else if (missingCachedSections.length > 0) {
     dashboardError = `Dashboard data is missing ${missingCachedSections.join(", ")}. Use Refresh snapshot to update the dashboard.`;
   }
+  logDashboardTiming(session.spotifyUserId, "total", pageStart);
 
   return (
     <main className="relative overflow-hidden pb-10">

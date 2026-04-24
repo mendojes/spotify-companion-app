@@ -42,6 +42,7 @@ const PLAYLIST_LARGE_SYNC_THRESHOLD = 1000;
 const PLAYLIST_SYNC_PAGE_SIZE = 100;
 const PLAYLIST_LARGE_SYNC_PAGES_PER_REQUEST = 8;
 const PUBLIC_SPOTIFY_WEB_TIMEOUT_MS = 10_000;
+const DASHBOARD_PLAYLIST_PREVIEW_TTL_MS = 1000 * 30;
 
 const lastGoodPlaylistInsights = new Map<string, PlaylistInsight[]>();
 const publicPlaylistHtmlCache = new Map<string, string | null>();
@@ -423,6 +424,20 @@ export async function getDashboardPlaylistInsights(spotifyUserId: string): Promi
   }
 
   return playlistInsights;
+}
+
+export async function getDashboardPlaylistInsightPreview(spotifyUserId: string): Promise<PlaylistInsight[]> {
+  return getCachedValue(`dashboard-playlist-preview:${spotifyUserId}`, DASHBOARD_PLAYLIST_PREVIEW_TTL_MS, async () => {
+    const [storedInsights, storedPlaylists, cachedDetails] = await Promise.all([
+      getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
+      getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
+      getCachedPlaylistDetails(spotifyUserId).catch(() => [] as CachedPlaylistDetail[]),
+    ]);
+
+    const hydratedInsights = hydrateStoredInsightsFromCachedDetails(storedInsights, storedPlaylists, cachedDetails, []);
+    const sourceInsights = hydratedInsights.length > 0 ? hydratedInsights : storedInsights;
+    return sortPlaylistInsights(uniqueById(sourceInsights), "last_listened_desc").slice(0, DASHBOARD_PLAYLIST_COUNT);
+  });
 }
 
 export async function promoteRecentlyPlayedPlaylist(

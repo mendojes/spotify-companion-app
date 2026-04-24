@@ -215,6 +215,27 @@ function trimTopListsData(topLists: TopListsData, limit: number, from?: string, 
   };
 }
 
+function hydrateArtistImagesFromSnapshot(snapshot: SpotifyDashboardSnapshot, topLists: TopListsData): TopListsData {
+  const snapshotArtists = [
+    ...snapshot.topArtists,
+    ...(snapshot.mediumTermTopArtists ?? []),
+    ...(snapshot.longTermTopArtists ?? []),
+  ];
+  const artistImageById = new Map(
+    snapshotArtists
+      .filter((artist) => artist?.id && artist.images?.[0]?.url)
+      .map((artist) => [artist.id, artist.images?.[0]?.url as string]),
+  );
+
+  return {
+    ...topLists,
+    artists: topLists.artists.map((artist) => ({
+      ...artist,
+      imageUrl: artistImageById.get(artist.id) ?? artist.imageUrl,
+    })),
+  };
+}
+
 function getSnapshotCachedTopLists(snapshot: SpotifyDashboardSnapshot, range: TopListRange, limit: number, from?: string, to?: string) {
   if (range === "custom") {
     return null;
@@ -230,7 +251,7 @@ function getSnapshotCachedTopLists(snapshot: SpotifyDashboardSnapshot, range: To
     return null;
   }
 
-  return trimTopListsData(cached, limit, from, to);
+  return trimTopListsData(hydrateArtistImagesFromSnapshot(snapshot, cached), limit, from, to);
 }
 
 export function buildCachedTopListsForSnapshot(snapshot: Pick<SpotifyDashboardSnapshot, "topArtists" | "topTracks" | "mediumTermTopArtists" | "mediumTermTopTracks" | "longTermTopArtists" | "longTermTopTracks" | "fetchedAt">): SnapshotTopListsCache {

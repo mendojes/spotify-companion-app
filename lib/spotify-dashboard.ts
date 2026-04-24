@@ -409,7 +409,7 @@ function hydrateCachedTopListsArtists(
           return {
             ...artist,
             genres: getArtistGenres(metadataArtist).length > 0 ? getArtistGenres(metadataArtist) : artist.genres,
-            imageUrl: artist.imageUrl ?? metadataArtist.images?.[0]?.url,
+            imageUrl: metadataArtist.images?.[0]?.url ?? artist.imageUrl,
           };
         }),
       },
