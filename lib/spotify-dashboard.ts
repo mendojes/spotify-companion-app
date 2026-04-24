@@ -43,6 +43,8 @@ const PACIFIC_TIME_ZONE = PST_TIME_ZONE;
 const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( genre pulse fallback )";
 const PUBLIC_TAG_FETCH_LIMIT = 12;
 const ANALYSIS_DETAIL_TTL_MS = 1000 * 60 * 5;
+const DASHBOARD_SNAPSHOT_CACHE_TTL_MS = 1000 * 30;
+const DASHBOARD_INSIGHTS_CACHE_TTL_MS = 1000 * 30;
 
 type MoodAnalyticsResult = {
   moodData: MoodPoint[];
@@ -2024,32 +2026,34 @@ export async function getDashboardAnalysisDetailFromHistory(
 
 
 export async function getSharedDashboardCacheSnapshots(spotifyUserId: string) {
-  let latestSnapshot;
-  try {
-    latestSnapshot = await getLatestSnapshot(spotifyUserId);
-  } catch (error) {
-    throw dashboardCacheError("getLatestSnapshot", error);
-  }
-
-  let snapshots;
-  try {
-    snapshots = await getHistoricalSnapshots(spotifyUserId, "all");
-  } catch (error) {
-    throw dashboardCacheError("getHistoricalSnapshots", error);
-  }
-
-  if (snapshots.length === 0) {
+  return getCachedValue(`dashboard-snapshots:${spotifyUserId}`, DASHBOARD_SNAPSHOT_CACHE_TTL_MS, async () => {
+    let latestSnapshot;
     try {
-      const fallbackLatest = await getLatestSnapshot(spotifyUserId);
-      if (fallbackLatest) {
-        snapshots = [fallbackLatest];
-      }
+      latestSnapshot = await getLatestSnapshot(spotifyUserId);
     } catch (error) {
-      throw dashboardCacheError("fallbackLatestSnapshot", error);
+      throw dashboardCacheError("getLatestSnapshot", error);
     }
-  }
 
-  return snapshots;
+    let snapshots;
+    try {
+      snapshots = await getHistoricalSnapshots(spotifyUserId, "all");
+    } catch (error) {
+      throw dashboardCacheError("getHistoricalSnapshots", error);
+    }
+
+    if (snapshots.length === 0) {
+      try {
+        const fallbackLatest = await getLatestSnapshot(spotifyUserId);
+        if (fallbackLatest) {
+          snapshots = [fallbackLatest];
+        }
+      } catch (error) {
+        throw dashboardCacheError("fallbackLatestSnapshot", error);
+      }
+    }
+
+    return snapshots;
+  });
 }
 
 export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashboardSnapshot[], range: DashboardRange, accessToken?: string, spotifyUserId?: string) {
@@ -2061,7 +2065,17 @@ export async function getDashboardInsightsFromSnapshots(snapshots: SpotifyDashbo
     return null;
   }
 
-  return deriveInsights(historicalSnapshots, range, accessToken, spotifyUserId);
+  const latestFetchedAt = historicalSnapshots[0]?.fetchedAt ?? "";
+  const cacheKey = [
+    "dashboard-insights",
+    spotifyUserId ?? "anonymous",
+    range,
+    accessToken ? "live" : "cached",
+    latestFetchedAt,
+    historicalSnapshots.length,
+  ].join(":");
+
+  return getCachedValue(cacheKey, DASHBOARD_INSIGHTS_CACHE_TTL_MS, () => deriveInsights(historicalSnapshots, range, accessToken, spotifyUserId));
 }
 
 export async function getDashboardInsightsFromHistory(spotifyUserId: string, range: DashboardRange, accessToken?: string) {

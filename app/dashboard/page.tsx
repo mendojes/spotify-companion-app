@@ -7,7 +7,7 @@ import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { hasSpotifyConnection, requireSession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { getDashboardInsightsFromSnapshots } from "@/lib/spotify-dashboard";
+import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { getDashboardPlaylistInsights } from "@/lib/spotify-playlists";
 import { getSpotifyTopListsFromHistoryData, getTopListHistoryData } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
@@ -347,14 +347,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let heroTopLists;
   let dashboardError: string | null = null;
 
-  const [cachedHistory, cachedPlaylistInsights] = await Promise.all([
+  const [cachedSnapshots, cachedHistory, cachedPlaylistInsights] = await Promise.all([
+    settleCacheLoad("dashboard snapshots", () => getSharedDashboardCacheSnapshots(session.spotifyUserId)),
     settleCacheLoad("dashboard history", () => getTopListHistoryData(session.spotifyUserId)),
     settleCacheLoad("playlist insights", () => getDashboardPlaylistInsights(session.spotifyUserId)),
   ]);
 
-  if (cachedHistory.value?.snapshots && cachedHistory.value.snapshots.length > 0) {
+  if (cachedSnapshots.value && cachedSnapshots.value.length > 0) {
     insights = (await getDashboardInsightsFromSnapshots(
-      cachedHistory.value.snapshots,
+      cachedSnapshots.value,
       selectedRange,
       undefined,
       session.spotifyUserId,
@@ -387,7 +388,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     };
   }
 
-  const cacheErrors = [cachedHistory.error, cachedPlaylistInsights.error].filter((value): value is string => Boolean(value));
+  const cacheErrors = [cachedSnapshots.error, cachedHistory.error, cachedPlaylistInsights.error].filter((value): value is string => Boolean(value));
   const missingCachedSections = [!insights ? "insights" : null, !topLists ? "top lists" : null, !heroTopLists ? "hero top lists" : null].filter(
     (value): value is string => Boolean(value),
   );

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, hasSpotifyConnection } from "@/lib/auth";
-import { getDashboardInsightsFromSnapshots } from "@/lib/spotify-dashboard";
+import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { getSpotifyTopListsFromHistoryData, getTopListHistoryData } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
@@ -59,9 +59,12 @@ export async function GET(request: NextRequest) {
   const selectedHeroRange = dashboardRangeToTopListRange(selectedRange);
 
   try {
-    const history = await getTopListHistoryData(session.spotifyUserId);
-    const insights = history.snapshots.length > 0
-      ? await getDashboardInsightsFromSnapshots(history.snapshots, selectedRange, undefined, session.spotifyUserId)
+    const [snapshots, history] = await Promise.all([
+      getSharedDashboardCacheSnapshots(session.spotifyUserId),
+      getTopListHistoryData(session.spotifyUserId),
+    ]);
+    const insights = snapshots.length > 0
+      ? await getDashboardInsightsFromSnapshots(snapshots, selectedRange, undefined, session.spotifyUserId)
       : null;
     const [topLists, heroTopLists] = await Promise.all([
       getSpotifyTopListsFromHistoryData(history, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
