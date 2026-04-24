@@ -107,6 +107,22 @@ function resolveStoredOverview(
   };
 }
 
+function hasCompleteStoredOverview(
+  storedOverview: DashboardOverviewData | null,
+  selectedTopRange: TopListRange,
+  selectedTopFrom?: string,
+  selectedTopTo?: string,
+) {
+  if (!storedOverview?.insights) {
+    return false;
+  }
+
+  const needsCustomTopLists = selectedTopRange === "custom" || Boolean(selectedTopFrom || selectedTopTo);
+  const hasTopLists = needsCustomTopLists ? true : Boolean(storedOverview.topLists);
+
+  return hasTopLists && Boolean(storedOverview.heroTopLists);
+}
+
 export async function writeStoredDashboardOverviewCache(spotifyUserId: string, accessToken?: string) {
   if (!hasMongoConfig()) {
     return;
@@ -217,6 +233,11 @@ export async function getDashboardOverviewData(
       selectedTopTo,
     );
     logOverviewTiming(spotifyUserId, "overview-stored-cache", storedStart);
+
+    if (storedOverview && hasCompleteStoredOverview(storedOverview, selectedTopRange, selectedTopFrom, selectedTopTo)) {
+      logOverviewTiming(spotifyUserId, "overview-total", totalStart);
+      return storedOverview;
+    }
 
     const historyStart = Date.now();
     const [topListHistory, playlistPreview] = await Promise.all([

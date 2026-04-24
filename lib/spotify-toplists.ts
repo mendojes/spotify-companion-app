@@ -529,6 +529,7 @@ async function enrichRecentPlayTopListArtists(
   recentPlays: StoredRecentPlay[],
   range: TopListRange,
   limit: number,
+  snapshotArtistMetadata?: Map<string, { genres: string[]; imageUrl?: string }>,
 ) {
   const needsArtistMetadata = recentPlayTopLists.artists.some((artist) => !artist.imageUrl || artist.genres.length === 0);
 
@@ -546,12 +547,17 @@ async function enrichRecentPlayTopListArtists(
     recentPlayTopLists.artists = recentPlayTopLists.artists.map((artist) => {
       const spotifyArtist = spotifyArtistMetadata.get(artist.id);
       const fallbackArtist = fallbackArtistMap.get(artist.name.toLowerCase());
-      const preferredArtistImage = spotifyArtist?.images?.[0]?.url ?? fallbackArtist?.imageUrl;
+      const snapshotArtist = snapshotArtistMetadata?.get(artist.name.toLowerCase());
+      const preferredArtistImage = spotifyArtist?.images?.[0]?.url ?? fallbackArtist?.imageUrl ?? snapshotArtist?.imageUrl;
 
       return {
         ...artist,
         imageUrl: preferredArtistImage ?? artist.imageUrl,
-        genres: artist.genres.length > 0 ? artist.genres : (spotifyArtist ? getArtistGenres(spotifyArtist) : (fallbackArtist?.genres ?? [])),
+        genres: artist.genres.length > 0
+          ? artist.genres
+          : (spotifyArtist
+            ? getArtistGenres(spotifyArtist)
+            : (fallbackArtist?.genres ?? snapshotArtist?.genres ?? [])),
       };
     });
   } catch {
@@ -901,7 +907,14 @@ export async function getSpotifyTopLists(
   const { topLists: recentPlayTopLists, recentPlays } = await getRecentPlayTopLists(spotifyUserId, range, boundedLimit, from, to, snapshots);
 
   if (recentPlayTopLists) {
-    return enrichRecentPlayTopListArtists(accessToken, recentPlayTopLists, recentPlays, range, boundedLimit);
+    return enrichRecentPlayTopListArtists(
+      accessToken,
+      recentPlayTopLists,
+      recentPlays,
+      range,
+      boundedLimit,
+      buildArtistMetadataFromSnapshots(snapshots),
+    );
   }
 
   const cachedTopLists = snapshots.length === 1 ? getSnapshotCachedTopLists(snapshots[0], range, boundedLimit, from, to) : null;
@@ -998,6 +1011,7 @@ export async function getSpotifyTopListsFromHistoryData(
         filterRecentPlaysForTopRange(history.recentPlays, range, from, to),
         range,
         boundedLimit,
+        buildArtistMetadataFromSnapshots(relevantSnapshots),
       )),
       sourceLabel: "Shared Listening Lore listening history",
     } satisfies TopListsData;

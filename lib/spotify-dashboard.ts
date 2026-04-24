@@ -787,6 +787,59 @@ function deriveMoodAnalytics(
   }
 
   const featureMap = new Map(audioFeatures.map((feature) => [feature.id, feature]));
+  const recentMoodMeta = buildRecentMoodMeta(recent, audioFeatures).filter(
+    (meta): meta is RecentTrackMoodMeta & { mood: (typeof moodOrder)[number] } => Boolean(meta.mood),
+  );
+
+  if (recentMoodMeta.length > 0) {
+    const moodCounts = new Map<string, number>(moodOrder.map((mood) => [mood, 0]));
+    const energyTotals = new Map<string, { total: number; count: number }>(moodOrder.map((mood) => [mood, { total: 0, count: 0 }]));
+    const rawHeatmap = new Map<string, number>();
+
+    recentMoodMeta.forEach((meta) => {
+      const mood = meta.mood;
+      const feature = featureMap.get(meta.item.track.id);
+      const minutes = minutesFromMs(meta.item.track.duration_ms);
+      const period = meta.period;
+
+      moodCounts.set(mood, (moodCounts.get(mood) ?? 0) + 1);
+      if (feature) {
+        const energyEntry = energyTotals.get(mood) ?? { total: 0, count: 0 };
+        energyEntry.total += feature.energy * 100;
+        energyEntry.count += 1;
+        energyTotals.set(mood, energyEntry);
+      }
+
+      const heatmapKey = `${period}::${mood}`;
+      rawHeatmap.set(heatmapKey, (rawHeatmap.get(heatmapKey) ?? 0) + minutes);
+    });
+
+    const totalPlays = [...moodCounts.values()].reduce((sum, value) => sum + value, 0) || 1;
+    const moodData: MoodPoint[] = moodOrder.map((mood) => {
+      const energyEntry = energyTotals.get(mood) ?? { total: 0, count: 0 };
+      return {
+        mood,
+        share: Math.round(((moodCounts.get(mood) ?? 0) / totalPlays) * 100),
+        energy: energyEntry.count > 0 ? Math.round(energyEntry.total / energyEntry.count) : 45,
+      };
+    });
+
+    const maxMinutes = Math.max(...rawHeatmap.values(), 1);
+    const moodHeatmap: MoodHeatmapCell[] = heatmapPeriods.flatMap((period) =>
+      moodOrder.map((mood) => {
+        const minutes = Number((rawHeatmap.get(`${period}::${mood}`) ?? 0).toFixed(1));
+        const intensity = minutes > 0 ? Math.max(8, Math.round((minutes / maxMinutes) * 100)) : 0;
+        return { period, mood, minutes, intensity };
+      }),
+    );
+
+    return {
+      moodData,
+      moodSource: "Spotify audio-features mood model (recent-play dominant mood)",
+      moodHeatmap: moodHeatmap.some((cell) => cell.intensity > 0) ? moodHeatmap : deriveMoodHeatmapFallback(moodData),
+    };
+  }
+
   const shareScores = new Map<string, number>(moodOrder.map((mood) => [mood, 0]));
   const energyTotals = new Map<string, { total: number; count: number }>(moodOrder.map((mood) => [mood, { total: 0, count: 0 }]));
   const weightedTracks = new Map<string, { weight: number; feature: SpotifyAudioFeature }>();
