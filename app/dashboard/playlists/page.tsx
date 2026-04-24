@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { getAllPlaylistInsightsFromHistory, getPlaylistLibraryStatus } from "@/lib/spotify-playlists";
+import { getPlaylistPageDataFromHistory } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
 
@@ -146,10 +146,14 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
   const spotifySession = await requireSpotifySession("/dashboard/playlists");
   let playlists: PlaylistInsight[] = [];
   let error: string | null = null;
-  const libraryStatus = await getPlaylistLibraryStatus(spotifySession.spotifyUserId);
+  let playlistCount = 0;
+  let lastSyncedAt: string | undefined;
 
   try {
-    playlists = await getAllPlaylistInsightsFromHistory(spotifySession.spotifyUserId, selectedSort);
+    const pageData = await getPlaylistPageDataFromHistory(spotifySession.spotifyUserId, selectedSort);
+    playlists = pageData.playlists;
+    playlistCount = pageData.playlistCount;
+    lastSyncedAt = pageData.lastSyncedAt;
   } catch (caughtError) {
     error = `Stored playlist analysis could not be loaded right now. Use Refresh snapshot to update playlist data. (${getErrorMessage(caughtError)})`;
   }
@@ -168,8 +172,8 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
               Created is estimated from the oldest track add date we can see, and last listened only updates when Spotify gives us exact playlist playback context.
             </p>
             <div className="mt-4 space-y-1 text-sm text-[var(--theme-muted)]">
-              <p>Stored playlists: {libraryStatus.playlistCount}</p>
-              <p>Last playlist sync: {formatDateLabel(libraryStatus.lastSyncedAt)}</p>
+              <p>Stored playlists: {playlistCount}</p>
+              <p>Last playlist sync: {formatDateLabel(lastSyncedAt)}</p>
             </div>
           </div>
           <div className="flex gap-3">

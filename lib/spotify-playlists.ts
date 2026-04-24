@@ -102,6 +102,12 @@ export type PlaylistLibraryStatus = {
   lastSyncedAt?: string;
 };
 
+export type PlaylistPageData = {
+  playlists: PlaylistInsight[];
+  playlistCount: number;
+  lastSyncedAt?: string;
+};
+
 function isUsablePlaylistTrack(track: unknown): track is SpotifyTrack {
   if (!track || typeof track !== "object") {
     return false;
@@ -145,30 +151,32 @@ function normalizePlaylist(playlist: Partial<SpotifyPlaylist> | null | undefined
   };
 }
 
-async function getStoredPlaylistLibrary(spotifyUserId: string) {
+async function getStoredPlaylistLibraryRecords(spotifyUserId: string) {
   if (!hasMongoConfig()) {
-    return [] as SpotifyPlaylist[];
+    return [] as StoredPlaylistLibraryItem[];
   }
 
   try {
     const db = await getDatabase();
     if (!db) {
-      return [] as SpotifyPlaylist[];
+      return [] as StoredPlaylistLibraryItem[];
     }
 
-    const records = await db
+    return await db
       .collection<StoredPlaylistLibraryItem>(PLAYLIST_LIBRARY_COLLECTION)
       .find({ spotifyUserId })
       .sort({ updatedAt: -1, name: 1 })
-      .project({ spotifyUserId: 0, updatedAt: 0 })
       .toArray();
-
-    return records
-      .map((playlist) => normalizePlaylist(playlist))
-      .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
   } catch {
-    return [] as SpotifyPlaylist[];
+    return [] as StoredPlaylistLibraryItem[];
   }
+}
+
+async function getStoredPlaylistLibrary(spotifyUserId: string) {
+  const records = await getStoredPlaylistLibraryRecords(spotifyUserId);
+  return records
+    .map((playlist) => normalizePlaylist(playlist))
+    .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
 }
 
 export async function getPlaylistLibraryStatus(spotifyUserId: string): Promise<PlaylistLibraryStatus> {
@@ -2043,6 +2051,37 @@ export async function getAllPlaylistInsightsFromHistory(
   }
 
   return sortPlaylistInsights(uniqueById(storedInsights), sort);
+}
+
+export async function getPlaylistPageDataFromHistory(
+  spotifyUserId: string,
+  sort: PlaylistSortOption = "created_desc",
+): Promise<PlaylistPageData> {
+  const [storedInsights, storedPlaylistRecords, cachedDetails, recentPlays] = await Promise.all([
+    getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
+    getStoredPlaylistLibraryRecords(spotifyUserId).catch(() => [] as StoredPlaylistLibraryItem[]),
+    getCachedPlaylistDetails(spotifyUserId).catch(() => [] as CachedPlaylistDetail[]),
+    getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
+  ]);
+  const storedPlaylists = storedPlaylistRecords
+    .map((playlist) => normalizePlaylist(playlist))
+    .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
+
+  const playlists = storedPlaylists.length > 0
+    ? sortPlaylistInsights(
+      uniqueById([
+        ...buildCachedPlaylistInsights(storedPlaylists, cachedDetails, recentPlays, sort),
+        ...storedInsights,
+      ]),
+      sort,
+    )
+    : sortPlaylistInsights(uniqueById(storedInsights), sort);
+
+  return {
+    playlists,
+    playlistCount: storedPlaylists.length,
+    lastSyncedAt: storedPlaylistRecords[0]?.updatedAt,
+  };
 }
 
 export async function getPlaylistDetailFromHistory(spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {

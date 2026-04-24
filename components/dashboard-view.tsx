@@ -843,7 +843,17 @@ export function DashboardView({
                             <Cell key={entry.mood} fill={moodColors[index % moodColors.length]} />
                           ))}
                         </Pie>
-                        <Tooltip contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }} />
+                        <Tooltip
+                          contentStyle={{
+                            background: "var(--chart-tooltip-bg)",
+                            borderRadius: 18,
+                            border: "1px solid var(--chart-tooltip-border)",
+                            color: "var(--theme-title)",
+                            boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)"
+                          }}
+                          labelStyle={{ color: "var(--theme-title)", fontWeight: 600 }}
+                          itemStyle={{ color: "var(--theme-title)" }}
+                        />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>

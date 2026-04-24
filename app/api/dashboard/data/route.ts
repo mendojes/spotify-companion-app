@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, hasSpotifyConnection } from "@/lib/auth";
-import { getDashboardInsightsFromHistory } from "@/lib/spotify-dashboard";
-import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
+import { getDashboardInsightsFromSnapshots } from "@/lib/spotify-dashboard";
+import { getSpotifyTopListsFromHistoryData, getTopListHistoryData } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 function normalizeRange(range?: string): DashboardRange {
@@ -59,10 +59,13 @@ export async function GET(request: NextRequest) {
   const selectedHeroRange = dashboardRangeToTopListRange(selectedRange);
 
   try {
-    const [insights, topLists, heroTopLists] = await Promise.all([
-      getDashboardInsightsFromHistory(session.spotifyUserId, selectedRange),
-      getSpotifyTopListsFromHistory(session.spotifyUserId, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-      getSpotifyTopListsFromHistory(session.spotifyUserId, selectedHeroRange),
+    const history = await getTopListHistoryData(session.spotifyUserId);
+    const insights = history.snapshots.length > 0
+      ? await getDashboardInsightsFromSnapshots(history.snapshots, selectedRange, undefined, session.spotifyUserId)
+      : null;
+    const [topLists, heroTopLists] = await Promise.all([
+      getSpotifyTopListsFromHistoryData(history, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
+      getSpotifyTopListsFromHistoryData(history, selectedHeroRange),
     ]);
 
     return NextResponse.json({ insights, topLists, heroTopLists });

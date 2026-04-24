@@ -28,6 +28,7 @@ import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
 import { getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-activity";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+import { getCachedValue } from "@/lib/runtime-cache";
 import { buildCachedTopListsForSnapshot, SNAPSHOT_TOP_LISTS_SCHEMA_VERSION } from "@/lib/spotify-toplists";
 import { PST_TIME_ZONE } from "@/lib/time";
 import { moodOrder } from "@/lib/moods";
@@ -41,6 +42,7 @@ const SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS = 1000 * 60 * 60 * 6;
 const PACIFIC_TIME_ZONE = PST_TIME_ZONE;
 const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( genre pulse fallback )";
 const PUBLIC_TAG_FETCH_LIMIT = 12;
+const ANALYSIS_DETAIL_TTL_MS = 1000 * 60 * 5;
 
 type MoodAnalyticsResult = {
   moodData: MoodPoint[];
@@ -1909,29 +1911,83 @@ export async function getDashboardAnalysisDetailFromHistory(
     return null;
   }
 
-  const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent)).filter((item) => {
-    if (!from && !to) {
+  const analysisCacheKey = [
+    "dashboard-analysis-history",
+    spotifyUserId,
+    range,
+    options.section,
+    options.label ?? "",
+    options.mood ?? "",
+    options.period ?? "",
+    selectedDay ?? "",
+    from ?? "",
+    to ?? "",
+    sortedSnapshots[0]?.fetchedAt ?? "",
+    sortedSnapshots.length,
+  ].join(":");
+
+  return getCachedValue(analysisCacheKey, ANALYSIS_DETAIL_TTL_MS, async () => {
+    const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent)).filter((item) => {
+      if (!from && !to) {
+        return true;
+      }
+
+      const dayKey = toPacificDateKey(item.played_at);
+      if (from && dayKey < from) {
+        return false;
+      }
+
+      if (to && dayKey > to) {
+        return false;
+      }
+
       return true;
+    });
+    const filterLabel = buildAnalysisFilterLabel(range, from, to);
+
+    if (options.section === "trend") {
+      const buckets = buildTrendBuckets(range);
+      const targetBucket = options.label ? buckets.find((bucket) => bucket.label === options.label) : undefined;
+      const scopedRecent = targetBucket
+        ? recent.filter((item) => getTrendBucketKeyForPlay(item.played_at, range) === targetBucket.key)
+        : recent;
+      const playCountByTrackId = new Map<string, number>();
+      scopedRecent.forEach((item) => {
+        playCountByTrackId.set(item.track.id, (playCountByTrackId.get(item.track.id) ?? 0) + 1);
+      });
+      const entries = scopedRecent
+        .map((item) => ({
+          trackId: item.track.id,
+          title: item.track.name,
+          artist: item.track.artists.map((artist) => artist.name).join(", "),
+          album: item.track.album.name,
+          imageUrl: item.track.album.images?.[0]?.url,
+          playedAt: item.played_at,
+          durationMs: item.track.duration_ms,
+          period: getDayPeriod(new Date(item.played_at)),
+          playCount: playCountByTrackId.get(item.track.id) ?? 1,
+        }));
+      const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);
+
+      return {
+        section: "trend",
+        title: targetBucket ? `${targetBucket.label} listening sessions` : `${filterLabel} listening analysis`,
+        subtitle: targetBucket
+          ? `Tracks played during the ${range} trend bucket shown in your cached dashboard history, plus deeper breakdowns for this slice.`
+          : `A deeper breakdown of the listening history stored for ${filterLabel.toLowerCase()}.`,
+        range,
+        from,
+        to,
+        entries,
+        ...highlights,
+      } satisfies DashboardAnalysisDetail;
     }
 
-    const dayKey = toPacificDateKey(item.played_at);
-    if (from && dayKey < from) {
-      return false;
-    }
-
-    if (to && dayKey > to) {
-      return false;
-    }
-
-    return true;
-  });
-  const filterLabel = buildAnalysisFilterLabel(range, from, to);
-
-  if (options.section === "trend") {
-    const buckets = buildTrendBuckets(range);
-    const targetBucket = options.label ? buckets.find((bucket) => bucket.label === options.label) : undefined;
-    const scopedRecent = targetBucket
-      ? recent.filter((item) => getTrendBucketKeyForPlay(item.played_at, range) === targetBucket.key)
+    const targetPeriod = options.period && heatmapPeriods.includes(options.period as (typeof heatmapPeriods)[number])
+      ? options.period as (typeof heatmapPeriods)[number]
+      : undefined;
+    const scopedRecent = targetPeriod
+      ? recent.filter((item) => getDayPeriod(new Date(item.played_at)) === targetPeriod)
       : recent;
     const playCountByTrackId = new Map<string, number>();
     scopedRecent.forEach((item) => {
@@ -1952,55 +2008,18 @@ export async function getDashboardAnalysisDetailFromHistory(
     const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);
 
     return {
-      section: "trend",
-      title: targetBucket ? `${targetBucket.label} listening sessions` : `${filterLabel} listening analysis`,
-      subtitle: targetBucket
-        ? `Tracks played during the ${range} trend bucket shown in your cached dashboard history, plus deeper breakdowns for this slice.`
-        : `A deeper breakdown of the listening history stored for ${filterLabel.toLowerCase()}.`,
+      section: "heatmap",
+      title: targetPeriod ? `${targetPeriod} sessions` : `${filterLabel} listening analysis`,
+      subtitle: targetPeriod
+        ? "Cached history does not include live audio-feature mood matching, so this view shows the selected time-of-day sessions from stored snapshots with extra context."
+        : `Cached history breakdown for ${filterLabel.toLowerCase()}, including top artists, albums, genres, and time-of-day patterns.`,
       range,
       from,
       to,
       entries,
       ...highlights,
-    };
-  }
-
-  const targetPeriod = options.period && heatmapPeriods.includes(options.period as (typeof heatmapPeriods)[number])
-    ? options.period as (typeof heatmapPeriods)[number]
-    : undefined;
-  const scopedRecent = targetPeriod
-    ? recent.filter((item) => getDayPeriod(new Date(item.played_at)) === targetPeriod)
-    : recent;
-  const playCountByTrackId = new Map<string, number>();
-  scopedRecent.forEach((item) => {
-    playCountByTrackId.set(item.track.id, (playCountByTrackId.get(item.track.id) ?? 0) + 1);
+    } satisfies DashboardAnalysisDetail;
   });
-  const entries = scopedRecent
-    .map((item) => ({
-      trackId: item.track.id,
-      title: item.track.name,
-      artist: item.track.artists.map((artist) => artist.name).join(", "),
-      album: item.track.album.name,
-      imageUrl: item.track.album.images?.[0]?.url,
-      playedAt: item.played_at,
-      durationMs: item.track.duration_ms,
-      period: getDayPeriod(new Date(item.played_at)),
-      playCount: playCountByTrackId.get(item.track.id) ?? 1,
-    }));
-  const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);
-
-  return {
-    section: "heatmap",
-    title: targetPeriod ? `${targetPeriod} sessions` : `${filterLabel} listening analysis`,
-    subtitle: targetPeriod
-      ? "Cached history does not include live audio-feature mood matching, so this view shows the selected time-of-day sessions from stored snapshots with extra context."
-      : `Cached history breakdown for ${filterLabel.toLowerCase()}, including top artists, albums, genres, and time-of-day patterns.`,
-    range,
-    from,
-    to,
-    entries,
-    ...highlights,
-  };
 }
 
 

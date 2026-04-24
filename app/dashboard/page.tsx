@@ -7,9 +7,9 @@ import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { hasSpotifyConnection, requireSession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
+import { getDashboardInsightsFromSnapshots } from "@/lib/spotify-dashboard";
 import { getDashboardPlaylistInsights } from "@/lib/spotify-playlists";
-import { getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
+import { getSpotifyTopListsFromHistoryData, getTopListHistoryData } from "@/lib/spotify-toplists";
 import { DashboardRange, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
@@ -347,37 +347,38 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   let heroTopLists;
   let dashboardError: string | null = null;
 
-  const [cachedSnapshots, cachedPlaylistInsights, cachedTopLists, cachedHeroTopLists] = await Promise.all([
-    settleCacheLoad("dashboard cache", () => getSharedDashboardCacheSnapshots(session.spotifyUserId)),
+  const [cachedHistory, cachedPlaylistInsights] = await Promise.all([
+    settleCacheLoad("dashboard history", () => getTopListHistoryData(session.spotifyUserId)),
     settleCacheLoad("playlist insights", () => getDashboardPlaylistInsights(session.spotifyUserId)),
-    settleCacheLoad("top lists", () =>
-      getSpotifyTopListsFromHistory(
-        session.spotifyUserId,
-        selectedTopRange,
-        undefined,
-        selectedTopFrom,
-        selectedTopTo,
-      ),
-    ),
-    settleCacheLoad("hero top lists", () =>
-      getSpotifyTopListsFromHistory(
-        session.spotifyUserId,
-        selectedHeroRange,
-      ),
-    ),
   ]);
 
-  if (cachedSnapshots.value && cachedSnapshots.value.length > 0) {
+  if (cachedHistory.value?.snapshots && cachedHistory.value.snapshots.length > 0) {
     insights = (await getDashboardInsightsFromSnapshots(
-      cachedSnapshots.value,
+      cachedHistory.value.snapshots,
       selectedRange,
       undefined,
       session.spotifyUserId,
     )) ?? undefined;
   }
 
-  topLists = cachedTopLists.value ?? undefined;
-  heroTopLists = cachedHeroTopLists.value ?? undefined;
+  if (cachedHistory.value) {
+    const [resolvedTopLists, resolvedHeroTopLists] = await Promise.all([
+      getSpotifyTopListsFromHistoryData(
+        cachedHistory.value,
+        selectedTopRange,
+        undefined,
+        selectedTopFrom,
+        selectedTopTo,
+      ),
+      getSpotifyTopListsFromHistoryData(
+        cachedHistory.value,
+        selectedHeroRange,
+      ),
+    ]);
+
+    topLists = resolvedTopLists ?? undefined;
+    heroTopLists = resolvedHeroTopLists ?? undefined;
+  }
 
   if (insights) {
     insights = {
@@ -386,7 +387,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     };
   }
 
-  const cacheErrors = [cachedSnapshots.error, cachedPlaylistInsights.error, cachedTopLists.error, cachedHeroTopLists.error].filter((value): value is string => Boolean(value));
+  const cacheErrors = [cachedHistory.error, cachedPlaylistInsights.error].filter((value): value is string => Boolean(value));
   const missingCachedSections = [!insights ? "insights" : null, !topLists ? "top lists" : null, !heroTopLists ? "hero top lists" : null].filter(
     (value): value is string => Boolean(value),
   );
