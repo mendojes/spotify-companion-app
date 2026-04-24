@@ -1628,15 +1628,19 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: DashboardRan
       return [] as SpotifyDashboardSnapshot[];
     }
 
+    const windowStart = getRangeWindow(range);
+    const query = windowStart
+      ? { spotifyUserId, fetchedAt: { $gte: windowStart.toISOString() } }
+      : { spotifyUserId };
+
     const snapshots = await db
       .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
-      .find({ spotifyUserId })
+      .find(query)
       .sort({ fetchedAt: -1 })
       .limit(range === "all" ? 180 : 90)
       .toArray();
 
-    const filteredSnapshots = filterSnapshotsForDashboardRange(snapshots, range);
-    return filteredSnapshots.length > 0 ? filteredSnapshots : snapshots.slice(0, 1);
+    return snapshots.length > 0 ? snapshots : [];
   } catch {
     return [] as SpotifyDashboardSnapshot[];
   }

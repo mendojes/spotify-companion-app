@@ -711,15 +711,27 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: TopListRange
       return [] as SpotifyDashboardSnapshot[];
     }
 
+    const window = getWindow(range, from, to);
+    const fetchedAt: { $gte?: string; $lte?: string } = {};
+
+    if (window.from) {
+      fetchedAt.$gte = window.from;
+    }
+
+    if (window.to) {
+      fetchedAt.$lte = window.to;
+    }
+
+    const query = Object.keys(fetchedAt).length > 0 ? { spotifyUserId, fetchedAt } : { spotifyUserId };
+
     const snapshots = await db
       .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
-      .find({ spotifyUserId })
+      .find(query)
       .sort({ fetchedAt: -1 })
       .limit(range === "all" || range === "year" ? 365 : 180)
       .toArray();
 
-    const filteredSnapshots = filterSnapshotsForTopRange(snapshots, range, from, to);
-    return filteredSnapshots.length > 0 ? filteredSnapshots : snapshots.slice(0, 1);
+    return snapshots.length > 0 ? snapshots : [];
   } catch {
     return [] as SpotifyDashboardSnapshot[];
   }
