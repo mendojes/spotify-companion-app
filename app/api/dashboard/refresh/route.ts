@@ -65,7 +65,12 @@ export async function GET(request: NextRequest) {
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
     const overviewCacheStartedAt = Date.now();
-    await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, range).catch(() => undefined);
+    await writeStoredDashboardOverviewCache(
+      authorizedSession.spotifyUserId,
+      authorizedSession.accessToken,
+      range,
+      { allowLiveEnrichment: false },
+    ).catch(() => undefined);
     logRefreshTiming(authorizedSession.spotifyUserId, "overview-cache", overviewCacheStartedAt);
     logRefreshTiming(authorizedSession.spotifyUserId, "total", refreshStartedAt);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));

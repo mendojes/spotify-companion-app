@@ -38,6 +38,8 @@ const heatmapPeriods = ["Morning", "Afternoon", "Evening", "Late Night"] as cons
 const SNAPSHOT_REFRESH_TTL_MS = 1000 * 60 * 15;
 const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = true;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
+const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
+const AUDIO_FEATURE_CACHE_COLLECTION = "spotify_audio_feature_cache";
 const SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS = 1000 * 60 * 60 * 6;
 const PACIFIC_TIME_ZONE = PST_TIME_ZONE;
 const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( genre pulse fallback )";
@@ -56,6 +58,19 @@ type MoodAnalyticsResult = {
 type DashboardInsightOptions = {
   includeLivePlaylistInsights?: boolean;
   includePublicTagFallback?: boolean;
+};
+
+type StoredArtistMetadata = {
+  artistId: string;
+  name: string;
+  genres: string[];
+  imageUrl?: string;
+  popularity: number;
+  updatedAt: string;
+};
+
+type StoredAudioFeature = SpotifyAudioFeature & {
+  updatedAt: string;
 };
 
 type RecentTrackMoodMeta = {
@@ -349,26 +364,191 @@ function mergeArtistMetadata(baseArtists: SpotifyArtist[], metadataArtists: Spot
   });
 }
 
-async function fetchTopArtistsMetadata(accessToken: string) {
+function toStoredArtistMetadata(artist: SpotifyArtist): StoredArtistMetadata | null {
+  if (!artist?.id) {
+    return null;
+  }
+
+  return {
+    artistId: artist.id,
+    name: artist.name,
+    genres: getArtistGenres(artist),
+    imageUrl: artist.images?.[0]?.url,
+    popularity: artist.popularity ?? 0,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function toSpotifyArtistFromStoredMetadata(artist: StoredArtistMetadata): SpotifyArtist {
+  return {
+    id: artist.artistId,
+    name: artist.name,
+    genres: artist.genres ?? [],
+    popularity: artist.popularity ?? 0,
+    images: artist.imageUrl ? [{ url: artist.imageUrl }] : undefined,
+  };
+}
+
+async function getStoredArtistMetadataByIds(artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))];
+
+  if (!hasMongoConfig() || uniqueArtistIds.length === 0) {
+    return [] as SpotifyArtist[];
+  }
+
   try {
-    const [shortTerm, mediumTerm, longTerm] = await Promise.all([
-      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=short_term&limit=25", accessToken),
-      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=medium_term&limit=25", accessToken),
-      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=long_term&limit=25", accessToken),
-    ]);
+    const db = await getDatabase();
+    if (!db) {
+      return [] as SpotifyArtist[];
+    }
 
-    const artistMap = new Map<string, SpotifyArtist>();
-    [...shortTerm.items, ...mediumTerm.items, ...longTerm.items].forEach((artist) => {
-      if (artist?.id) {
-        artistMap.set(artist.id, artist);
-      }
-    });
+    const records = await db
+      .collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION)
+      .find({ artistId: { $in: uniqueArtistIds } })
+      .toArray();
 
-    const artists = [...artistMap.values()];
-    const enrichedArtists = await fetchArtistsByIds(accessToken, artists.map((artist) => artist.id));
-    return mergeArtistMetadata(artists, enrichedArtists);
+    return records.map(toSpotifyArtistFromStoredMetadata);
   } catch {
     return [] as SpotifyArtist[];
+  }
+}
+
+async function writeStoredArtistMetadata(artists: SpotifyArtist[]) {
+  const metadata = artists
+    .map((artist) => toStoredArtistMetadata(artist))
+    .filter((artist): artist is StoredArtistMetadata => Boolean(artist));
+
+  if (!hasMongoConfig() || metadata.length === 0) {
+    return;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    await db.collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION).bulkWrite(
+      metadata.map((artist) => ({
+        updateOne: {
+          filter: { artistId: artist.artistId },
+          update: { $set: artist },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    );
+  } catch {
+    return;
+  }
+}
+
+async function getArtistMetadata(accessToken: string | undefined, artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 200);
+
+  if (uniqueArtistIds.length === 0) {
+    return [] as SpotifyArtist[];
+  }
+
+  const storedArtists = await getStoredArtistMetadataByIds(uniqueArtistIds);
+  const storedArtistIds = new Set(storedArtists.map((artist) => artist.id));
+  const missingArtistIds = uniqueArtistIds.filter((artistId) => !storedArtistIds.has(artistId));
+
+  if (!accessToken || missingArtistIds.length === 0) {
+    return storedArtists;
+  }
+
+  const fetchedArtists = await fetchArtistsByIds(accessToken, missingArtistIds);
+  if (fetchedArtists.length > 0) {
+    await writeStoredArtistMetadata(fetchedArtists);
+  }
+
+  return mergeArtists(storedArtists, fetchedArtists);
+}
+
+async function getStoredAudioFeatures(trackIds: string[]) {
+  const uniqueTrackIds = [...new Set(trackIds.filter(Boolean))];
+
+  if (!hasMongoConfig() || uniqueTrackIds.length === 0) {
+    return [] as SpotifyAudioFeature[];
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return [] as SpotifyAudioFeature[];
+    }
+
+    const records = await db
+      .collection<StoredAudioFeature>(AUDIO_FEATURE_CACHE_COLLECTION)
+      .find({ id: { $in: uniqueTrackIds } })
+      .toArray();
+
+    return records.map(({ updatedAt: _updatedAt, ...feature }) => feature);
+  } catch {
+    return [] as SpotifyAudioFeature[];
+  }
+}
+
+async function writeStoredAudioFeatures(features: SpotifyAudioFeature[]) {
+  if (!hasMongoConfig() || features.length === 0) {
+    return;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    const updatedAt = new Date().toISOString();
+
+    await db.collection<StoredAudioFeature>(AUDIO_FEATURE_CACHE_COLLECTION).bulkWrite(
+      features.map((feature) => ({
+        updateOne: {
+          filter: { id: feature.id },
+          update: {
+            $set: {
+              ...feature,
+              updatedAt,
+            },
+          },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    );
+  } catch {
+    return;
+  }
+}
+
+async function getAudioFeatures(accessToken: string | undefined, trackIds: string[]) {
+  const uniqueTrackIds = [...new Set(trackIds.filter(Boolean))].slice(0, 100);
+
+  if (uniqueTrackIds.length === 0) {
+    return [] as SpotifyAudioFeature[];
+  }
+
+  const storedFeatures = await getStoredAudioFeatures(uniqueTrackIds);
+  const storedFeatureIds = new Set(storedFeatures.map((feature) => feature.id));
+  const missingTrackIds = uniqueTrackIds.filter((trackId) => !storedFeatureIds.has(trackId));
+
+  if (!accessToken || missingTrackIds.length === 0) {
+    return storedFeatures;
+  }
+
+  try {
+    const response = await spotifyFetchOptional<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${missingTrackIds.join(",")}`, accessToken);
+    const fetchedFeatures = response?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
+
+    if (fetchedFeatures.length > 0) {
+      await writeStoredAudioFeatures(fetchedFeatures);
+    }
+
+    return [...storedFeatures, ...fetchedFeatures];
+  } catch {
+    return storedFeatures;
   }
 }
 
@@ -423,7 +603,7 @@ function hydrateCachedTopListsArtists(
   ) as SpotifyDashboardSnapshot["cachedTopLists"];
 }
 
-async function enrichSnapshotsWithArtistMetadata(snapshots: SpotifyDashboardSnapshot[], accessToken: string) {
+async function enrichSnapshotsWithArtistMetadata(snapshots: SpotifyDashboardSnapshot[], accessToken?: string) {
   const snapshotArtistIds = snapshots.flatMap((snapshot) => [
     ...snapshot.topArtists.map((artist) => artist.id),
     ...(snapshot.mediumTermTopArtists ?? []).map((artist) => artist.id),
@@ -432,7 +612,7 @@ async function enrichSnapshotsWithArtistMetadata(snapshots: SpotifyDashboardSnap
     ...Object.values(snapshot.cachedTopLists ?? {}).flatMap((cachedList) => cachedList.artists.map((artist) => artist.id)),
   ]);
 
-  const metadataArtists = await fetchArtistsByIds(accessToken, snapshotArtistIds);
+  const metadataArtists = await getArtistMetadata(accessToken, snapshotArtistIds);
   if (metadataArtists.length === 0) {
     return snapshots;
   }
@@ -1674,7 +1854,7 @@ async function deriveInsights(
   spotifyUserId?: string,
   options?: DashboardInsightOptions,
 ): Promise<DashboardInsights> {
-  const metadataSnapshots = accessToken ? await enrichSnapshotsWithArtistMetadata(snapshots, accessToken) : snapshots;
+  const metadataSnapshots = await enrichSnapshotsWithArtistMetadata(snapshots, accessToken);
   const sortedSnapshots = [...metadataSnapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
   const snapshotRecent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
   const storedRecent = spotifyUserId ? await getStoredRecentPlaysForRange(spotifyUserId, range).catch(() => []) : [];
@@ -1705,11 +1885,8 @@ async function deriveInsights(
         ...(snapshot.longTermTopArtists ?? []).map((artist) => artist.id),
       ].filter((id): id is string => Boolean(id))),
     ];
-    const [recentArtists, fallbackTopArtists] = await Promise.all([
-      fetchArtistsByIds(accessToken, recentArtistIds),
-      fetchTopArtistsMetadata(accessToken),
-    ]);
-    const mergedGenreArtists = mergeArtists(topArtists, recentArtists, fallbackTopArtists);
+    const recentArtists = await getArtistMetadata(accessToken, recentArtistIds);
+    const mergedGenreArtists = mergeArtists(topArtists, recentArtists);
     const artistMetadata = buildArtistMetadataMap(mergedGenreArtists, sortedSnapshots);
     const recentGenrePulse = storedRecent.length > 0
       ? deriveGenrePulseFromStoredRecent(storedRecent, artistMetadata)
@@ -1746,16 +1923,12 @@ async function deriveInsights(
       ...new Set([...topTracks, ...longTermTopTracks, ...recent.map((item) => item.track)].map((track) => track.id)),
     ].slice(0, 100);
 
-    const [audioFeatureResponse, livePlaylistInsights] = await Promise.all([
-      audioFeatureTrackIds.length > 0
-        ? spotifyFetchOptional<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${audioFeatureTrackIds.join(",")}`, accessToken)
-        : Promise.resolve(null),
+    const [features, livePlaylistInsights] = await Promise.all([
+      getAudioFeatures(accessToken, audioFeatureTrackIds),
       spotifyUserId && options?.includeLivePlaylistInsights !== false
         ? getAllPlaylistInsights(accessToken, spotifyUserId, "last_listened_desc").then((items) => items.slice(0, 3)).catch(() => null)
         : Promise.resolve(null),
     ]);
-
-    const features = audioFeatureResponse?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
     moodResult = deriveMoodAnalytics(features, recent, topTracks, longTermTopTracks, topArtists);
 
     if (livePlaylistInsights && livePlaylistInsights.length > 0) {
@@ -1890,6 +2063,12 @@ async function fetchSnapshot(accessToken: string, spotifyUserId: string): Promis
 
   const allTopArtists = [...topArtists.items, ...mediumTermTopArtists.items, ...longTermTopArtists.items];
   const enrichedArtists = await fetchArtistsByIds(accessToken, allTopArtists.map((artist) => artist.id));
+  const mergedArtistMetadata = mergeArtists(
+    mergeArtistMetadata(topArtists.items, enrichedArtists),
+    mergeArtistMetadata(mediumTermTopArtists.items, enrichedArtists),
+    mergeArtistMetadata(longTermTopArtists.items, enrichedArtists),
+  );
+  await writeStoredArtistMetadata(mergedArtistMetadata);
 
   const snapshot = {
     spotifyUserId,
@@ -1986,10 +2165,7 @@ export async function getDashboardAnalysisDetail(
   });
 
   const audioFeatureTrackIds = [...new Set(recent.map((item) => item.track.id))].slice(0, 100);
-  const audioFeatureResponse = audioFeatureTrackIds.length > 0
-    ? await spotifyFetchOptional<SpotifyAudioFeaturesResponse>(`/audio-features?ids=${audioFeatureTrackIds.join(",")}`, accessToken)
-    : null;
-  const features = audioFeatureResponse?.audio_features.filter((feature): feature is SpotifyAudioFeature => Boolean(feature)) ?? [];
+  const features = await getAudioFeatures(accessToken, audioFeatureTrackIds);
   const recentMoodMeta = buildRecentMoodMeta(recent, features);
   const filterLabel = buildAnalysisFilterLabel(range, from, to);
 

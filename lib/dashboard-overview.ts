@@ -123,7 +123,12 @@ function hasCompleteStoredOverview(
   return hasTopLists && Boolean(storedOverview.heroTopLists);
 }
 
-export async function writeStoredDashboardOverviewCache(spotifyUserId: string, accessToken?: string, prioritizedRange?: DashboardRange) {
+export async function writeStoredDashboardOverviewCache(
+  spotifyUserId: string,
+  accessToken?: string,
+  prioritizedRange?: DashboardRange,
+  options?: { allowLiveEnrichment?: boolean },
+) {
   if (!hasMongoConfig()) {
     return;
   }
@@ -141,7 +146,10 @@ export async function writeStoredDashboardOverviewCache(spotifyUserId: string, a
 
   const insightsByRangeEntries = await Promise.all(
     rangesToBuild.map(async (range) => {
-      const rangeAccessToken = accessToken && prioritizedRange === range ? accessToken : undefined;
+      const rangeAccessToken =
+        options?.allowLiveEnrichment !== false && accessToken && prioritizedRange === range
+          ? accessToken
+          : undefined;
       const insights = snapshots.length > 0
         ? await getDashboardInsightsFromSnapshots(
           snapshots,

@@ -13,6 +13,8 @@ const DASHBOARD_REDISCOVERY_CACHE_COLLECTION = "dashboard_rediscovery_cache";
 const DASHBOARD_PLAYLISTS_CACHE_COLLECTION = "dashboard_playlists_cache";
 const PLAYLIST_TRACK_CACHE_COLLECTION = "spotify_playlist_track_cache";
 const PLAYLIST_TRACK_SYNC_COLLECTION = "spotify_playlist_track_sync";
+const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
+const AUDIO_FEATURE_CACHE_COLLECTION = "spotify_audio_feature_cache";
 
 if (!uri) {
   console.error("Missing spotify_app_MONGODB_URI or MONGODB_URI.");
@@ -43,6 +45,8 @@ try {
     db.collection(DASHBOARD_ANALYSIS_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, key: 1 }, { unique: true }),
     db.collection(DASHBOARD_REDISCOVERY_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, range: 1 }, { unique: true }),
     db.collection(DASHBOARD_PLAYLISTS_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, sort: 1 }, { unique: true }),
+    db.collection(ARTIST_METADATA_COLLECTION).createIndex({ artistId: 1 }, { unique: true }),
+    db.collection(AUDIO_FEATURE_CACHE_COLLECTION).createIndex({ id: 1 }, { unique: true }),
     db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, position: 1 }, { unique: true }),
     db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, updatedAt: -1 }),
     db.collection(PLAYLIST_TRACK_SYNC_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1 }, { unique: true }),

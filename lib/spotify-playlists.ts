@@ -428,15 +428,17 @@ export async function getDashboardPlaylistInsights(spotifyUserId: string): Promi
 
 export async function getDashboardPlaylistInsightPreview(spotifyUserId: string): Promise<PlaylistInsight[]> {
   return getCachedValue(`dashboard-playlist-preview:${spotifyUserId}`, DASHBOARD_PLAYLIST_PREVIEW_TTL_MS, async () => {
-    const [storedInsights, storedPlaylists, cachedDetails] = await Promise.all([
+    const [storedInsights, storedPlaylists, cachedDetails, recentPlays] = await Promise.all([
       getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
       getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
       getCachedPlaylistDetails(spotifyUserId).catch(() => [] as CachedPlaylistDetail[]),
+      getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
     ]);
 
-    const hydratedInsights = hydrateStoredInsightsFromCachedDetails(storedInsights, storedPlaylists, cachedDetails, []);
+    const hydratedInsights = hydrateStoredInsightsFromCachedDetails(storedInsights, storedPlaylists, cachedDetails, recentPlays);
     const sourceInsights = hydratedInsights.length > 0 ? hydratedInsights : storedInsights;
-    return sortPlaylistInsights(uniqueById(sourceInsights), "last_listened_desc").slice(0, DASHBOARD_PLAYLIST_COUNT);
+    const { playlistInsights } = reorderPlaylistInsightsFromRecentPlay(sourceInsights, recentPlays);
+    return sortPlaylistInsights(uniqueById(playlistInsights), "last_listened_desc").slice(0, DASHBOARD_PLAYLIST_COUNT);
   });
 }
 
