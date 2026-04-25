@@ -1,4 +1,5 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+import { getStoredTopListsSection } from "@/lib/dashboard-section-cache";
 import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, getDashboardPlaylistInsightPreview } from "@/lib/spotify-playlists";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
@@ -266,11 +267,26 @@ export async function getDashboardOverviewData(
       selectedTopFrom,
       selectedTopTo,
     );
+    const [sectionTopLists, sectionHeroTopLists] = await Promise.all([
+      selectedTopRange === "custom" || selectedTopFrom || selectedTopTo
+        ? Promise.resolve(null)
+        : getStoredTopListsSection(spotifyUserId, selectedTopRange).catch(() => null),
+      selectedHeroRange === "custom"
+        ? Promise.resolve(null)
+        : getStoredTopListsSection(spotifyUserId, selectedHeroRange).catch(() => null),
+    ]);
+    const mergedStoredOverview = storedOverview
+      ? {
+        ...storedOverview,
+        topLists: sectionTopLists ?? storedOverview.topLists,
+        heroTopLists: sectionHeroTopLists ?? storedOverview.heroTopLists,
+      }
+      : null;
     logOverviewTiming(spotifyUserId, "overview-stored-cache", storedStart);
 
-    if (storedOverview && hasCompleteStoredOverview(storedOverview, selectedTopRange, selectedTopFrom, selectedTopTo)) {
+    if (mergedStoredOverview && hasCompleteStoredOverview(mergedStoredOverview, selectedTopRange, selectedTopFrom, selectedTopTo)) {
       logOverviewTiming(spotifyUserId, "overview-total", totalStart);
-      return storedOverview;
+      return mergedStoredOverview;
     }
 
     const historyStart = Date.now();
@@ -282,23 +298,23 @@ export async function getDashboardOverviewData(
 
     const topListsStart = Date.now();
     const [dynamicTopLists, dynamicHeroTopLists] = await Promise.all([
-      storedOverview?.topLists
-        ? Promise.resolve(storedOverview.topLists)
+      mergedStoredOverview?.topLists
+        ? Promise.resolve(mergedStoredOverview.topLists)
         : selectedTopRange === "custom"
           ? Promise.resolve(null)
           : getSpotifyTopListsFromHistoryData(topListHistory, selectedTopRange, undefined, selectedTopFrom, selectedTopTo),
-      storedOverview?.heroTopLists
-        ? Promise.resolve(storedOverview.heroTopLists)
+      mergedStoredOverview?.heroTopLists
+        ? Promise.resolve(mergedStoredOverview.heroTopLists)
         : getSpotifyTopListsFromHistoryData(topListHistory, selectedHeroRange),
     ]);
     logOverviewTiming(spotifyUserId, "overview-top-lists", topListsStart);
     logOverviewTiming(spotifyUserId, "overview-total", totalStart);
 
     return {
-      insights: storedOverview?.insights
+      insights: mergedStoredOverview?.insights
         ? {
-          ...storedOverview.insights,
-          playlistInsights: storedOverview.insights.playlistInsights.length > 0 ? storedOverview.insights.playlistInsights : playlistPreview,
+          ...mergedStoredOverview.insights,
+          playlistInsights: mergedStoredOverview.insights.playlistInsights.length > 0 ? mergedStoredOverview.insights.playlistInsights : playlistPreview,
         }
         : null,
       topLists: dynamicTopLists,
