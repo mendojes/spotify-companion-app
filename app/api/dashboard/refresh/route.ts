@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
-import { markConnectedUserRecentSync, markConnectedUserSnapshotStatus, touchConnectedUser } from "@/lib/connected-users";
-import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
+import {
+  markConnectedUserDashboardEnrichmentStatus,
+  markConnectedUserRecentSync,
+  markConnectedUserSnapshotStatus,
+  touchConnectedUser,
+} from "@/lib/connected-users";
+import { invalidateDashboardOverviewRuntimeCache } from "@/lib/dashboard-overview";
 import { getAppUrl } from "@/lib/spotify";
 import { invalidateDashboardSnapshotCaches, refreshDashboardSnapshot } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache } from "@/lib/spotify-playlists";
@@ -64,14 +69,7 @@ export async function GET(request: NextRequest) {
     invalidateTopListHistoryCache(authorizedSession.spotifyUserId);
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
-    const overviewCacheStartedAt = Date.now();
-    await writeStoredDashboardOverviewCache(
-      authorizedSession.spotifyUserId,
-      authorizedSession.accessToken,
-      range,
-      { allowLiveEnrichment: false },
-    ).catch(() => undefined);
-    logRefreshTiming(authorizedSession.spotifyUserId, "overview-cache", overviewCacheStartedAt);
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "pending", { range }).catch(() => undefined);
     logRefreshTiming(authorizedSession.spotifyUserId, "total", refreshStartedAt);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
   } catch (error) {

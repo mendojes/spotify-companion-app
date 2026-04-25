@@ -20,6 +20,11 @@ export type ConnectedUser = {
   lastSnapshotStatus?: "success" | "error";
   lastSnapshotError?: string;
   lastRecentSyncAt?: string;
+  dashboardEnrichmentStatus?: "pending" | "running" | "success" | "error";
+  dashboardEnrichmentRange?: "week" | "month" | "all";
+  dashboardEnrichmentStartedAt?: string;
+  dashboardEnrichmentFinishedAt?: string;
+  dashboardEnrichmentError?: string;
 };
 
 export type CommunityUserProfile = {
@@ -176,6 +181,39 @@ export async function markConnectedUserRecentSync(spotifyUserId: string) {
     {
       $set: {
         lastRecentSyncAt: now,
+        updatedAt: now,
+      },
+    },
+  );
+}
+
+export async function markConnectedUserDashboardEnrichmentStatus(
+  spotifyUserId: string,
+  status: "pending" | "running" | "success" | "error",
+  options?: {
+    range?: "week" | "month" | "all";
+    errorMessage?: string;
+  },
+) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
+    { spotifyUserId },
+    {
+      $set: {
+        dashboardEnrichmentStatus: status,
+        dashboardEnrichmentRange: options?.range,
+        dashboardEnrichmentError: options?.errorMessage,
+        dashboardEnrichmentStartedAt: status === "running" ? now : undefined,
+        dashboardEnrichmentFinishedAt: status === "success" || status === "error" ? now : undefined,
         updatedAt: now,
       },
     },

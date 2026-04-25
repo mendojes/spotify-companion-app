@@ -249,6 +249,27 @@ function mergeTopListArtistsForGenreFallback(...groups: TopListsData["artists"][
   return [...merged.values()];
 }
 
+function hydrateTopListArtists(...groups: TopListsData["artists"][]) {
+  const merged = mergeTopListArtistsForGenreFallback(...groups);
+  const mergedByKey = new Map(merged.map((artist) => [artist.id || artist.name.toLowerCase(), artist]));
+
+  return groups[0].map((artist) => {
+    const key = artist.id || artist.name.toLowerCase();
+    const hydrated = mergedByKey.get(key);
+
+    if (!hydrated) {
+      return artist;
+    }
+
+    return {
+      ...artist,
+      genres: artist.genres.length > 0 ? artist.genres : hydrated.genres,
+      imageUrl: artist.imageUrl ?? hydrated.imageUrl,
+      listenCount: artist.listenCount ?? hydrated.listenCount,
+    };
+  });
+}
+
 function getAdaptiveValueClass(value: string) {
   if (value.length > 22) {
     return "text-2xl md:text-3xl leading-[0.92] break-words";
@@ -475,7 +496,7 @@ export function DashboardView({
     ? data.genrePulse
     : buildGenreFallback(mergeTopListArtistsForGenreFallback(topListData.artists, heroTopListData.artists));
   const hasGenrePulseData = genrePulseItems.length > 0;
-  const summaryTopArtists = topListData.artists.slice(0, 3);
+  const summaryTopArtists = hydrateTopListArtists(topListData.artists, heroTopListData.artists).slice(0, 3);
   const summaryTopTracks = topListData.tracks.slice(0, 3);
   const summaryTopAlbums = topListData.albums.slice(0, 3);
   const summaryForgottenFavorites = data.forgottenFavorites.slice(0, 2);

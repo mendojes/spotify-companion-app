@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Disc3, LibraryBig, Sparkles, UserRound } from "lucide-react";
 import { redirect } from "next/navigation";
+import { DashboardDeepRefreshMonitor } from "@/components/dashboard-deep-refresh-monitor";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
@@ -388,6 +389,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         {refreshed ? <Notice tone="cyan">Spotify snapshot refreshed successfully.</Notice> : null}
         {refreshErrorFlag ? <Notice tone="coral">Snapshot refresh failed. The dashboard is still using your previous cached data when available.</Notice> : null}
         {dashboardError ? <Notice tone="gold">{dashboardError}</Notice> : null}
+        <DashboardDeepRefreshMonitor range={selectedRange} shouldStart={Boolean(refreshed)} />
       </div>
 
       <DashboardView
