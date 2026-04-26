@@ -14,6 +14,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
   const router = useRouter();
   const [status, setStatus] = useState<EnrichmentStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [artistBackfillRunning, setArtistBackfillRunning] = useState(false);
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -49,7 +50,29 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           void fetch(`/api/dashboard/enrich?range=${range}`, {
             method: "POST",
             credentials: "same-origin",
-          }).catch(() => undefined);
+          })
+            .then(async (response) => {
+              if (!response.ok) {
+                return;
+              }
+
+              const payload = await response.json() as { needsArtistMetadataBackfill?: boolean };
+              if (!payload.needsArtistMetadataBackfill) {
+                return;
+              }
+
+              setArtistBackfillRunning(true);
+              try {
+                await fetch("/api/dashboard/artist-metadata/backfill", {
+                  method: "POST",
+                  credentials: "same-origin",
+                });
+              } finally {
+                setArtistBackfillRunning(false);
+                router.refresh();
+              }
+            })
+            .catch(() => undefined);
         }
 
         if (nextStatus === "pending" || nextStatus === "running" || shouldKickoff) {
@@ -75,7 +98,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
     };
   }, [range, router, shouldStart]);
 
-  if (status !== "pending" && status !== "running" && status !== "error") {
+  if (status !== "pending" && status !== "running" && status !== "error" && !artistBackfillRunning) {
     return null;
   }
 
@@ -89,7 +112,9 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
     >
       {status === "error"
         ? `Deep dashboard refresh failed, so the page is still using the latest stored cache. ${error ?? ""}`.trim()
-        : "Deep dashboard refresh is running in the background. The page will update automatically when the richer cache is ready."}
+        : artistBackfillRunning
+          ? "Deep dashboard refresh finished its cache rebuild and is now filling missing artist metadata. The page will update automatically when that finishes."
+          : "Deep dashboard refresh is running in the background. The page will update automatically when the richer cache is ready."}
     </div>
   );
 }

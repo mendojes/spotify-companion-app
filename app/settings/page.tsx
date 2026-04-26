@@ -2,6 +2,7 @@ import Link from "next/link";
 import { hasSpotifyConnection, requireSession } from "@/lib/auth";
 import { getConnectedUser, getDefaultPrivacySettings } from "@/lib/connected-users";
 import { getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
+import { IgnoredPlaylistPicker } from "./ignored-playlist-picker";
 
 type SettingsPageProps = {
   searchParams: Promise<{ saved?: string }>;
@@ -127,45 +128,15 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             defaultChecked={privacy.shareListeningActivity}
           />
 
-          <section className="desktop-card space-y-4 p-5">
-            <div className="space-y-2">
-              <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Ignore specific playlists</p>
-              <p className="max-w-3xl text-sm leading-7 text-[var(--theme-body)]">
-                Ignored playlists stop contributing to recent-play-driven analysis. Existing stored plays from these playlists are removed when you save, so this change is intentionally destructive for those listens until Spotify serves them again from a non-ignored source.
-              </p>
-            </div>
-
-            {storedPlaylists.length > 0 ? (
-              <div className="grid gap-3 md:grid-cols-2">
-                {storedPlaylists.map((playlist) => (
-                  <label
-                    key={playlist.id}
-                    className="flex cursor-pointer items-start gap-3 rounded-[24px] border-[2px] border-[rgba(44,12,70,0.24)] bg-white/[0.42] px-4 py-3"
-                  >
-                    <input
-                      type="checkbox"
-                      name="ignoredPlaylistIds"
-                      value={playlist.id}
-                      defaultChecked={ignoredPlaylistIds.has(playlist.id)}
-                      className="mt-1 h-5 w-5 rounded border-[rgba(44,12,70,0.6)] text-[var(--theme-accent)]"
-                    />
-                    <div className="space-y-1">
-                      <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">
-                        {playlist.name}
-                      </p>
-                      <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-body)]">
-                        {playlist.tracks.total} tracks
-                      </p>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-[24px] border-[2px] border-dashed border-[rgba(44,12,70,0.24)] bg-white/[0.32] px-4 py-4 text-sm leading-7 text-[var(--theme-body)]">
-                No stored playlist library was available yet. Open the Playlists tab or run a playlist refresh first, then come back here to pick ignored playlists.
-              </div>
-            )}
-          </section>
+          <IgnoredPlaylistPicker
+            playlists={storedPlaylists.map((playlist) => ({
+              id: playlist.id,
+              name: playlist.name,
+              imageUrl: playlist.images?.[0]?.url,
+              trackCount: playlist.tracks.total,
+            }))}
+            initiallyIgnoredPlaylistIds={[...ignoredPlaylistIds]}
+          />
 
           <div className="flex flex-wrap gap-3">
             <button type="submit" className="rounded-full border-[3px] border-[rgba(44,12,70,0.85)] bg-[rgba(255,236,245,0.9)] px-5 py-3 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-text)] transition hover:bg-[rgba(255,225,239,0.96)]">

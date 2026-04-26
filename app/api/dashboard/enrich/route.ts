@@ -5,6 +5,7 @@ import {
   markConnectedUserDashboardEnrichmentStatus,
 } from "@/lib/connected-users";
 import { writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
+import { getMissingArtistMetadataIdsForUser as getMissingArtistMetadataIdsForOverviewUser } from "@/lib/spotify-dashboard";
 
 function normalizeRange(range?: string) {
   if (range === "month" || range === "all") {
@@ -43,12 +44,13 @@ export async function POST(request: NextRequest) {
     const startedAt = Date.now();
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", { range }).catch(() => undefined);
     await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, range, {
-      allowLiveEnrichment: true,
+      allowLiveEnrichment: false,
     });
+    const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", { range }).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "total", startedAt);
 
-    return NextResponse.json({ status: "success" });
+    return NextResponse.json({ status: "success", needsArtistMetadataBackfill: missingArtistIds.length > 0 });
   } catch (error) {
     if (isSessionRefreshFailure(error)) {
       return NextResponse.json({ error: "Session refresh failed." }, { status: 401 });

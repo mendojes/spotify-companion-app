@@ -495,6 +495,60 @@ async function backfillArtistGenresFromMusicBrainz(artists: SpotifyArtist[]) {
   });
 }
 
+function collectSnapshotArtistSeeds(snapshots: SpotifyDashboardSnapshot[]) {
+  const seeds = new Map<string, SpotifyArtist>();
+
+  snapshots.forEach((snapshot) => {
+    const pushArtist = (artist: SpotifyArtist | null | undefined) => {
+      if (!artist?.id || !artist.name) {
+        return;
+      }
+
+      const existing = seeds.get(artist.id);
+      if (!existing) {
+        seeds.set(artist.id, {
+          ...artist,
+          genres: getArtistGenres(artist),
+          images: artist.images?.length ? artist.images : undefined,
+        });
+        return;
+      }
+
+      seeds.set(artist.id, {
+        ...existing,
+        ...artist,
+        genres: [...new Set([...(existing.genres ?? []), ...getArtistGenres(artist)])],
+        images: existing.images?.length ? existing.images : artist.images,
+        popularity: Math.max(existing.popularity ?? 0, artist.popularity ?? 0),
+      });
+    };
+
+    [
+      ...snapshot.topArtists,
+      ...(snapshot.mediumTermTopArtists ?? []),
+      ...(snapshot.longTermTopArtists ?? []),
+    ].forEach(pushArtist);
+
+    Object.values(snapshot.cachedTopLists ?? {}).forEach((cachedList) => {
+      cachedList.artists.forEach((artist) => {
+        if (!artist?.id) {
+          return;
+        }
+
+        pushArtist({
+          id: artist.id,
+          name: artist.name,
+          genres: artist.genres ?? [],
+          popularity: 0,
+          images: artist.imageUrl ? [{ url: artist.imageUrl }] : undefined,
+        });
+      });
+    });
+  });
+
+  return seeds;
+}
+
 async function getArtistMetadata(accessToken: string | undefined, artistIds: string[]) {
   const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 200);
 
@@ -523,6 +577,80 @@ async function getArtistMetadata(accessToken: string | undefined, artistIds: str
   }
 
   return enrichedArtists;
+}
+
+async function getStoredArtistMetadataRecordsByIds(artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))];
+
+  if (!hasMongoConfig() || uniqueArtistIds.length === 0) {
+    return [] as StoredArtistMetadata[];
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return [] as StoredArtistMetadata[];
+    }
+
+    return db
+      .collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION)
+      .find({ artistId: { $in: uniqueArtistIds } })
+      .toArray();
+  } catch {
+    return [] as StoredArtistMetadata[];
+  }
+}
+
+export async function getMissingArtistMetadataIdsForUser(spotifyUserId: string) {
+  const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
+  const seeds = collectSnapshotArtistSeeds(snapshots);
+  const artistIds = [...seeds.keys()];
+  const storedRecords = await getStoredArtistMetadataRecordsByIds(artistIds);
+  const storedById = new Map(storedRecords.map((record) => [record.artistId, record]));
+
+  return artistIds.filter((artistId) => {
+    const stored = storedById.get(artistId);
+    const seed = seeds.get(artistId);
+
+    if (!stored) {
+      return true;
+    }
+
+    if (!stored.imageUrl && seed?.images?.[0]?.url) {
+      return true;
+    }
+
+    if ((stored.genres?.length ?? 0) === 0) {
+      return true;
+    }
+
+    return false;
+  });
+}
+
+export async function backfillMissingArtistMetadataForUser(spotifyUserId: string, accessToken?: string) {
+  const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
+  const seeds = collectSnapshotArtistSeeds(snapshots);
+  const missingArtistIds = await getMissingArtistMetadataIdsForUser(spotifyUserId);
+
+  if (missingArtistIds.length === 0) {
+    return 0;
+  }
+
+  const fetchedArtists = accessToken ? await fetchArtistsByIds(accessToken, missingArtistIds) : [];
+  const fetchedArtistIds = new Set(fetchedArtists.map((artist) => artist.id));
+  const seedArtists = missingArtistIds
+    .filter((artistId) => !fetchedArtistIds.has(artistId))
+    .map((artistId) => seeds.get(artistId))
+    .filter((artist): artist is SpotifyArtist => Boolean(artist));
+  const mergedArtists = mergeArtists(fetchedArtists, seedArtists);
+  const enrichedArtists = await backfillArtistGenresFromMusicBrainz(mergedArtists);
+
+  if (enrichedArtists.length > 0) {
+    await writeStoredArtistMetadata(enrichedArtists);
+  }
+
+  return missingArtistIds.length;
 }
 
 async function getStoredAudioFeatures(trackIds: string[]) {
