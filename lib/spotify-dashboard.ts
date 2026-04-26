@@ -59,6 +59,7 @@ type MoodAnalyticsResult = {
 type DashboardInsightOptions = {
   includeLivePlaylistInsights?: boolean;
   includePublicTagFallback?: boolean;
+  includeArtistGenreBackfill?: boolean;
 };
 
 type StoredArtistMetadata = {
@@ -454,8 +455,31 @@ async function writeStoredArtistMetadata(artists: SpotifyArtist[]) {
       return;
     }
 
+    const existingRecords = await db
+      .collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION)
+      .find({ artistId: { $in: metadata.map((artist) => artist.artistId) } })
+      .toArray();
+    const existingById = new Map(existingRecords.map((artist) => [artist.artistId, artist]));
+
+    const mergedMetadata = metadata.map((artist) => {
+      const existing = existingById.get(artist.artistId);
+
+      if (!existing) {
+        return artist;
+      }
+
+      return {
+        artistId: artist.artistId,
+        name: artist.name || existing.name,
+        genres: artist.genres.length > 0 ? artist.genres : existing.genres,
+        imageUrl: artist.imageUrl ?? existing.imageUrl,
+        popularity: Math.max(artist.popularity ?? 0, existing.popularity ?? 0),
+        updatedAt: artist.updatedAt,
+      } satisfies StoredArtistMetadata;
+    });
+
     await db.collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION).bulkWrite(
-      metadata.map((artist) => ({
+      mergedMetadata.map((artist) => ({
         updateOne: {
           filter: { artistId: artist.artistId },
           update: { $set: artist },
@@ -549,7 +573,11 @@ function collectSnapshotArtistSeeds(snapshots: SpotifyDashboardSnapshot[]) {
   return seeds;
 }
 
-async function getArtistMetadata(accessToken: string | undefined, artistIds: string[]) {
+async function getArtistMetadata(
+  accessToken: string | undefined,
+  artistIds: string[],
+  options?: { includeGenreBackfill?: boolean },
+) {
   const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 200);
 
   if (uniqueArtistIds.length === 0) {
@@ -561,6 +589,10 @@ async function getArtistMetadata(accessToken: string | undefined, artistIds: str
   const missingArtistIds = uniqueArtistIds.filter((artistId) => !storedArtistIds.has(artistId));
 
   if (!accessToken || missingArtistIds.length === 0) {
+    if (options?.includeGenreBackfill === false) {
+      return storedArtists;
+    }
+
     const enrichedStoredArtists = await backfillArtistGenresFromMusicBrainz(storedArtists);
     if (enrichedStoredArtists.some((artist, index) => getArtistGenres(artist).join("|") !== getArtistGenres(storedArtists[index] ?? { genres: [] }).join("|"))) {
       await writeStoredArtistMetadata(enrichedStoredArtists);
@@ -570,7 +602,9 @@ async function getArtistMetadata(accessToken: string | undefined, artistIds: str
 
   const fetchedArtists = await fetchArtistsByIds(accessToken, missingArtistIds);
   const mergedArtists = mergeArtists(storedArtists, fetchedArtists);
-  const enrichedArtists = await backfillArtistGenresFromMusicBrainz(mergedArtists);
+  const enrichedArtists = options?.includeGenreBackfill === false
+    ? mergedArtists
+    : await backfillArtistGenresFromMusicBrainz(mergedArtists);
 
   if (enrichedArtists.length > 0) {
     await writeStoredArtistMetadata(enrichedArtists);
@@ -790,7 +824,11 @@ function hydrateCachedTopListsArtists(
   ) as SpotifyDashboardSnapshot["cachedTopLists"];
 }
 
-async function enrichSnapshotsWithArtistMetadata(snapshots: SpotifyDashboardSnapshot[], accessToken?: string) {
+async function enrichSnapshotsWithArtistMetadata(
+  snapshots: SpotifyDashboardSnapshot[],
+  accessToken?: string,
+  options?: { includeGenreBackfill?: boolean },
+) {
   const snapshotArtistIds = snapshots.flatMap((snapshot) => [
     ...snapshot.topArtists.map((artist) => artist.id),
     ...(snapshot.mediumTermTopArtists ?? []).map((artist) => artist.id),
@@ -799,7 +837,7 @@ async function enrichSnapshotsWithArtistMetadata(snapshots: SpotifyDashboardSnap
     ...Object.values(snapshot.cachedTopLists ?? {}).flatMap((cachedList) => cachedList.artists.map((artist) => artist.id)),
   ]);
 
-  const metadataArtists = await getArtistMetadata(accessToken, snapshotArtistIds);
+  const metadataArtists = await getArtistMetadata(accessToken, snapshotArtistIds, options);
   if (metadataArtists.length === 0) {
     return snapshots;
   }
@@ -2041,7 +2079,9 @@ async function deriveInsights(
   spotifyUserId?: string,
   options?: DashboardInsightOptions,
 ): Promise<DashboardInsights> {
-  const metadataSnapshots = await enrichSnapshotsWithArtistMetadata(snapshots, accessToken);
+  const metadataSnapshots = await enrichSnapshotsWithArtistMetadata(snapshots, accessToken, {
+    includeGenreBackfill: options?.includeArtistGenreBackfill !== false,
+  });
   const sortedSnapshots = [...metadataSnapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
   const snapshotRecent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
   const storedRecent = spotifyUserId ? await getStoredRecentPlaysForRange(spotifyUserId, range).catch(() => []) : [];
@@ -2072,7 +2112,9 @@ async function deriveInsights(
         ...(snapshot.longTermTopArtists ?? []).map((artist) => artist.id),
       ].filter((id): id is string => Boolean(id))),
     ];
-    const recentArtists = await getArtistMetadata(accessToken, recentArtistIds);
+    const recentArtists = await getArtistMetadata(accessToken, recentArtistIds, {
+      includeGenreBackfill: options?.includeArtistGenreBackfill !== false,
+    });
     const mergedGenreArtists = mergeArtists(topArtists, recentArtists);
     const artistMetadata = buildArtistMetadataMap(mergedGenreArtists, sortedSnapshots);
     const recentGenrePulse = storedRecent.length > 0

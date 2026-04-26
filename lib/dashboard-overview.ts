@@ -160,6 +160,7 @@ export async function writeStoredDashboardOverviewCache(
           {
             includeLivePlaylistInsights: false,
             includePublicTagFallback: false,
+            includeArtistGenreBackfill: options?.allowLiveEnrichment !== false,
           },
         )
         : null;
