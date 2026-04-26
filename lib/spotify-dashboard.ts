@@ -24,9 +24,10 @@ import {
   DashboardAnalysisHighlight,
 } from "@/lib/types";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
+import { getIgnoredPlaylistIds } from "@/lib/connected-users";
 
 import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
-import { getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-activity";
+import { getPlaylistIdFromContext, getStoredRecentPlaysForRange, syncRecentPlays } from "@/lib/spotify-activity";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import { buildCachedTopListsForSnapshot, SNAPSHOT_TOP_LISTS_SCHEMA_VERSION } from "@/lib/spotify-toplists";
@@ -260,6 +261,31 @@ function dedupeRecent(items: SpotifyRecentlyPlayedItem[]) {
   }
 
   return result.sort((a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime());
+}
+
+function filterRecentItemsByIgnoredPlaylistIds(recent: SpotifyRecentlyPlayedItem[], ignoredPlaylistIds: string[]) {
+  if (ignoredPlaylistIds.length === 0) {
+    return recent;
+  }
+
+  return recent.filter((item) => {
+    const playlistId = getPlaylistIdFromContext(item.context);
+    return !playlistId || !ignoredPlaylistIds.includes(playlistId);
+  });
+}
+
+function filterSnapshotRecentHistory(
+  snapshots: SpotifyDashboardSnapshot[],
+  ignoredPlaylistIds: string[],
+) {
+  if (ignoredPlaylistIds.length === 0) {
+    return snapshots;
+  }
+
+  return snapshots.map((snapshot) => ({
+    ...snapshot,
+    recent: filterRecentItemsByIgnoredPlaylistIds(snapshot.recent, ignoredPlaylistIds),
+  }));
 }
 
 function pushArtistsWithWeight(map: Map<string, SpotifyArtist & { score: number }>, artists: SpotifyArtist[] | undefined, weight: number) {
@@ -1986,8 +2012,9 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: DashboardRan
       .sort({ fetchedAt: -1 })
       .limit(range === "all" ? 180 : 90)
       .toArray();
+    const ignoredPlaylistIds = await getIgnoredPlaylistIds(spotifyUserId).catch(() => [] as string[]);
 
-    return snapshots.length > 0 ? snapshots : [];
+    return snapshots.length > 0 ? filterSnapshotRecentHistory(snapshots, ignoredPlaylistIds) : [];
   } catch {
     return [] as SpotifyDashboardSnapshot[];
   }
@@ -2004,7 +2031,13 @@ async function getLatestSnapshot(spotifyUserId: string) {
       return null;
     }
 
-    return db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).find({ spotifyUserId }).sort({ fetchedAt: -1 }).limit(1).next();
+    const snapshot = await db.collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION).find({ spotifyUserId }).sort({ fetchedAt: -1 }).limit(1).next();
+    if (!snapshot) {
+      return null;
+    }
+
+    const ignoredPlaylistIds = await getIgnoredPlaylistIds(spotifyUserId).catch(() => [] as string[]);
+    return filterSnapshotRecentHistory([snapshot], ignoredPlaylistIds)[0] ?? null;
   } catch {
     return null;
   }
@@ -2070,6 +2103,9 @@ async function fetchSnapshot(accessToken: string, spotifyUserId: string): Promis
   );
   await writeStoredArtistMetadata(mergedArtistMetadata);
 
+  const ignoredPlaylistIds = await getIgnoredPlaylistIds(spotifyUserId).catch(() => [] as string[]);
+  const filteredRecent = filterRecentItemsByIgnoredPlaylistIds(recent.items, ignoredPlaylistIds);
+
   const snapshot = {
     spotifyUserId,
     schemaVersion: SNAPSHOT_TOP_LISTS_SCHEMA_VERSION,
@@ -2080,7 +2116,7 @@ async function fetchSnapshot(accessToken: string, spotifyUserId: string): Promis
     longTermTopArtists: mergeArtistMetadata(longTermTopArtists.items, enrichedArtists),
     longTermTopTracks: longTermTopTracks.items,
     savedTracks,
-    recent: recent.items,
+    recent: filteredRecent,
     fetchedAt: new Date().toISOString(),
   } satisfies SpotifyDashboardSnapshot;
 

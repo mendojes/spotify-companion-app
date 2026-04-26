@@ -403,7 +403,7 @@ function TrackShelfCard({
   );
 }
 function TrendMarquee({ tracks }: { tracks: TopListsData["tracks"] }) {
-  const items = tracks.length > 0 ? tracks : [];
+  const items = tracks.slice(0, 5);
 
   return (
     <div className="marquee-strip rounded-full px-3 py-2 text-sm uppercase tracking-[0.14em] text-[var(--theme-title)] sm:px-4 sm:font-mono sm:text-lg sm:tracking-[0.18em]">

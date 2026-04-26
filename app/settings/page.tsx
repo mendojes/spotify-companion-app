@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { hasSpotifyConnection, requireSession } from "@/lib/auth";
 import { getConnectedUser, getDefaultPrivacySettings } from "@/lib/connected-users";
+import { getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
 
 type SettingsPageProps = {
   searchParams: Promise<{ saved?: string }>;
@@ -68,6 +69,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   const connectedUser = await getConnectedUser(session.spotifyUserId);
   const privacy = connectedUser?.privacy ?? getDefaultPrivacySettings();
+  const ignoredPlaylistIds = new Set(connectedUser?.ignoredPlaylistIds ?? []);
+  const storedPlaylists = (await getStoredPlaylistLibrary(session.spotifyUserId))
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <main className="city-pop-shell min-h-screen px-6 py-10 md:px-10">
@@ -79,6 +84,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
             Choose exactly what other Listening Lore users can see. These controls affect only cached data already stored for the app and never trigger extra Spotify fetches for people viewing your profile.
+          </p>
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--theme-body)]">
+            You can also tell Listening Lore to ignore specific playlists. Plays from ignored playlists are excluded from future recent-play syncs, removed from stored recent-play history, and left out of the dashboard analysis we rebuild from that history.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link href="/social" className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
@@ -118,6 +126,46 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             description="Allows mood balance, genre pulse, and recent listening summaries from cached history to appear on your public profile and in friend comparisons."
             defaultChecked={privacy.shareListeningActivity}
           />
+
+          <section className="desktop-card space-y-4 p-5">
+            <div className="space-y-2">
+              <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Ignore specific playlists</p>
+              <p className="max-w-3xl text-sm leading-7 text-[var(--theme-body)]">
+                Ignored playlists stop contributing to recent-play-driven analysis. Existing stored plays from these playlists are removed when you save, so this change is intentionally destructive for those listens until Spotify serves them again from a non-ignored source.
+              </p>
+            </div>
+
+            {storedPlaylists.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                {storedPlaylists.map((playlist) => (
+                  <label
+                    key={playlist.id}
+                    className="flex cursor-pointer items-start gap-3 rounded-[24px] border-[2px] border-[rgba(44,12,70,0.24)] bg-white/[0.42] px-4 py-3"
+                  >
+                    <input
+                      type="checkbox"
+                      name="ignoredPlaylistIds"
+                      value={playlist.id}
+                      defaultChecked={ignoredPlaylistIds.has(playlist.id)}
+                      className="mt-1 h-5 w-5 rounded border-[rgba(44,12,70,0.6)] text-[var(--theme-accent)]"
+                    />
+                    <div className="space-y-1">
+                      <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">
+                        {playlist.name}
+                      </p>
+                      <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-body)]">
+                        {playlist.tracks.total} tracks
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-[24px] border-[2px] border-dashed border-[rgba(44,12,70,0.24)] bg-white/[0.32] px-4 py-4 text-sm leading-7 text-[var(--theme-body)]">
+                No stored playlist library was available yet. Open the Playlists tab or run a playlist refresh first, then come back here to pick ignored playlists.
+              </div>
+            )}
+          </section>
 
           <div className="flex flex-wrap gap-3">
             <button type="submit" className="rounded-full border-[3px] border-[rgba(44,12,70,0.85)] bg-[rgba(255,236,245,0.9)] px-5 py-3 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-text)] transition hover:bg-[rgba(255,225,239,0.96)]">

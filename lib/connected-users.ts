@@ -1,5 +1,6 @@
 import { hasSpotifyConnection, type AuthSession } from "@/lib/auth";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 
 export type ConnectedUserPrivacySettings = {
   shareProfile: boolean;
@@ -14,6 +15,7 @@ export type ConnectedUser = {
   imageUrl?: string;
   refreshToken: string;
   privacy?: ConnectedUserPrivacySettings;
+  ignoredPlaylistIds?: string[];
   lastSeenAt: string;
   updatedAt: string;
   lastSnapshotAt?: string;
@@ -39,6 +41,14 @@ export type CommunityUserProfile = {
 
 const CONNECTED_USERS_COLLECTION = "connected_users";
 const ACTIVE_WINDOW_MS = 1000 * 60 * 60 * 24 * 30;
+
+function normalizeIgnoredPlaylistIds(playlistIds?: string[] | null) {
+  return [...new Set((playlistIds ?? []).map((playlistId) => playlistId.trim()).filter(Boolean))];
+}
+
+function ignoredPlaylistsCacheKey(spotifyUserId: string) {
+  return `ignored-playlists:${spotifyUserId}`;
+}
 
 export function getDefaultPrivacySettings(): ConnectedUserPrivacySettings {
   return {
@@ -281,7 +291,28 @@ export async function getConnectedUser(spotifyUserId: string) {
   }
 
   const user = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne({ spotifyUserId });
-  return user ? { ...user, privacy: normalizePrivacySettings(user.privacy) } : null;
+  return user
+    ? {
+      ...user,
+      privacy: normalizePrivacySettings(user.privacy),
+      ignoredPlaylistIds: normalizeIgnoredPlaylistIds(user.ignoredPlaylistIds),
+    }
+    : null;
+}
+
+export async function getIgnoredPlaylistIds(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return [] as string[];
+  }
+
+  return getCachedValue(ignoredPlaylistsCacheKey(spotifyUserId), 1000 * 30, async () => {
+    const user = await getConnectedUser(spotifyUserId);
+    return normalizeIgnoredPlaylistIds(user?.ignoredPlaylistIds);
+  });
+}
+
+export function invalidateIgnoredPlaylistIdsCache(spotifyUserId: string) {
+  invalidateCachedValue(ignoredPlaylistsCacheKey(spotifyUserId));
 }
 
 export async function updateConnectedUserPrivacySettings(
@@ -322,4 +353,39 @@ export async function updateConnectedUserPrivacySettings(
   );
 
   return nextPrivacy;
+}
+
+export async function updateConnectedUserIgnoredPlaylists(spotifyUserId: string, playlistIds: string[]) {
+  const nextIgnoredPlaylistIds = normalizeIgnoredPlaylistIds(playlistIds);
+
+  if (!hasMongoConfig()) {
+    return nextIgnoredPlaylistIds;
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return nextIgnoredPlaylistIds;
+  }
+
+  const now = new Date().toISOString();
+  await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
+    { spotifyUserId },
+    {
+      $set: {
+        ignoredPlaylistIds: nextIgnoredPlaylistIds,
+        updatedAt: now,
+      },
+      $setOnInsert: {
+        spotifyUserId,
+        displayName: "Spotify Listener",
+        refreshToken: "",
+        lastSeenAt: now,
+        privacy: getDefaultPrivacySettings(),
+      },
+    },
+    { upsert: true },
+  );
+
+  invalidateIgnoredPlaylistIdsCache(spotifyUserId);
+  return nextIgnoredPlaylistIds;
 }

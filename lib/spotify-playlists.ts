@@ -173,7 +173,7 @@ async function getStoredPlaylistLibraryRecords(spotifyUserId: string) {
   }
 }
 
-async function getStoredPlaylistLibrary(spotifyUserId: string) {
+export async function getStoredPlaylistLibrary(spotifyUserId: string) {
   const records = await getStoredPlaylistLibraryRecords(spotifyUserId);
   return records
     .map((playlist) => normalizePlaylist(playlist))

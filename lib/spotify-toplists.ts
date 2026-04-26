@@ -1,6 +1,7 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import { spotifyFetch } from "@/lib/spotify";
+import { getIgnoredPlaylistIds } from "@/lib/connected-users";
 import {
   SpotifyArtist,
   SpotifyDashboardSnapshot,
@@ -761,7 +762,18 @@ async function getRecentPlaysForTopLists(spotifyUserId: string, range: TopListRa
       playedAt.$lte = window.to;
     }
 
-    const query = Object.keys(playedAt).length > 0 ? { spotifyUserId, playedAt } : { spotifyUserId };
+    const ignoredPlaylistIds = await getIgnoredPlaylistIds(spotifyUserId).catch(() => [] as string[]);
+    const baseQuery: Record<string, unknown> = Object.keys(playedAt).length > 0 ? { spotifyUserId, playedAt } : { spotifyUserId };
+    const query = ignoredPlaylistIds.length > 0
+      ? {
+        ...baseQuery,
+        $or: [
+          { playlistId: { $exists: false } },
+          { playlistId: null },
+          { playlistId: { $nin: ignoredPlaylistIds } },
+        ],
+      }
+      : baseQuery;
 
     return db
       .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
