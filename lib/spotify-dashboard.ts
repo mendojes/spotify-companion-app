@@ -469,6 +469,32 @@ async function writeStoredArtistMetadata(artists: SpotifyArtist[]) {
   }
 }
 
+async function backfillArtistGenresFromMusicBrainz(artists: SpotifyArtist[]) {
+  const artistsMissingGenres = artists.filter((artist) => getArtistGenres(artist).length === 0 && artist.name);
+
+  if (artistsMissingGenres.length === 0) {
+    return artists;
+  }
+
+  const artistTags = await fetchMusicBrainzArtistTags(artistsMissingGenres.map((artist) => artist.name));
+
+  return artists.map((artist) => {
+    if (getArtistGenres(artist).length > 0) {
+      return artist;
+    }
+
+    const fallbackGenres = artistTags.get(artist.name.toLowerCase()) ?? [];
+    if (fallbackGenres.length === 0) {
+      return artist;
+    }
+
+    return {
+      ...artist,
+      genres: fallbackGenres,
+    };
+  });
+}
+
 async function getArtistMetadata(accessToken: string | undefined, artistIds: string[]) {
   const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))].slice(0, 200);
 
@@ -481,15 +507,22 @@ async function getArtistMetadata(accessToken: string | undefined, artistIds: str
   const missingArtistIds = uniqueArtistIds.filter((artistId) => !storedArtistIds.has(artistId));
 
   if (!accessToken || missingArtistIds.length === 0) {
-    return storedArtists;
+    const enrichedStoredArtists = await backfillArtistGenresFromMusicBrainz(storedArtists);
+    if (enrichedStoredArtists.some((artist, index) => getArtistGenres(artist).join("|") !== getArtistGenres(storedArtists[index] ?? { genres: [] }).join("|"))) {
+      await writeStoredArtistMetadata(enrichedStoredArtists);
+    }
+    return enrichedStoredArtists;
   }
 
   const fetchedArtists = await fetchArtistsByIds(accessToken, missingArtistIds);
-  if (fetchedArtists.length > 0) {
-    await writeStoredArtistMetadata(fetchedArtists);
+  const mergedArtists = mergeArtists(storedArtists, fetchedArtists);
+  const enrichedArtists = await backfillArtistGenresFromMusicBrainz(mergedArtists);
+
+  if (enrichedArtists.length > 0) {
+    await writeStoredArtistMetadata(enrichedArtists);
   }
 
-  return mergeArtists(storedArtists, fetchedArtists);
+  return enrichedArtists;
 }
 
 async function getStoredAudioFeatures(trackIds: string[]) {
