@@ -457,24 +457,28 @@ function buildArtistMetadataFromSnapshots(snapshots: SpotifyDashboardSnapshot[])
     ];
 
     artists.forEach((artist) => {
-      const key = artist.name.toLowerCase();
-      const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
-      existing.genres = [...new Set([...existing.genres, ...getArtistGenres(artist)])];
-      if (!existing.imageUrl && artist.images?.[0]?.url) {
-        existing.imageUrl = artist.images[0].url;
-      }
-      metadata.set(key, existing);
+      const keys = [artist.id, artist.name.toLowerCase()].filter(Boolean);
+      keys.forEach((key) => {
+        const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
+        existing.genres = [...new Set([...existing.genres, ...getArtistGenres(artist)])];
+        if (!existing.imageUrl && artist.images?.[0]?.url) {
+          existing.imageUrl = artist.images[0].url;
+        }
+        metadata.set(key, existing);
+      });
     });
 
     Object.values(snapshot.cachedTopLists ?? {}).forEach((cachedList) => {
       cachedList.artists.forEach((artist) => {
-        const key = artist.name.toLowerCase();
-        const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
-        existing.genres = [...new Set([...existing.genres, ...(artist.genres ?? [])])];
-        if (!existing.imageUrl && artist.imageUrl) {
-          existing.imageUrl = artist.imageUrl;
-        }
-        metadata.set(key, existing);
+        const keys = [artist.id, artist.name.toLowerCase()].filter(Boolean);
+        keys.forEach((key) => {
+          const existing = metadata.get(key) ?? { genres: [], imageUrl: undefined };
+          existing.genres = [...new Set([...existing.genres, ...(artist.genres ?? [])])];
+          if (!existing.imageUrl && artist.imageUrl) {
+            existing.imageUrl = artist.imageUrl;
+          }
+          metadata.set(key, existing);
+        });
       });
     });
   });
@@ -548,7 +552,7 @@ async function enrichRecentPlayTopListArtists(
     recentPlayTopLists.artists = recentPlayTopLists.artists.map((artist) => {
       const spotifyArtist = spotifyArtistMetadata.get(artist.id);
       const fallbackArtist = fallbackArtistMap.get(artist.name.toLowerCase());
-      const snapshotArtist = snapshotArtistMetadata?.get(artist.name.toLowerCase());
+      const snapshotArtist = snapshotArtistMetadata?.get(artist.id) ?? snapshotArtistMetadata?.get(artist.name.toLowerCase());
       const preferredArtistImage = spotifyArtist?.images?.[0]?.url ?? fallbackArtist?.imageUrl ?? snapshotArtist?.imageUrl;
 
       return {
@@ -576,7 +580,7 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
 
     getStoredPlayArtists(play).forEach(({ name: artistName, id: artistId }) => {
       const key = artistName.toLowerCase();
-      const metadata = artistMetadata.get(key);
+      const metadata = artistId ? (artistMetadata.get(artistId) ?? artistMetadata.get(key)) : artistMetadata.get(key);
       const lookupKey = artistId ?? key;
       const existing = artistMap.get(lookupKey) ?? {
         id: artistId ?? key,
