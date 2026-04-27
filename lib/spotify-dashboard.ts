@@ -2618,11 +2618,11 @@ export async function getDashboardAnalysisDetailFromHistory(
 }
 
 
-export async function getSharedDashboardCacheSnapshots(spotifyUserId: string) {
-  return getCachedValue(`dashboard-snapshots:${spotifyUserId}`, DASHBOARD_SNAPSHOT_CACHE_TTL_MS, async () => {
+export async function getSharedDashboardCacheSnapshots(spotifyUserId: string, range: DashboardRange = "all") {
+  return getCachedValue(`dashboard-snapshots:${spotifyUserId}:${range}`, DASHBOARD_SNAPSHOT_CACHE_TTL_MS, async () => {
     let snapshots;
     try {
-      snapshots = await getHistoricalSnapshots(spotifyUserId, "all");
+      snapshots = await getHistoricalSnapshots(spotifyUserId, range);
     } catch (error) {
       throw dashboardCacheError("getHistoricalSnapshots", error);
     }
@@ -2643,7 +2643,9 @@ export async function getSharedDashboardCacheSnapshots(spotifyUserId: string) {
 }
 
 export function invalidateDashboardSnapshotCaches(spotifyUserId: string) {
-  invalidateCachedValue(`dashboard-snapshots:${spotifyUserId}`);
+  DASHBOARD_RANGE_VALUES.forEach((range) => {
+    invalidateCachedValue(`dashboard-snapshots:${spotifyUserId}:${range}`);
+  });
 
   DASHBOARD_RANGE_VALUES.forEach((range) => {
     invalidateCachedValue(`dashboard-insights:${spotifyUserId}:${range}:cached`);

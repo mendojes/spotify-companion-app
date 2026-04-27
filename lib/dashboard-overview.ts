@@ -29,6 +29,10 @@ function logOverviewTiming(spotifyUserId: string, step: string, startedAt: numbe
   console.log(`[dashboard] user=${spotifyUserId} step=${step} elapsedMs=${Date.now() - startedAt}`);
 }
 
+function logOverviewWriteTiming(spotifyUserId: string, step: string, startedAt: number) {
+  console.log(`[dashboard-overview-write] user=${spotifyUserId} step=${step} elapsedMs=${Date.now() - startedAt}`);
+}
+
 function overviewCacheKey(
   spotifyUserId: string,
   selectedRange: DashboardRange,
@@ -134,17 +138,26 @@ export async function writeStoredDashboardOverviewCache(
     return;
   }
 
+  const totalStart = Date.now();
+  const existingStart = Date.now();
   const existingStored = await readStoredDashboardOverviewCache(spotifyUserId);
-  const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
+  logOverviewWriteTiming(spotifyUserId, "read-existing", existingStart);
+  const snapshotsStart = Date.now();
+  const snapshotRange = prioritizedRange && options?.allowLiveEnrichment === false ? prioritizedRange : "all";
+  const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId, snapshotRange);
+  logOverviewWriteTiming(spotifyUserId, "load-snapshots", snapshotsStart);
   const rangesToBuild = prioritizedRange ? [prioritizedRange] : DASHBOARD_RANGE_VALUES;
   const topRangesToBuild = prioritizedRange
     ? [...new Set<TopListRange>(["week", heroRangeToTopRange(prioritizedRange)])].filter((range): range is Exclude<TopListRange, "custom"> => range !== "custom")
     : TOP_LIST_RANGE_VALUES;
+  const historyPreviewStart = Date.now();
   const [topListHistory, playlistPreview] = await Promise.all([
     getTopListHistoryData(spotifyUserId),
     getDashboardPlaylistInsightPreview(spotifyUserId),
   ]);
+  logOverviewWriteTiming(spotifyUserId, "history-preview", historyPreviewStart);
 
+  const insightsStart = Date.now();
   const insightsByRangeEntries = await Promise.all(
     rangesToBuild.map(async (range) => {
       const rangeAccessToken =
@@ -176,13 +189,16 @@ export async function writeStoredDashboardOverviewCache(
       ] as const;
     }),
   );
+  logOverviewWriteTiming(spotifyUserId, "insights", insightsStart);
 
+  const topListsStart = Date.now();
   const topListsByRangeEntries = await Promise.all(
     topRangesToBuild.map(async (range) => [
       range,
       await getSpotifyTopListsFromHistoryData(topListHistory, range),
     ] as const),
   );
+  logOverviewWriteTiming(spotifyUserId, "top-lists", topListsStart);
 
   const nextInsightsByRange = Object.fromEntries(
     insightsByRangeEntries.filter((entry): entry is readonly [DashboardRange, DashboardInsights] => Boolean(entry[1])),
@@ -208,6 +224,7 @@ export async function writeStoredDashboardOverviewCache(
   } satisfies Partial<Record<DashboardRange, TopListsData>>;
 
   try {
+    const writeStart = Date.now();
     const db = await getDatabase();
     if (!db) {
       return;
@@ -226,6 +243,8 @@ export async function writeStoredDashboardOverviewCache(
       },
       { upsert: true },
     );
+    logOverviewWriteTiming(spotifyUserId, "write-cache", writeStart);
+    logOverviewWriteTiming(spotifyUserId, "total", totalStart);
   } catch {
     return;
   }
