@@ -587,7 +587,7 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
         name: artistName,
         score: 0,
         playCount: 0,
-        imageUrl: metadata?.imageUrl,
+        imageUrl: metadata?.imageUrl ?? play.imageUrl,
         genres: metadata?.genres ?? [],
       };
 
@@ -595,6 +595,8 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
       existing.playCount += 1;
       if (!existing.imageUrl && metadata?.imageUrl) {
         existing.imageUrl = metadata.imageUrl;
+      } else if (!existing.imageUrl && play.imageUrl) {
+        existing.imageUrl = play.imageUrl;
       }
       if (existing.genres.length === 0 && metadata?.genres?.length) {
         existing.genres = metadata.genres;
