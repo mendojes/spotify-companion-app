@@ -41,6 +41,7 @@ const AUTO_REFRESH_DASHBOARD_SNAPSHOTS = true;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
 const AUDIO_FEATURE_CACHE_COLLECTION = "spotify_audio_feature_cache";
+const TOP_LISTS_CACHE_COLLECTION = "dashboard_top_lists_cache";
 const SNAPSHOT_SIGNIFICANT_PLAY_GAP_MS = 1000 * 60 * 60 * 6;
 const PACIFIC_TIME_ZONE = PST_TIME_ZONE;
 const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( genre pulse fallback )";
@@ -573,6 +574,95 @@ function collectSnapshotArtistSeeds(snapshots: SpotifyDashboardSnapshot[]) {
   return seeds;
 }
 
+type StoredTopListsCacheSeed = {
+  spotifyUserId: string;
+  range: "week" | "month" | "year" | "all";
+  updatedAt: string;
+  data: {
+    artists: Array<{
+      id: string;
+      name: string;
+      genres?: string[];
+      imageUrl?: string;
+    }>;
+  };
+};
+
+async function getAllArtistSeedDataForBackfill(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return {
+      snapshots: [] as SpotifyDashboardSnapshot[],
+      topListCaches: [] as StoredTopListsCacheSeed[],
+    };
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return {
+        snapshots: [] as SpotifyDashboardSnapshot[],
+        topListCaches: [] as StoredTopListsCacheSeed[],
+      };
+    }
+
+    const [snapshots, topListCaches] = await Promise.all([
+      db
+        .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
+        .find({ spotifyUserId })
+        .sort({ fetchedAt: -1 })
+        .toArray(),
+      db
+        .collection<StoredTopListsCacheSeed>(TOP_LISTS_CACHE_COLLECTION)
+        .find({ spotifyUserId })
+        .toArray(),
+    ]);
+
+    return { snapshots, topListCaches };
+  } catch {
+    return {
+      snapshots: [] as SpotifyDashboardSnapshot[],
+      topListCaches: [] as StoredTopListsCacheSeed[],
+    };
+  }
+}
+
+function mergeTopListCacheArtistSeeds(
+  seeds: Map<string, SpotifyArtist>,
+  topListCaches: StoredTopListsCacheSeed[],
+) {
+  topListCaches.forEach((cache) => {
+    cache.data?.artists?.forEach((artist) => {
+      if (!artist?.id || !artist.name) {
+        return;
+      }
+
+      const existing = seeds.get(artist.id);
+      const candidate: SpotifyArtist = {
+        id: artist.id,
+        name: artist.name,
+        genres: artist.genres ?? [],
+        popularity: 0,
+        images: artist.imageUrl ? [{ url: artist.imageUrl }] : undefined,
+      };
+
+      if (!existing) {
+        seeds.set(artist.id, candidate);
+        return;
+      }
+
+      seeds.set(artist.id, {
+        ...existing,
+        ...candidate,
+        genres: [...new Set([...(existing.genres ?? []), ...(candidate.genres ?? [])])],
+        images: existing.images?.length ? existing.images : candidate.images,
+        popularity: Math.max(existing.popularity ?? 0, candidate.popularity ?? 0),
+      });
+    });
+  });
+
+  return seeds;
+}
+
 async function getArtistMetadata(
   accessToken: string | undefined,
   artistIds: string[],
@@ -636,8 +726,8 @@ async function getStoredArtistMetadataRecordsByIds(artistIds: string[]) {
 }
 
 export async function getMissingArtistMetadataIdsForUser(spotifyUserId: string) {
-  const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
-  const seeds = collectSnapshotArtistSeeds(snapshots);
+  const { snapshots, topListCaches } = await getAllArtistSeedDataForBackfill(spotifyUserId);
+  const seeds = mergeTopListCacheArtistSeeds(collectSnapshotArtistSeeds(snapshots), topListCaches);
   const artistIds = [...seeds.keys()];
   const storedRecords = await getStoredArtistMetadataRecordsByIds(artistIds);
   const storedById = new Map(storedRecords.map((record) => [record.artistId, record]));
@@ -663,21 +753,52 @@ export async function getMissingArtistMetadataIdsForUser(spotifyUserId: string) 
 }
 
 export async function backfillMissingArtistMetadataForUser(spotifyUserId: string, accessToken?: string) {
-  const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
-  const seeds = collectSnapshotArtistSeeds(snapshots);
-  const missingArtistIds = await getMissingArtistMetadataIdsForUser(spotifyUserId);
+  const { snapshots, topListCaches } = await getAllArtistSeedDataForBackfill(spotifyUserId);
+  const seeds = mergeTopListCacheArtistSeeds(collectSnapshotArtistSeeds(snapshots), topListCaches);
+  const artistIds = [...seeds.keys()];
+  const storedRecords = await getStoredArtistMetadataRecordsByIds(artistIds);
+  const storedById = new Map(storedRecords.map((record) => [record.artistId, record]));
+  const missingArtistIds = artistIds.filter((artistId) => {
+    const stored = storedById.get(artistId);
+    const seed = seeds.get(artistId);
+
+    if (!stored) {
+      return true;
+    }
+
+    if (!stored.imageUrl && seed?.images?.[0]?.url) {
+      return true;
+    }
+
+    if ((stored.genres?.length ?? 0) === 0) {
+      return true;
+    }
+
+    return false;
+  });
 
   if (missingArtistIds.length === 0) {
     return 0;
   }
 
-  const fetchedArtists = accessToken ? await fetchArtistsByIds(accessToken, missingArtistIds) : [];
-  const fetchedArtistIds = new Set(fetchedArtists.map((artist) => artist.id));
+  const topArtistsMetadata = accessToken ? await fetchTopArtistsMetadata(accessToken) : [];
+  const topArtistsById = new Map(topArtistsMetadata.filter((artist) => artist?.id).map((artist) => [artist.id, artist]));
+  const topArtistMatches = missingArtistIds
+    .map((artistId) => topArtistsById.get(artistId))
+    .filter((artist): artist is SpotifyArtist => Boolean(artist));
+  const topArtistIds = new Set(topArtistMatches.map((artist) => artist.id));
+  const fetchedArtists = accessToken
+    ? await fetchArtistsByIds(
+      accessToken,
+      missingArtistIds.filter((artistId) => !topArtistIds.has(artistId)),
+    )
+    : [];
+  const fetchedArtistIds = new Set([...topArtistIds, ...fetchedArtists.map((artist) => artist.id)]);
   const seedArtists = missingArtistIds
     .filter((artistId) => !fetchedArtistIds.has(artistId))
     .map((artistId) => seeds.get(artistId))
     .filter((artist): artist is SpotifyArtist => Boolean(artist));
-  const mergedArtists = mergeArtists(fetchedArtists, seedArtists);
+  const mergedArtists = mergeArtists(topArtistMatches, fetchedArtists, seedArtists);
   const enrichedArtists = await backfillArtistGenresFromMusicBrainz(mergedArtists);
 
   if (enrichedArtists.length > 0) {
@@ -787,6 +908,20 @@ async function fetchArtistsByIds(accessToken: string, artistIds: string[]) {
     );
 
     return responses.flatMap((response) => response.artists ?? []);
+  } catch {
+    return [] as SpotifyArtist[];
+  }
+}
+
+async function fetchTopArtistsMetadata(accessToken: string) {
+  try {
+    const [shortTerm, mediumTerm, longTerm] = await Promise.all([
+      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=short_term&limit=50", accessToken),
+      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=medium_term&limit=50", accessToken),
+      spotifyFetch<SpotifyTopArtistsResponse>("/me/top/artists?time_range=long_term&limit=50", accessToken),
+    ]);
+
+    return mergeArtists(shortTerm.items, mediumTerm.items, longTerm.items);
   } catch {
     return [] as SpotifyArtist[];
   }
