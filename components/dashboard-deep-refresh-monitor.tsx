@@ -19,7 +19,8 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
   const [artistBackfillStatus, setArtistBackfillStatus] = useState<ArtistBackfillStatus>("idle");
   const [artistBackfillError, setArtistBackfillError] = useState<string | null>(null);
   const [artistBackfillCount, setArtistBackfillCount] = useState<number | null>(null);
-  const startedRef = useRef(false);
+  const enrichStartedRef = useRef(false);
+  const artistBackfillStartedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,37 +56,36 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         setArtistBackfillError(data.artistBackfillError ?? null);
         setArtistBackfillCount(typeof data.artistBackfillCount === "number" ? data.artistBackfillCount : null);
 
-        const shouldKickoff = shouldStart && !startedRef.current && (nextStatus === "pending" || nextStatus === "idle");
+        const shouldKickoffEnrich = shouldStart && !enrichStartedRef.current && (nextStatus === "pending" || nextStatus === "idle");
+        const shouldKickoffArtistBackfill =
+          shouldStart &&
+          !artistBackfillStartedRef.current &&
+          ((data.artistBackfillStatus ?? "idle") === "pending" || (data.artistBackfillStatus ?? "idle") === "idle");
 
-        if (shouldKickoff) {
-          startedRef.current = true;
+        if (shouldKickoffEnrich) {
+          enrichStartedRef.current = true;
           setStatus("running");
           void fetch(`/api/dashboard/enrich?range=${range}`, {
             method: "POST",
             credentials: "same-origin",
           })
-            .then(async (response) => {
-              if (!response.ok) {
-                return;
-              }
-
-              const payload = await response.json() as { needsArtistMetadataBackfill?: boolean };
-              if (!payload.needsArtistMetadataBackfill) {
-                return;
-              }
-
-              setArtistBackfillRunning(true);
-              try {
-                await fetch("/api/dashboard/artist-metadata/backfill", {
-                  method: "POST",
-                  credentials: "same-origin",
-                });
-              } finally {
-                setArtistBackfillRunning(false);
-                router.refresh();
-              }
-            })
+            .then(() => undefined)
             .catch(() => undefined);
+        }
+
+        if (shouldKickoffArtistBackfill) {
+          artistBackfillStartedRef.current = true;
+          setArtistBackfillRunning(true);
+          void fetch("/api/dashboard/artist-metadata/backfill", {
+            method: "POST",
+            credentials: "same-origin",
+          })
+            .then(() => undefined)
+            .catch(() => undefined)
+            .finally(() => {
+              setArtistBackfillRunning(false);
+              router.refresh();
+            });
         }
 
         if (
@@ -93,7 +93,8 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           nextStatus === "running" ||
           data.artistBackfillStatus === "pending" ||
           data.artistBackfillStatus === "running" ||
-          shouldKickoff
+          shouldKickoffEnrich ||
+          shouldKickoffArtistBackfill
         ) {
           timer = window.setTimeout(readStatus, 2500);
           return;

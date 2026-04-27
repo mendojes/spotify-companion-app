@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import {
+  markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
   markConnectedUserRecentSync,
   markConnectedUserSnapshotStatus,
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "pending", { range }).catch(() => undefined);
+    await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "pending").catch(() => undefined);
     logRefreshTiming(authorizedSession.spotifyUserId, "total", refreshStartedAt);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
   } catch (error) {

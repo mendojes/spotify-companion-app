@@ -3,7 +3,7 @@ import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefres
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
 import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
 import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
-import { markConnectedUserArtistMetadataBackfillStatus } from "@/lib/connected-users";
+import { getConnectedUser, markConnectedUserArtistMetadataBackfillStatus } from "@/lib/connected-users";
 
 export async function POST() {
   const session = await getSession();
@@ -18,6 +18,12 @@ export async function POST() {
 
   try {
     const authorizedSession = await getAuthorizedSession(session);
+    const connectedUser = await getConnectedUser(authorizedSession.spotifyUserId).catch(() => null);
+
+    if (connectedUser?.artistMetadataBackfillStatus === "running") {
+      return NextResponse.json({ status: "running" }, { status: 202 });
+    }
+
     await markConnectedUserArtistMetadataBackfillStatus(
       authorizedSession.spotifyUserId,
       "running",
