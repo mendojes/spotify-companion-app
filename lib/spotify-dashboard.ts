@@ -797,13 +797,7 @@ export async function backfillMissingArtistMetadataForUser(spotifyUserId: string
   const publicFetchedArtists = await fetchArtistsByIdsWithClientCredentials(
     missingArtistIds.filter((artistId) => !fetchedArtistIds.has(artistId)),
   );
-  const resolvedArtistIds = new Set([
-    ...topArtistIds,
-    ...fetchedArtists.map((artist) => artist.id),
-    ...publicFetchedArtists.map((artist) => artist.id),
-  ]);
   const seedArtists = missingArtistIds
-    .filter((artistId) => !resolvedArtistIds.has(artistId))
     .map((artistId) => seeds.get(artistId))
     .filter((artist): artist is SpotifyArtist => Boolean(artist));
   const mergedArtists = mergeArtists(topArtistMatches, fetchedArtists, publicFetchedArtists, seedArtists);
