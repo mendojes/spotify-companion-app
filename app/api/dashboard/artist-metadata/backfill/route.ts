@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
+import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
+import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
+import { markConnectedUserArtistMetadataBackfillStatus } from "@/lib/connected-users";
 
 export async function POST() {
   const session = await getSession();
@@ -15,10 +18,30 @@ export async function POST() {
 
   try {
     const authorizedSession = await getAuthorizedSession(session);
+    await markConnectedUserArtistMetadataBackfillStatus(
+      authorizedSession.spotifyUserId,
+      "running",
+    ).catch(() => undefined);
     const backfilledCount = await backfillMissingArtistMetadataForUser(
       authorizedSession.spotifyUserId,
       authorizedSession.accessToken,
     );
+
+    invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
+    invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
+
+    await Promise.all([
+      writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined),
+      writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, undefined, undefined, {
+        allowLiveEnrichment: false,
+      }).catch(() => undefined),
+    ]);
+
+    await markConnectedUserArtistMetadataBackfillStatus(
+      authorizedSession.spotifyUserId,
+      "success",
+      { backfilledCount },
+    ).catch(() => undefined);
 
     return NextResponse.json({ status: "success", backfilledCount });
   } catch (error) {
@@ -27,6 +50,11 @@ export async function POST() {
     }
 
     const message = error instanceof Error ? error.message : "Artist metadata backfill failed.";
+    if (session?.spotifyUserId) {
+      await markConnectedUserArtistMetadataBackfillStatus(session.spotifyUserId, "error", {
+        errorMessage: message,
+      }).catch(() => undefined);
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

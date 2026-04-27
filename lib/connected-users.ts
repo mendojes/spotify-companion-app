@@ -27,6 +27,11 @@ export type ConnectedUser = {
   dashboardEnrichmentStartedAt?: string;
   dashboardEnrichmentFinishedAt?: string;
   dashboardEnrichmentError?: string;
+  artistMetadataBackfillStatus?: "idle" | "pending" | "running" | "success" | "error";
+  artistMetadataBackfillStartedAt?: string;
+  artistMetadataBackfillFinishedAt?: string;
+  artistMetadataBackfillError?: string;
+  artistMetadataBackfillCount?: number;
 };
 
 export type CommunityUserProfile = {
@@ -224,6 +229,39 @@ export async function markConnectedUserDashboardEnrichmentStatus(
         dashboardEnrichmentError: options?.errorMessage,
         dashboardEnrichmentStartedAt: status === "running" ? now : undefined,
         dashboardEnrichmentFinishedAt: status === "success" || status === "error" ? now : undefined,
+        updatedAt: now,
+      },
+    },
+  );
+}
+
+export async function markConnectedUserArtistMetadataBackfillStatus(
+  spotifyUserId: string,
+  status: "idle" | "pending" | "running" | "success" | "error",
+  options?: {
+    errorMessage?: string;
+    backfilledCount?: number;
+  },
+) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
+    { spotifyUserId },
+    {
+      $set: {
+        artistMetadataBackfillStatus: status,
+        artistMetadataBackfillError: options?.errorMessage,
+        artistMetadataBackfillCount: options?.backfilledCount,
+        artistMetadataBackfillStartedAt: status === "running" ? now : undefined,
+        artistMetadataBackfillFinishedAt: status === "success" || status === "error" ? now : undefined,
         updatedAt: now,
       },
     },

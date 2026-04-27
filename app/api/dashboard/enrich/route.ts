@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import {
   getConnectedUser,
+  markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
 } from "@/lib/connected-users";
 import { writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
@@ -47,6 +48,18 @@ export async function POST(request: NextRequest) {
       allowLiveEnrichment: false,
     });
     const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
+    if (missingArtistIds.length > 0) {
+      await markConnectedUserArtistMetadataBackfillStatus(
+        authorizedSession.spotifyUserId,
+        "pending",
+      ).catch(() => undefined);
+    } else {
+      await markConnectedUserArtistMetadataBackfillStatus(
+        authorizedSession.spotifyUserId,
+        "idle",
+        { backfilledCount: 0 },
+      ).catch(() => undefined);
+    }
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", { range }).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "total", startedAt);
 

@@ -9,12 +9,16 @@ type DashboardDeepRefreshMonitorProps = {
 };
 
 type EnrichmentStatus = "idle" | "pending" | "running" | "success" | "error";
+type ArtistBackfillStatus = "idle" | "pending" | "running" | "success" | "error";
 
 export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDeepRefreshMonitorProps) {
   const router = useRouter();
   const [status, setStatus] = useState<EnrichmentStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [artistBackfillRunning, setArtistBackfillRunning] = useState(false);
+  const [artistBackfillStatus, setArtistBackfillStatus] = useState<ArtistBackfillStatus>("idle");
+  const [artistBackfillError, setArtistBackfillError] = useState<string | null>(null);
+  const [artistBackfillCount, setArtistBackfillCount] = useState<number | null>(null);
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -33,7 +37,13 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           return;
         }
 
-        const data = await response.json() as { status?: EnrichmentStatus; error?: string | null };
+        const data = await response.json() as {
+          status?: EnrichmentStatus;
+          error?: string | null;
+          artistBackfillStatus?: ArtistBackfillStatus;
+          artistBackfillError?: string | null;
+          artistBackfillCount?: number | null;
+        };
         if (cancelled) {
           return;
         }
@@ -41,6 +51,9 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         const nextStatus = data.status ?? "idle";
         setStatus(nextStatus);
         setError(data.error ?? null);
+        setArtistBackfillStatus(data.artistBackfillStatus ?? "idle");
+        setArtistBackfillError(data.artistBackfillError ?? null);
+        setArtistBackfillCount(typeof data.artistBackfillCount === "number" ? data.artistBackfillCount : null);
 
         const shouldKickoff = shouldStart && !startedRef.current && (nextStatus === "pending" || nextStatus === "idle");
 
@@ -75,12 +88,18 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
             .catch(() => undefined);
         }
 
-        if (nextStatus === "pending" || nextStatus === "running" || shouldKickoff) {
+        if (
+          nextStatus === "pending" ||
+          nextStatus === "running" ||
+          data.artistBackfillStatus === "pending" ||
+          data.artistBackfillStatus === "running" ||
+          shouldKickoff
+        ) {
           timer = window.setTimeout(readStatus, 2500);
           return;
         }
 
-        if (nextStatus === "success") {
+        if (nextStatus === "success" || data.artistBackfillStatus === "success") {
           router.refresh();
         }
       } catch {
@@ -98,7 +117,15 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
     };
   }, [range, router, shouldStart]);
 
-  if (status !== "pending" && status !== "running" && status !== "error" && !artistBackfillRunning) {
+  if (
+    status !== "pending" &&
+    status !== "running" &&
+    status !== "error" &&
+    artistBackfillStatus !== "pending" &&
+    artistBackfillStatus !== "running" &&
+    artistBackfillStatus !== "error" &&
+    !artistBackfillRunning
+  ) {
     return null;
   }
 
@@ -112,8 +139,12 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
     >
       {status === "error"
         ? `Deep dashboard refresh failed, so the page is still using the latest stored cache. ${error ?? ""}`.trim()
-        : artistBackfillRunning
-          ? "Deep dashboard refresh finished its cache rebuild and is now filling missing artist metadata. The page will update automatically when that finishes."
+        : artistBackfillStatus === "error"
+          ? `Artist metadata backfill finished with an error, so some artist images or genres may still be missing. ${artistBackfillError ?? ""}`.trim()
+          : artistBackfillRunning || artistBackfillStatus === "pending" || artistBackfillStatus === "running"
+            ? "Deep dashboard refresh finished its cache rebuild and is now filling missing artist metadata. The page will update automatically when that finishes."
+            : artistBackfillStatus === "success"
+              ? `Artist metadata backfill finished${artistBackfillCount !== null ? ` for ${artistBackfillCount} artists` : ""}. If images are still blank, the current cached sources did not contain recoverable artist artwork.`
           : "Deep dashboard refresh is running in the background. The page will update automatically when the richer cache is ready."}
     </div>
   );
