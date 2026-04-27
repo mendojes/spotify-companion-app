@@ -23,7 +23,7 @@ import {
   DashboardAnalysisEntry,
   DashboardAnalysisHighlight,
 } from "@/lib/types";
-import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
+import { getSpotifyClientCredentialsToken, spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 import { getIgnoredPlaylistIds } from "@/lib/connected-users";
 
 import { getAllPlaylistInsights } from "@/lib/spotify-playlists";
@@ -794,11 +794,19 @@ export async function backfillMissingArtistMetadataForUser(spotifyUserId: string
     )
     : [];
   const fetchedArtistIds = new Set([...topArtistIds, ...fetchedArtists.map((artist) => artist.id)]);
+  const publicFetchedArtists = await fetchArtistsByIdsWithClientCredentials(
+    missingArtistIds.filter((artistId) => !fetchedArtistIds.has(artistId)),
+  );
+  const resolvedArtistIds = new Set([
+    ...topArtistIds,
+    ...fetchedArtists.map((artist) => artist.id),
+    ...publicFetchedArtists.map((artist) => artist.id),
+  ]);
   const seedArtists = missingArtistIds
-    .filter((artistId) => !fetchedArtistIds.has(artistId))
+    .filter((artistId) => !resolvedArtistIds.has(artistId))
     .map((artistId) => seeds.get(artistId))
     .filter((artist): artist is SpotifyArtist => Boolean(artist));
-  const mergedArtists = mergeArtists(topArtistMatches, fetchedArtists, seedArtists);
+  const mergedArtists = mergeArtists(topArtistMatches, fetchedArtists, publicFetchedArtists, seedArtists);
   const enrichedArtists = await backfillArtistGenresFromMusicBrainz(mergedArtists);
 
   if (enrichedArtists.length > 0) {
@@ -908,6 +916,15 @@ async function fetchArtistsByIds(accessToken: string, artistIds: string[]) {
     );
 
     return responses.flatMap((response) => response.artists ?? []);
+  } catch {
+    return [] as SpotifyArtist[];
+  }
+}
+
+async function fetchArtistsByIdsWithClientCredentials(artistIds: string[]) {
+  try {
+    const accessToken = await getSpotifyClientCredentialsToken();
+    return await fetchArtistsByIds(accessToken, artistIds);
   } catch {
     return [] as SpotifyArtist[];
   }
