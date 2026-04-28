@@ -7,7 +7,7 @@ import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { PublicMoodOverview } from "@/components/public-mood-overview";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
-import { getAuthorizedSession, hasSpotifyConnection, isSessionRefreshFailure, requireSession } from "@/lib/auth";
+import { getAuthorizedSession, hasSpotifyConnection, isAdminSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getDashboardOverviewData } from "@/lib/dashboard-overview";
 import { deriveGenreBasedMoodInsights } from "@/lib/moods";
 import { getPlaylistPageDataFromHistory } from "@/lib/spotify-playlists";
@@ -105,6 +105,23 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 function isRetriableMongoError(error: unknown) {
   const message = getErrorMessage(error).toLowerCase();
   return message.includes("27017") || message.includes("timed out") || message.includes("server selection");
@@ -146,14 +163,22 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect("/login");
   }
 
+  if (isAdminSession(session)) {
+    redirect("/admin");
+  }
+
   const { range, topRange, topFrom, topTo, refreshed, refresh_error: refreshErrorFlag, welcome, connect_spotify: connectSpotify } = await searchParams;
 
   if (!hasSpotifyConnection(session)) {
-    const publicInsights = session.spotifyUserId
-      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl, { playlistInsightLimit: 2 }).catch(() => null)
-      : null;
     const publicPlaylistPageData = session.spotifyUserId
       ? await getPlaylistPageDataFromHistory(session.spotifyUserId, "last_listened_desc").catch(() => null)
+      : null;
+    const publicInsights = session.spotifyUserId && !publicPlaylistPageData?.playlists.length
+      ? await withTimeout(
+        getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl, { playlistInsightLimit: 2 }).catch(() => null),
+        2500,
+        null,
+      )
       : null;
     const publicPlaylistSource = publicPlaylistPageData?.playlists.length
       ? publicPlaylistPageData.playlists

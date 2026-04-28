@@ -3,6 +3,11 @@ import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 
 const LOCAL_ACCOUNTS_COLLECTION = "local_accounts";
 const PASSWORD_KEY_LENGTH = 64;
+const ADMIN_ACCOUNT_ID = "local-admin";
+const ADMIN_USERNAME = (process.env.LOCAL_ADMIN_USERNAME ?? process.env.ADMIN_USERNAME ?? "admin").trim().toLowerCase();
+const ADMIN_PASSWORD = process.env.LOCAL_ADMIN_PASSWORD ?? process.env.ADMIN_PASSWORD ?? "admin12345!";
+
+export type LocalAccountRole = "user" | "admin";
 
 export type LocalAccount = {
   id: string;
@@ -12,12 +17,35 @@ export type LocalAccount = {
   passwordHash: string;
   spotifyProfileUrl: string;
   spotifyUserId?: string;
+  role?: LocalAccountRole;
   createdAt: string;
   updatedAt: string;
 };
 
+export type LocalAccountSummary = Pick<LocalAccount, "id" | "username" | "displayName" | "spotifyProfileUrl" | "spotifyUserId" | "createdAt" | "updatedAt" | "role">;
+
 export function normalizeUsername(username: string) {
   return username.trim().toLowerCase();
+}
+
+function buildAdminAccount(): LocalAccount {
+  const now = new Date().toISOString();
+
+  return {
+    id: ADMIN_ACCOUNT_ID,
+    username: ADMIN_USERNAME,
+    displayName: "Administrator",
+    passwordHash: hashPassword(ADMIN_PASSWORD, "local-admin"),
+    spotifyProfileUrl: "https://open.spotify.com/user/admin",
+    spotifyUserId: "admin",
+    role: "admin",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function isAdminAccount(account: Pick<LocalAccount, "role" | "username" | "id"> | null | undefined) {
+  return Boolean(account && (account.role === "admin" || account.id === ADMIN_ACCOUNT_ID || normalizeUsername(account.username) === ADMIN_USERNAME));
 }
 
 export function parseSpotifyProfileInput(value: string) {
@@ -115,6 +143,10 @@ export async function createLocalAccount(input: {
     throw new Error("Username can use letters, numbers, periods, underscores, and hyphens.");
   }
 
+  if (username === ADMIN_USERNAME) {
+    throw new Error("That username is reserved.");
+  }
+
   if (password.length < 8) {
     throw new Error("Password must be at least 8 characters.");
   }
@@ -130,6 +162,7 @@ export async function createLocalAccount(input: {
     passwordHash: hashPassword(password),
     spotifyProfileUrl,
     spotifyUserId,
+    role: "user",
     createdAt: now,
     updatedAt: now,
   };
@@ -151,6 +184,15 @@ export async function createLocalAccount(input: {
 
 export async function authenticateLocalAccount(input: { username: string; password: string }) {
   const username = normalizeUsername(input.username);
+
+  if (username === ADMIN_USERNAME) {
+    if (input.password !== ADMIN_PASSWORD) {
+      throw new Error("Incorrect username or password.");
+    }
+
+    return buildAdminAccount();
+  }
+
   const collection = await getAccountsCollection();
   const account = await collection.findOne({ username });
 
@@ -162,11 +204,43 @@ export async function authenticateLocalAccount(input: { username: string; passwo
 }
 
 export async function getLocalAccountById(id: string) {
+  if (id === ADMIN_ACCOUNT_ID) {
+    return buildAdminAccount();
+  }
+
   const collection = await getAccountsCollection();
   return collection.findOne({ id });
 }
 
 export async function deleteLocalAccount(id: string) {
+  if (id === ADMIN_ACCOUNT_ID) {
+    throw new Error("The admin account cannot be deleted.");
+  }
+
   const collection = await getAccountsCollection();
   await collection.deleteOne({ id });
+}
+
+export async function listLocalAccounts() {
+  if (!hasMongoConfig()) {
+    return [buildAdminAccount()] as LocalAccountSummary[];
+  }
+
+  const collection = await getAccountsCollection();
+  const accounts = await collection
+    .find({})
+    .project<LocalAccountSummary>({
+      id: 1,
+      username: 1,
+      displayName: 1,
+      spotifyProfileUrl: 1,
+      spotifyUserId: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      role: 1,
+    })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  return [buildAdminAccount(), ...accounts];
 }

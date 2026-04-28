@@ -4,7 +4,7 @@ import { DashboardView } from "@/components/dashboard-view";
 import { Hero } from "@/components/hero";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { getSession, hasSpotifyConnection } from "@/lib/auth";
+import { getSession, hasSpotifyConnection, isAdminSession } from "@/lib/auth";
 
 type HomeProps = {
   searchParams: Promise<{ auth_error?: string }>;
@@ -14,15 +14,17 @@ export default async function Home({ searchParams }: HomeProps) {
   const session = await getSession();
   const { auth_error: authError } = await searchParams;
   const spotifyConnected = hasSpotifyConnection(session);
+  const adminSession = isAdminSession(session);
   const navLinks = [
     { href: "#dashboard", label: "Preview", icon: LayoutGrid, show: true },
     {
-      href: session ? "/dashboard" : "/login",
-      label: session ? (spotifyConnected ? "Open dashboard" : "Open limited mode") : "Sign in",
+      href: session ? (adminSession ? "/admin" : "/dashboard") : "/login",
+      label: session ? (adminSession ? "Open admin" : spotifyConnected ? "Open dashboard" : "Open limited mode") : "Sign in",
       icon: Sparkles,
       show: true,
     },
     { href: "/social", label: "Social", icon: Users, show: spotifyConnected },
+    { href: "/admin", label: "Admin", icon: Settings2, show: adminSession },
     { href: "/settings", label: spotifyConnected ? "Settings" : "Account", icon: Settings2, show: Boolean(session) },
     { href: "/api/auth/logout", label: "Log out", icon: Disc3, show: Boolean(session) },
     { href: "/privacy", label: "Privacy", icon: Disc3, show: true },

@@ -16,15 +16,29 @@ function formatDateLabel(value?: string) {
   return formatPstDateTime(value);
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {
   const { playlistId } = await params;
   const session = await requireSession();
 
   if (!hasSpotifyConnection(session)) {
-    const [publicInsights, storedPlaylists, storedDetail] = await Promise.all([
-      session.spotifyUserId
-        ? getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
-        : Promise.resolve(null),
+    const [storedPlaylists, storedDetail] = await Promise.all([
       session.spotifyUserId
         ? getStoredPlaylistLibrary(session.spotifyUserId).catch(() => [] as Awaited<ReturnType<typeof getStoredPlaylistLibrary>>)
         : Promise.resolve([] as Awaited<ReturnType<typeof getStoredPlaylistLibrary>>),
@@ -32,6 +46,13 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
         ? getPlaylistDetailFromHistory(session.spotifyUserId, playlistId).catch(() => null)
         : Promise.resolve(null),
     ]);
+    const publicInsights = session.spotifyUserId && storedPlaylists.length === 0
+      ? await withTimeout(
+        getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null),
+        2500,
+        null,
+      )
+      : null;
     const visiblePlaylistIds = new Set([
       ...(publicInsights?.publicPlaylists ?? []).map((playlist) => playlist.id),
       ...storedPlaylists.map((playlist) => playlist.id),
@@ -41,7 +62,9 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
       notFound();
     }
 
-    const liveDetail = await getPublicSpotifyPlaylistDetail(playlistId).catch(() => null);
+    const liveDetail = storedDetail
+      ? null
+      : await withTimeout(getPublicSpotifyPlaylistDetail(playlistId).catch(() => null), 2500, null);
     const detail = liveDetail ?? storedDetail;
     const usingStoredFallback = !liveDetail && Boolean(storedDetail);
 

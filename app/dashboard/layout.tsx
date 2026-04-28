@@ -3,11 +3,12 @@ import { LogOut, Settings2, Sparkles, Users } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DashboardSectionNav } from "@/components/dashboard-section-nav";
 import { RefreshSnapshotLink } from "@/components/refresh-snapshot-link";
-import { getSession, hasSpotifyConnection } from "@/lib/auth";
+import { getSession, hasSpotifyConnection, isAdminSession } from "@/lib/auth";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   const spotifyConnected = hasSpotifyConnection(session);
+  const adminSession = isAdminSession(session);
 
   return (
     <div className="city-pop-shell relative min-h-screen overflow-hidden pb-10">
@@ -24,6 +25,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 md:justify-end md:gap-3">
             <ThemeToggle />
+            {adminSession ? (
+              <Link href="/admin" className="pixel-chip inline-flex min-h-11 items-center gap-2 px-3 text-xs text-[var(--theme-text)] transition hover:text-[#2d0d46] sm:px-4 sm:text-sm">
+                Admin
+              </Link>
+            ) : null}
             <Link href="/settings" className="pixel-chip inline-flex min-h-11 items-center gap-2 px-3 text-xs text-[var(--theme-text)] transition hover:text-[#2d0d46] sm:px-4 sm:text-sm">
               <Settings2 className="h-4 w-4" /> Settings
             </Link>

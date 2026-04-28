@@ -20,6 +20,23 @@ const sortOptions: Array<{ key: PlaylistSortOption; label: string }> = [
 
 const PLAYLISTS_PER_PAGE = 12;
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 function normalizeSort(sort?: string): PlaylistSortOption {
   if (
     sort === "created_asc" ||
@@ -185,12 +202,16 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
   const requestedPage = normalizePage(page);
 
   if (!spotifyConnected) {
-    const publicInsights = session.spotifyUserId
-      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
-      : null;
     const publicPageData = session.spotifyUserId
       ? await getStoredPlaylistsSection(session.spotifyUserId, selectedSort).catch(() => null)
         ?? await getPlaylistPageDataFromHistory(session.spotifyUserId, selectedSort).catch(() => null)
+      : null;
+    const publicInsights = session.spotifyUserId && !publicPageData?.playlists.length
+      ? await withTimeout(
+        getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null),
+        2500,
+        null,
+      )
       : null;
     const publicPlaylists = publicPageData?.playlists.length
       ? publicPageData.playlists

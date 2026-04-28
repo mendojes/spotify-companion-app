@@ -320,6 +320,24 @@ export async function listActiveConnectedUsers(limit = 25) {
     .toArray();
 }
 
+export async function listAllConnectedUsers(limit = 250) {
+  if (!hasMongoConfig()) {
+    return [] as ConnectedUser[];
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return [] as ConnectedUser[];
+  }
+
+  return db
+    .collection<ConnectedUser>(CONNECTED_USERS_COLLECTION)
+    .find({})
+    .sort({ updatedAt: -1, lastSeenAt: -1 })
+    .limit(limit)
+    .toArray();
+}
+
 export async function listCommunityUsers(limit = 24) {
   const users = await listActiveConnectedUsers(limit);
   return users

@@ -24,6 +24,7 @@ export type AuthSession = {
   accountType: "spotify" | "local";
   userId: string;
   displayName: string;
+  role?: "user" | "admin";
   email?: string;
   imageUrl?: string;
   spotifyUserId?: string;
@@ -194,11 +195,13 @@ export function buildLocalSession(account: {
   email?: string;
   spotifyProfileUrl: string;
   spotifyUserId?: string;
+  role?: "user" | "admin";
 }) {
   return {
     accountType: "local",
     userId: account.id,
     displayName: account.displayName,
+    role: account.role ?? "user",
     email: account.email,
     spotifyProfileUrl: account.spotifyProfileUrl,
     spotifyUserId: account.spotifyUserId ?? deriveSpotifyUserIdFromProfileUrl(account.spotifyProfileUrl),
@@ -302,6 +305,10 @@ export function hasSpotifyConnection(session: AuthSession | null | undefined): s
   );
 }
 
+export function isAdminSession(session: AuthSession | null | undefined) {
+  return Boolean(session?.accountType === "local" && session.role === "admin");
+}
+
 export async function requireSession() {
   const session = await getSession();
 
@@ -325,6 +332,16 @@ export async function requireSpotifySession(returnTo = "/dashboard") {
 
   if (!hasSpotifyConnection(session)) {
     redirect(`/dashboard?connect_spotify=1`);
+  }
+
+  return session;
+}
+
+export async function requireAdminSession() {
+  const session = await requireSession();
+
+  if (!isAdminSession(session)) {
+    redirect("/dashboard");
   }
 
   return session;
