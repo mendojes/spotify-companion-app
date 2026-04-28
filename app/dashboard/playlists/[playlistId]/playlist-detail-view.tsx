@@ -7,6 +7,15 @@ import { deriveGenreBasedMoodInsightsFromSummaries, getMoodDescription, moodColo
 import { PlaylistDetail } from "@/lib/types";
 
 const genreColors = ["#7AF7FF", "#FF8AD8", "#FFD37B", "#8EFFD1", "#8FA2FF"];
+const chartTooltipContentStyle = {
+  background: "var(--chart-tooltip-bg)",
+  borderRadius: 18,
+  border: "1px solid var(--chart-tooltip-border)",
+  color: "var(--theme-title)",
+  boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)",
+};
+const chartTooltipLabelStyle = { color: "var(--theme-title)", fontWeight: 600 };
+const chartTooltipItemStyle = { color: "var(--theme-title)" };
 
 type InsightCard = {
   label: string;
@@ -158,7 +167,9 @@ export function PlaylistDetailView({ detail, mode = "authenticated" }: { detail:
                     </Pie>
                     <Tooltip
                       formatter={(value: number) => [`${value}%`, "Share"]}
-                      contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }}
+                      contentStyle={chartTooltipContentStyle}
+                      labelStyle={chartTooltipLabelStyle}
+                      itemStyle={chartTooltipItemStyle}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -204,7 +215,9 @@ export function PlaylistDetailView({ detail, mode = "authenticated" }: { detail:
                     <Tooltip
                       formatter={(value: number) => [`${value}`, value === 1 ? "Listen" : "Listens"]}
                       labelFormatter={(label) => `Day: ${label}`}
-                      contentStyle={{ background: "var(--chart-tooltip-bg)", borderRadius: 18, border: "1px solid var(--chart-tooltip-border)", color: "var(--theme-title)", boxShadow: "0 12px 32px rgba(57, 18, 98, 0.18)" }}
+                      contentStyle={chartTooltipContentStyle}
+                      labelStyle={chartTooltipLabelStyle}
+                      itemStyle={chartTooltipItemStyle}
                     />
                     <Area type="monotone" dataKey="listens" stroke="#2b9fc3" strokeWidth={3} fill="url(#playlistTimelineFill)" />
                   </AreaChart>
@@ -237,7 +250,9 @@ export function PlaylistDetailView({ detail, mode = "authenticated" }: { detail:
                   </Pie>
                   <Tooltip
                     formatter={(value: number) => [`${value}%`, "Share"]}
-                    contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }}
+                    contentStyle={chartTooltipContentStyle}
+                    labelStyle={chartTooltipLabelStyle}
+                    itemStyle={chartTooltipItemStyle}
                   />
                 </PieChart>
               </ResponsiveContainer>

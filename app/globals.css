@@ -467,6 +467,8 @@ html:not([data-theme="dark"]) textarea::placeholder {
   --theme-badge: rgba(255, 214, 243, 0.9);
   --theme-accent: #ff5ec9;
   --theme-highlight: #7af7ff;
+  --chart-tooltip-bg: rgba(17, 8, 31, 0.94);
+  --chart-tooltip-border: rgba(255, 214, 243, 0.24);
 }
 
 html[data-theme="dark"] body {
