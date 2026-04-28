@@ -43,7 +43,7 @@ export type AuthorizedSession = AuthSession & {
 
 type PersistedAuthSession = Pick<
   AuthSession,
-  "accountType" | "userId" | "displayName" | "email" | "imageUrl" | "spotifyUserId" | "spotifyProfileUrl" | "refreshToken" | "expiresAt"
+  "accountType" | "userId" | "displayName" | "role" | "email" | "imageUrl" | "spotifyUserId" | "spotifyProfileUrl" | "refreshToken" | "expiresAt"
 >;
 
 type SignedEnvelope<T> = {
@@ -142,6 +142,7 @@ function toPersistedSession(session: AuthSession): PersistedAuthSession {
     accountType: session.accountType,
     userId: session.userId,
     displayName: session.displayName,
+    role: session.role,
     email: session.email,
     imageUrl: session.imageUrl,
     spotifyUserId: session.spotifyUserId,
