@@ -1,7 +1,7 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import { spotifyFetch } from "@/lib/spotify";
-import { getIgnoredPlaylistIds } from "@/lib/connected-users";
+import { getIgnoredPlaylistFilterData, shouldIgnoreRecentPlayByRules } from "@/lib/ignored-playlists";
 import {
   SpotifyArtist,
   SpotifyDashboardSnapshot,
@@ -768,25 +768,29 @@ async function getRecentPlaysForTopLists(spotifyUserId: string, range: TopListRa
       playedAt.$lte = window.to;
     }
 
-    const ignoredPlaylistIds = await getIgnoredPlaylistIds(spotifyUserId).catch(() => [] as string[]);
+    const filterData = await getIgnoredPlaylistFilterData(spotifyUserId).catch(() => null);
     const baseQuery: Record<string, unknown> = Object.keys(playedAt).length > 0 ? { spotifyUserId, playedAt } : { spotifyUserId };
-    const query = ignoredPlaylistIds.length > 0
+    const query = filterData && filterData.fullyIgnoredPlaylistIds.size > 0
       ? {
         ...baseQuery,
         $or: [
           { playlistId: { $exists: false } },
           { playlistId: null },
-          { playlistId: { $nin: ignoredPlaylistIds } },
+          { playlistId: { $nin: [...filterData.fullyIgnoredPlaylistIds] } },
         ],
       }
       : baseQuery;
 
-    return db
+    const recentPlays = await db
       .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
       .find(query)
       .sort({ playedAt: -1 })
       .limit(MAX_RECENT_PLAYS_FOR_TOPS)
       .toArray();
+
+    return filterData
+      ? recentPlays.filter((play) => !shouldIgnoreRecentPlayByRules(play, filterData))
+      : recentPlays;
   } catch {
     return [] as StoredRecentPlay[];
   }

@@ -20,6 +20,7 @@ export async function POST(request: Request) {
     .getAll("ignoredPlaylistIds")
     .map((value) => String(value).trim())
     .filter(Boolean);
+  const ignoredPlaylistRules = ignoredPlaylistIds.map((playlistId) => ({ playlistId, mode: "all" as const }));
 
   await Promise.all([
     updateConnectedUserPrivacySettings(session.spotifyUserId, {
@@ -27,10 +28,10 @@ export async function POST(request: Request) {
       shareTopLists: isChecked(formData, "shareTopLists"),
       shareListeningActivity: isChecked(formData, "shareListeningActivity"),
     }),
-    updateConnectedUserIgnoredPlaylists(session.spotifyUserId, ignoredPlaylistIds),
+    updateConnectedUserIgnoredPlaylists(session.spotifyUserId, ignoredPlaylistRules),
   ]);
 
-  await deleteStoredRecentPlaysForIgnoredPlaylists(session.spotifyUserId, ignoredPlaylistIds).catch(() => undefined);
+  await deleteStoredRecentPlaysForIgnoredPlaylists(session.spotifyUserId).catch(() => undefined);
   invalidateDashboardSnapshotCaches(session.spotifyUserId);
   invalidateTopListHistoryCache(session.spotifyUserId);
   invalidateDashboardPlaylistPreviewCache(session.spotifyUserId);

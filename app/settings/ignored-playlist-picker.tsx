@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useDeferredValue, useMemo, useState } from "react";
+import { IgnoredPlaylistMode } from "@/lib/connected-users";
 
 type IgnoredPlaylistPickerItem = {
   id: string;
@@ -12,7 +13,7 @@ type IgnoredPlaylistPickerItem = {
 
 type IgnoredPlaylistPickerProps = {
   playlists: IgnoredPlaylistPickerItem[];
-  initiallyIgnoredPlaylistIds: string[];
+  initialModesByPlaylistId: Record<string, IgnoredPlaylistMode>;
 };
 
 const PAGE_SIZE = 8;
@@ -23,13 +24,13 @@ function normalizeSearchValue(value: string) {
 
 export function IgnoredPlaylistPicker({
   playlists,
-  initiallyIgnoredPlaylistIds,
+  initialModesByPlaylistId,
 }: IgnoredPlaylistPickerProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const normalizedSearchQuery = normalizeSearchValue(deferredSearchQuery);
   const [page, setPage] = useState(1);
-  const initiallyIgnoredSet = useMemo(() => new Set(initiallyIgnoredPlaylistIds), [initiallyIgnoredPlaylistIds]);
+  const [modesByPlaylistId, setModesByPlaylistId] = useState<Record<string, IgnoredPlaylistMode | "none">>(initialModesByPlaylistId);
 
   const filteredPlaylists = useMemo(() => {
     if (!normalizedSearchQuery) {
@@ -42,13 +43,21 @@ export function IgnoredPlaylistPicker({
   const totalPages = Math.max(1, Math.ceil(filteredPlaylists.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const visiblePlaylists = filteredPlaylists.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const selectedRuleEntries = useMemo(
+    () => Object.entries(modesByPlaylistId).filter((entry): entry is [string, IgnoredPlaylistMode] => entry[1] === "all" || entry[1] === "others_only"),
+    [modesByPlaylistId],
+  );
 
   return (
     <section className="desktop-card space-y-4 p-5">
+      {selectedRuleEntries.map(([playlistId, mode]) => (
+        <input key={`${playlistId}:${mode}`} type="hidden" name="ignoredPlaylistRule" value={`${playlistId}:${mode}`} />
+      ))}
+
       <div className="space-y-2">
         <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Ignore specific playlists</p>
         <p className="max-w-3xl text-sm leading-7 text-[var(--theme-body)]">
-          Ignored playlists stop contributing to recent-play-driven analysis. Existing stored plays from these playlists are removed when you save, so this change intentionally rewrites cached dashboard history around that choice.
+          Ignored playlists stop contributing to recent-play-driven analysis. You can ignore every play from a playlist, or only the tracks in that playlist that were added by collaborators instead of the playlist owner.
         </p>
       </div>
 
@@ -69,7 +78,7 @@ export function IgnoredPlaylistPicker({
               />
             </label>
             <div className="rounded-[20px] border-[2px] border-[rgba(44,12,70,0.16)] bg-white/[0.42] px-4 py-3 font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-body)]">
-              {filteredPlaylists.length} playlist{filteredPlaylists.length === 1 ? "" : "s"}
+              {filteredPlaylists.length} playlist{filteredPlaylists.length === 1 ? "" : "s"} · {selectedRuleEntries.length} active
             </div>
           </div>
 
@@ -77,17 +86,10 @@ export function IgnoredPlaylistPicker({
             <>
               <div className="grid gap-3 md:grid-cols-2">
                 {visiblePlaylists.map((playlist) => (
-                  <label
+                  <div
                     key={playlist.id}
-                    className="flex min-h-[7.5rem] cursor-pointer items-start gap-3 rounded-[24px] border-[2px] border-[rgba(44,12,70,0.24)] bg-white/[0.42] px-4 py-3"
+                    className="flex min-h-[7.5rem] items-start gap-3 rounded-[24px] border-[2px] border-[rgba(44,12,70,0.24)] bg-white/[0.42] px-4 py-3"
                   >
-                    <input
-                      type="checkbox"
-                      name="ignoredPlaylistIds"
-                      value={playlist.id}
-                      defaultChecked={initiallyIgnoredSet.has(playlist.id)}
-                      className="mt-1 h-5 w-5 shrink-0 rounded border-[rgba(44,12,70,0.6)] text-[var(--theme-accent)]"
-                    />
                     <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[20px] border border-[rgba(44,12,70,0.18)] bg-white/[0.5]">
                       {playlist.imageUrl ? (
                         <Image
@@ -103,15 +105,43 @@ export function IgnoredPlaylistPicker({
                         </div>
                       )}
                     </div>
-                    <div className="min-w-0 space-y-2">
+                    <div className="min-w-0 flex-1 space-y-2">
                       <p className="font-display text-base uppercase leading-tight tracking-[0.08em] text-[var(--theme-title)] [overflow-wrap:anywhere]">
                         {playlist.name}
                       </p>
                       <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-body)]">
                         {playlist.trackCount} tracks
                       </p>
+                      <label className="block pt-1">
+                        <span className="mb-2 block font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--theme-body)]">
+                          Ignore mode
+                        </span>
+                        <select
+                          value={modesByPlaylistId[playlist.id] ?? "none"}
+                          onChange={(event) => {
+                            const nextMode = event.target.value as IgnoredPlaylistMode | "none";
+                            setModesByPlaylistId((current) => {
+                              if (nextMode === "none") {
+                                const next = { ...current };
+                                delete next[playlist.id];
+                                return next;
+                              }
+
+                              return {
+                                ...current,
+                                [playlist.id]: nextMode,
+                              };
+                            });
+                          }}
+                          className="w-full rounded-[16px] border-[2px] border-[rgba(44,12,70,0.24)] bg-white/[0.76] px-3 py-2 text-sm text-[var(--theme-text)]"
+                        >
+                          <option value="none">Do not ignore</option>
+                          <option value="all">Ignore all plays from this playlist</option>
+                          <option value="others_only">Ignore only tracks added by other users</option>
+                        </select>
+                      </label>
                     </div>
-                  </label>
+                  </div>
                 ))}
               </div>
 

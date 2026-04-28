@@ -34,6 +34,9 @@ export async function POST(_request: Request, context: RouteContext) {
 
   try {
     const result = await syncPlaylistDetail(authorizedSession.accessToken, authorizedSession.spotifyUserId, playlistId);
+    console.log(
+      `[playlist-detail-sync-route] user=${authorizedSession.spotifyUserId} playlist=${playlistId} completed=${result.completed} fetchedCount=${result.fetchedCount} totalTracks=${result.totalTracks} updated=${Boolean(result.detail)}`,
+    );
     if (result.detail) {
       invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
       invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);

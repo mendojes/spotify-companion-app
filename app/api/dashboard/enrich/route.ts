@@ -46,14 +46,20 @@ export async function POST(request: NextRequest) {
 
     const startedAt = Date.now();
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", { range }).catch(() => undefined);
+    const playlistSyncStartedAt = Date.now();
     await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId).catch(() => undefined);
+    logEnrichmentTiming(authorizedSession.spotifyUserId, "playlist-library-sync", playlistSyncStartedAt);
     invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
+    const playlistSectionStartedAt = Date.now();
     await writeStoredPlaylistsSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
+    logEnrichmentTiming(authorizedSession.spotifyUserId, "playlist-section-cache", playlistSectionStartedAt);
+    const overviewStartedAt = Date.now();
     await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, range, {
       allowLiveEnrichment: false,
     });
+    logEnrichmentTiming(authorizedSession.spotifyUserId, "overview-cache", overviewStartedAt);
     const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
     if (missingArtistIds.length > 0) {
       await markConnectedUserArtistMetadataBackfillStatus(

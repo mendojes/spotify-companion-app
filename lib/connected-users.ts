@@ -8,6 +8,13 @@ export type ConnectedUserPrivacySettings = {
   shareListeningActivity: boolean;
 };
 
+export type IgnoredPlaylistMode = "all" | "others_only";
+
+export type IgnoredPlaylistRule = {
+  playlistId: string;
+  mode: IgnoredPlaylistMode;
+};
+
 export type ConnectedUser = {
   spotifyUserId: string;
   displayName: string;
@@ -15,6 +22,7 @@ export type ConnectedUser = {
   imageUrl?: string;
   refreshToken: string;
   privacy?: ConnectedUserPrivacySettings;
+  ignoredPlaylists?: IgnoredPlaylistRule[];
   ignoredPlaylistIds?: string[];
   lastSeenAt: string;
   updatedAt: string;
@@ -47,8 +55,33 @@ export type CommunityUserProfile = {
 const CONNECTED_USERS_COLLECTION = "connected_users";
 const ACTIVE_WINDOW_MS = 1000 * 60 * 60 * 24 * 30;
 
-function normalizeIgnoredPlaylistIds(playlistIds?: string[] | null) {
-  return [...new Set((playlistIds ?? []).map((playlistId) => playlistId.trim()).filter(Boolean))];
+function normalizeIgnoredPlaylistRules(
+  ignoredPlaylists?: IgnoredPlaylistRule[] | null,
+  ignoredPlaylistIds?: string[] | null,
+) {
+  const normalizedRules = new Map<string, IgnoredPlaylistRule>();
+
+  (ignoredPlaylists ?? []).forEach((rule) => {
+    const playlistId = rule?.playlistId?.trim();
+    const mode = rule?.mode === "others_only" ? "others_only" : "all";
+
+    if (!playlistId) {
+      return;
+    }
+
+    normalizedRules.set(playlistId, { playlistId, mode });
+  });
+
+  (ignoredPlaylistIds ?? []).forEach((playlistId) => {
+    const normalizedPlaylistId = playlistId.trim();
+    if (!normalizedPlaylistId || normalizedRules.has(normalizedPlaylistId)) {
+      return;
+    }
+
+    normalizedRules.set(normalizedPlaylistId, { playlistId: normalizedPlaylistId, mode: "all" });
+  });
+
+  return [...normalizedRules.values()];
 }
 
 function ignoredPlaylistsCacheKey(spotifyUserId: string) {
@@ -333,19 +366,19 @@ export async function getConnectedUser(spotifyUserId: string) {
     ? {
       ...user,
       privacy: normalizePrivacySettings(user.privacy),
-      ignoredPlaylistIds: normalizeIgnoredPlaylistIds(user.ignoredPlaylistIds),
+      ignoredPlaylists: normalizeIgnoredPlaylistRules(user.ignoredPlaylists, user.ignoredPlaylistIds),
     }
     : null;
 }
 
-export async function getIgnoredPlaylistIds(spotifyUserId: string) {
+export async function getIgnoredPlaylistRules(spotifyUserId: string) {
   if (!hasMongoConfig()) {
-    return [] as string[];
+    return [] as IgnoredPlaylistRule[];
   }
 
   return getCachedValue(ignoredPlaylistsCacheKey(spotifyUserId), 1000 * 30, async () => {
     const user = await getConnectedUser(spotifyUserId);
-    return normalizeIgnoredPlaylistIds(user?.ignoredPlaylistIds);
+    return normalizeIgnoredPlaylistRules(user?.ignoredPlaylists, user?.ignoredPlaylistIds);
   });
 }
 
@@ -393,16 +426,16 @@ export async function updateConnectedUserPrivacySettings(
   return nextPrivacy;
 }
 
-export async function updateConnectedUserIgnoredPlaylists(spotifyUserId: string, playlistIds: string[]) {
-  const nextIgnoredPlaylistIds = normalizeIgnoredPlaylistIds(playlistIds);
+export async function updateConnectedUserIgnoredPlaylists(spotifyUserId: string, ignoredPlaylists: IgnoredPlaylistRule[]) {
+  const nextIgnoredPlaylists = normalizeIgnoredPlaylistRules(ignoredPlaylists);
 
   if (!hasMongoConfig()) {
-    return nextIgnoredPlaylistIds;
+    return nextIgnoredPlaylists;
   }
 
   const db = await getDatabase({ forceRetry: true });
   if (!db) {
-    return nextIgnoredPlaylistIds;
+    return nextIgnoredPlaylists;
   }
 
   const now = new Date().toISOString();
@@ -410,7 +443,8 @@ export async function updateConnectedUserIgnoredPlaylists(spotifyUserId: string,
     { spotifyUserId },
     {
       $set: {
-        ignoredPlaylistIds: nextIgnoredPlaylistIds,
+        ignoredPlaylists: nextIgnoredPlaylists,
+        ignoredPlaylistIds: nextIgnoredPlaylists.filter((rule) => rule.mode === "all").map((rule) => rule.playlistId),
         updatedAt: now,
       },
       $setOnInsert: {
@@ -425,5 +459,5 @@ export async function updateConnectedUserIgnoredPlaylists(spotifyUserId: string,
   );
 
   invalidateIgnoredPlaylistIdsCache(spotifyUserId);
-  return nextIgnoredPlaylistIds;
+  return nextIgnoredPlaylists;
 }

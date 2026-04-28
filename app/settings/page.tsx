@@ -70,7 +70,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   const connectedUser = await getConnectedUser(session.spotifyUserId);
   const privacy = connectedUser?.privacy ?? getDefaultPrivacySettings();
-  const ignoredPlaylistIds = new Set(connectedUser?.ignoredPlaylistIds ?? []);
+  const initialModesByPlaylistId = Object.fromEntries(
+    (connectedUser?.ignoredPlaylists ?? []).map((rule) => [rule.playlistId, rule.mode]),
+  );
   const storedPlaylists = (await getStoredPlaylistLibrary(session.spotifyUserId))
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -135,7 +137,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               imageUrl: playlist.images?.[0]?.url,
               trackCount: playlist.tracks.total,
             }))}
-            initiallyIgnoredPlaylistIds={[...ignoredPlaylistIds]}
+            initialModesByPlaylistId={initialModesByPlaylistId}
           />
 
           <div className="flex flex-wrap gap-3">

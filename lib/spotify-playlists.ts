@@ -47,8 +47,15 @@ const DASHBOARD_PLAYLIST_PREVIEW_TTL_MS = 1000 * 30;
 const lastGoodPlaylistInsights = new Map<string, PlaylistInsight[]>();
 const publicPlaylistHtmlCache = new Map<string, string | null>();
 
+function logPlaylistTiming(spotifyUserId: string, playlistId: string | undefined, step: string, startedAt: number, extra?: string) {
+  const playlistLabel = playlistId ?? "unknown";
+  const suffix = extra ? ` ${extra}` : "";
+  console.log(`[playlist-cache] user=${spotifyUserId} playlist=${playlistLabel} step=${step} elapsedMs=${Date.now() - startedAt}${suffix}`);
+}
+
 type PlaylistTrackWithMeta = {
   addedAt?: string;
+  addedById?: string;
   track: SpotifyTrack;
 };
 
@@ -74,6 +81,7 @@ type StoredPlaylistTrackCacheItem = {
   playlistId: string;
   position: number;
   addedAt?: string;
+  addedById?: string;
   track: SpotifyTrack;
   updatedAt: string;
 };
@@ -148,7 +156,12 @@ function normalizePlaylist(playlist: Partial<SpotifyPlaylist> | null | undefined
       total: trackTotal,
       href: trackHref,
     },
-    owner: playlist.owner?.display_name ? { display_name: playlist.owner.display_name } : undefined,
+    owner: playlist.owner?.display_name || playlist.owner?.id
+      ? {
+        id: playlist.owner?.id,
+        display_name: playlist.owner?.display_name,
+      }
+      : undefined,
   };
 }
 
@@ -557,7 +570,11 @@ async function getStoredPlaylistTrackItems(spotifyUserId: string, playlistId: st
       .toArray();
 
     return records
-      .map((record): PlaylistTrackWithMeta | null => (isUsablePlaylistTrack(record.track) ? { addedAt: record.addedAt, track: record.track } : null))
+      .map((record): PlaylistTrackWithMeta | null => (
+        isUsablePlaylistTrack(record.track)
+          ? { addedAt: record.addedAt, addedById: record.addedById, track: record.track }
+          : null
+      ))
       .filter((record): record is PlaylistTrackWithMeta => Boolean(record));
   } catch {
     return [] as PlaylistTrackWithMeta[];
@@ -595,6 +612,7 @@ async function writeStoredPlaylistTrackPage(
                 playlistId,
                 position: offset + index,
                 addedAt: item.addedAt,
+                addedById: item.addedById,
                 track: item.track,
                 updatedAt,
               },
@@ -915,6 +933,7 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
 
         return {
           addedAt: item.added_at,
+          addedById: item.added_by?.id,
           track,
         };
       })
@@ -979,6 +998,7 @@ async function syncPlaylistTrackCache(
 
           return {
             addedAt: item.added_at,
+            addedById: item.added_by?.id,
             track,
           };
         })
@@ -2118,6 +2138,7 @@ export async function getPlaylistPageDataFromHistory(
 }
 
 export async function getPlaylistDetailFromHistory(spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {
+  const startedAt = Date.now();
   const [storedLibrary, cachedDetails, recentPlays, storedTrackItems, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
     getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
     getCachedPlaylistDetails(spotifyUserId, [playlistId]).catch(() => [] as CachedPlaylistDetail[]),
@@ -2129,6 +2150,7 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
 
   const cached = cachedDetails[0];
   if (cached && !isPlaylistDetailIncomplete(cached)) {
+    logPlaylistTiming(spotifyUserId, playlistId, "history-complete-cached-detail", startedAt, `tracks=${cached.trackCount}`);
     return cached;
   }
 
@@ -2145,10 +2167,24 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
 
       if (recoveredDetail) {
         await writeCachedPlaylistDetails(spotifyUserId, [recoveredDetail]);
+        logPlaylistTiming(
+          spotifyUserId,
+          playlistId,
+          "history-recovered-from-stored-tracks",
+          startedAt,
+          `storedTracks=${storedTrackItems.length} uniqueArtists=${recoveredDetail.uniqueArtistCount}`,
+        );
         return recoveredDetail;
       }
     }
 
+    logPlaylistTiming(
+      spotifyUserId,
+      playlistId,
+      "history-thin-stored-playlist-fallback",
+      startedAt,
+      `storedTracks=${storedTrackItems.length} libraryTracks=${storedPlaylist.tracks?.total ?? 0}`,
+    );
     return {
       ...toBasicInsight(storedPlaylist, recentPlays),
       id: storedPlaylist.id,
@@ -2167,9 +2203,11 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
   }
 
   if (cached) {
+    logPlaylistTiming(spotifyUserId, playlistId, "history-incomplete-cached-detail-fallback", startedAt, `tracks=${cached.trackCount}`);
     return cached;
   }
 
+  logPlaylistTiming(spotifyUserId, playlistId, "history-miss", startedAt);
   return null;
 }
 
@@ -2265,27 +2303,39 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
 }
 
 export async function syncPlaylistDetail(accessToken: string, spotifyUserId: string, playlistId: string) {
+  const startedAt = Date.now();
   const [recentPlays, storedInsights, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
     getRecentHistory(accessToken, spotifyUserId),
     getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
     getAllTimeTrackAffinityMap(spotifyUserId),
     getAllTimeArtistGenreMap(spotifyUserId),
   ]);
+  logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-recent-history", startedAt, `recentPlays=${recentPlays.length}`);
 
   const playlist = await fetchPlaylistById(accessToken, playlistId);
   await upsertStoredPlaylist(spotifyUserId, playlist);
+  logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-fetched-playlist", startedAt, `playlistTracks=${playlist.tracks?.total ?? 0}`);
 
   const isLargePlaylist = (playlist.tracks?.total ?? 0) >= PLAYLIST_LARGE_SYNC_THRESHOLD;
   const syncState = isLargePlaylist
     ? await syncPlaylistTrackCache(accessToken, spotifyUserId, playlist, { maxPages: PLAYLIST_LARGE_SYNC_PAGES_PER_REQUEST })
     : { completed: true, fetchedCount: playlist.tracks?.total ?? 0, nextOffset: 0, totalTracks: playlist.tracks?.total ?? 0 };
+  logPlaylistTiming(
+    spotifyUserId,
+    playlistId,
+    "detail-sync-track-source",
+    startedAt,
+    `large=${isLargePlaylist} fetchedCount=${syncState.fetchedCount} total=${syncState.totalTracks ?? 0} completed=${syncState.completed}`,
+  );
 
   const trackItems = isLargePlaylist
     ? await getStoredPlaylistTrackItems(spotifyUserId, playlist.id)
     : await fetchPlaylistTrackItems(accessToken, playlist.id);
+  logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-track-items", startedAt, `count=${trackItems.length}`);
 
   if (!isLargePlaylist && trackItems.length > 0) {
     await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlist.id, trackItems, playlist.tracks?.total ?? trackItems.length);
+    logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-wrote-track-snapshot", startedAt, `count=${trackItems.length}`);
   }
 
   const detail = await analyzePlaylistFromTrackItems(
@@ -2295,6 +2345,13 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
     allTimeTrackAffinity,
     allTimeArtistGenres,
     accessToken,
+  );
+  logPlaylistTiming(
+    spotifyUserId,
+    playlistId,
+    "detail-sync-analyzed",
+    startedAt,
+    detail ? `updated=true uniqueArtists=${detail.uniqueArtistCount} uniqueAlbums=${detail.uniqueAlbumCount}` : "updated=false",
   );
 
   if (detail) {
@@ -2312,12 +2369,47 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
     }
   }
 
+  logPlaylistTiming(
+    spotifyUserId,
+    playlistId,
+    "detail-sync-total",
+    startedAt,
+    `updated=${Boolean(detail)} completed=${syncState.completed}`,
+  );
+
   return {
     detail,
     completed: syncState.completed,
     fetchedCount: syncState.fetchedCount,
     totalTracks: syncState.totalTracks,
   };
+}
+
+export async function primeIgnoredPlaylistTrackCaches(
+  accessToken: string,
+  spotifyUserId: string,
+  playlistIds: string[],
+) {
+  const uniquePlaylistIds = [...new Set(playlistIds.filter(Boolean))].slice(0, 20);
+
+  for (const playlistId of uniquePlaylistIds) {
+    try {
+      const playlist = await fetchPlaylistById(accessToken, playlistId);
+      await upsertStoredPlaylist(spotifyUserId, playlist);
+
+      if ((playlist.tracks?.total ?? 0) >= PLAYLIST_LARGE_SYNC_THRESHOLD) {
+        await syncPlaylistTrackCache(accessToken, spotifyUserId, playlist, { maxPages: PLAYLIST_LARGE_SYNC_PAGES_PER_REQUEST });
+        continue;
+      }
+
+      const trackItems = await fetchPlaylistTrackItems(accessToken, playlistId);
+      if (trackItems.length > 0) {
+        await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlistId, trackItems, playlist.tracks?.total ?? trackItems.length);
+      }
+    } catch {
+      continue;
+    }
+  }
 }
 
 export function invalidatePlaylistInsightsCache(spotifyUserId: string) {

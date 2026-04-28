@@ -1,7 +1,7 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 import { getCachedValue } from "@/lib/runtime-cache";
-import { getIgnoredPlaylistIds } from "@/lib/connected-users";
+import { getIgnoredPlaylistFilterData, shouldIgnoreRecentPlayByRules } from "@/lib/ignored-playlists";
 import {
   NowPlayingState,
   SpotifyCurrentlyPlayingResponse,
@@ -46,24 +46,27 @@ export function getPlaylistIdFromContext(context?: SpotifyPlaybackContext | null
   return undefined;
 }
 
-function shouldIgnorePlaylist(playlistId: string | undefined, ignoredPlaylistIds: string[]) {
-  return Boolean(playlistId && ignoredPlaylistIds.includes(playlistId));
-}
+async function filterStoredRecentPlaysByIgnoredPlaylists(spotifyUserId: string, recentPlays: StoredRecentPlay[]) {
+  const filterData = await getIgnoredPlaylistFilterData(spotifyUserId).catch(() => null);
 
-function filterStoredRecentPlaysByIgnoredPlaylists(recentPlays: StoredRecentPlay[], ignoredPlaylistIds: string[]) {
-  if (ignoredPlaylistIds.length === 0) {
+  if (!filterData || filterData.rules.length === 0) {
     return recentPlays;
   }
 
-  return recentPlays.filter((play) => !shouldIgnorePlaylist(play.playlistId, ignoredPlaylistIds));
+  return recentPlays.filter((play) => !shouldIgnoreRecentPlayByRules(play, filterData));
 }
 
-function filterRecentPlayedItemsByIgnoredPlaylists(recentItems: SpotifyRecentlyPlayedItem[], ignoredPlaylistIds: string[]) {
-  if (ignoredPlaylistIds.length === 0) {
+async function filterRecentPlayedItemsByIgnoredPlaylists(spotifyUserId: string, recentItems: SpotifyRecentlyPlayedItem[]) {
+  const filterData = await getIgnoredPlaylistFilterData(spotifyUserId).catch(() => null);
+
+  if (!filterData || filterData.rules.length === 0) {
     return recentItems;
   }
 
-  return recentItems.filter((item) => !shouldIgnorePlaylist(getPlaylistIdFromContext(item.context), ignoredPlaylistIds));
+  return recentItems.filter((item) => !shouldIgnoreRecentPlayByRules({
+    playlistId: getPlaylistIdFromContext(item.context),
+    trackId: item.track.id,
+  }, filterData));
 }
 
 export async function getPlayingFrom(accessToken: string, response: SpotifyCurrentlyPlayingResponse) {
@@ -227,12 +230,12 @@ async function getLatestStoredRecentPlay(spotifyUserId: string) {
 
 export async function syncRecentPlays(accessToken: string, spotifyUserId: string, options?: { fullBackfill?: boolean }) {
   const latestStoredRecent = options?.fullBackfill ? null : await getLatestStoredRecentPlay(spotifyUserId).catch(() => null);
-  const ignoredPlaylistIds = await getIgnoredPlaylistIds(spotifyUserId).catch(() => [] as string[]);
   const recentItems = await fetchRecentPlayHistory(accessToken, {
     stopAfterPlayedAt: latestStoredRecent?.playedAt,
     fullBackfill: options?.fullBackfill,
   });
-  const recentPlays = filterRecentPlayedItemsByIgnoredPlaylists(recentItems, ignoredPlaylistIds).map((item) => toStoredRecentPlay(spotifyUserId, item));
+  const filteredRecentItems = await filterRecentPlayedItemsByIgnoredPlaylists(spotifyUserId, recentItems);
+  const recentPlays = filteredRecentItems.map((item) => toStoredRecentPlay(spotifyUserId, item));
 
   if (!hasMongoConfig()) {
     return recentPlays;
@@ -361,16 +364,16 @@ export async function getStoredRecentPlaysPage(
     };
   }
 
-  const ignoredPlaylistIds = await getIgnoredPlaylistIds(spotifyUserId).catch(() => [] as string[]);
+  const filterData = await getIgnoredPlaylistFilterData(spotifyUserId).catch(() => null);
   const filter: Record<string, unknown> = { spotifyUserId };
   if (options?.beforePlayedAt) {
     filter.playedAt = { $lt: options.beforePlayedAt };
   }
-  if (ignoredPlaylistIds.length > 0) {
+  if (filterData && filterData.fullyIgnoredPlaylistIds.size > 0) {
     filter.$or = [
       { playlistId: { $exists: false } },
       { playlistId: null },
-      { playlistId: { $nin: ignoredPlaylistIds } },
+      { playlistId: { $nin: [...filterData.fullyIgnoredPlaylistIds] } },
     ];
   }
 
@@ -384,8 +387,12 @@ export async function getStoredRecentPlaysPage(
   const hasMore = recentPlays.length > limit;
   const visibleRecentPlays = hasMore ? recentPlays.slice(0, limit) : recentPlays;
 
+  const filteredRecentPlays = filterData
+    ? visibleRecentPlays.filter((play) => !shouldIgnoreRecentPlayByRules(play, filterData))
+    : visibleRecentPlays;
+
   return {
-    recentPlays: visibleRecentPlays,
+    recentPlays: filteredRecentPlays,
     nextCursor: hasMore ? visibleRecentPlays[visibleRecentPlays.length - 1]?.playedAt ?? null : null,
   };
 }
@@ -400,8 +407,6 @@ export async function getStoredRecentPlays(spotifyUserId: string, limit = RECENT
     return [] as StoredRecentPlay[];
   }
 
-  const ignoredPlaylistIds = await getIgnoredPlaylistIds(spotifyUserId).catch(() => [] as string[]);
-
   const recentPlays = await db
     .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
     .find({ spotifyUserId })
@@ -409,13 +414,13 @@ export async function getStoredRecentPlays(spotifyUserId: string, limit = RECENT
     .limit(limit)
     .toArray();
 
-  return filterStoredRecentPlaysByIgnoredPlaylists(recentPlays, ignoredPlaylistIds);
+  return filterStoredRecentPlaysByIgnoredPlaylists(spotifyUserId, recentPlays);
 }
 
-export async function deleteStoredRecentPlaysForIgnoredPlaylists(spotifyUserId: string, ignoredPlaylistIds: string[]) {
-  const nextIgnoredPlaylistIds = [...new Set(ignoredPlaylistIds.filter(Boolean))];
+export async function deleteStoredRecentPlaysForIgnoredPlaylists(spotifyUserId: string) {
+  const filterData = await getIgnoredPlaylistFilterData(spotifyUserId).catch(() => null);
 
-  if (!hasMongoConfig() || nextIgnoredPlaylistIds.length === 0) {
+  if (!hasMongoConfig() || !filterData || filterData.rules.length === 0) {
     return;
   }
 
@@ -424,10 +429,23 @@ export async function deleteStoredRecentPlaysForIgnoredPlaylists(spotifyUserId: 
     return;
   }
 
-  await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).deleteMany({
-    spotifyUserId,
-    playlistId: { $in: nextIgnoredPlaylistIds },
-  });
+  if (filterData.fullyIgnoredPlaylistIds.size > 0) {
+    await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).deleteMany({
+      spotifyUserId,
+      playlistId: { $in: [...filterData.fullyIgnoredPlaylistIds] },
+    });
+  }
+
+  const collaborativeDeletes = [...filterData.ignoredTrackIdsByPlaylist.entries()].map(([playlistId, trackIds]) =>
+    db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).deleteMany({
+      spotifyUserId,
+      playlistId,
+      trackId: { $in: [...trackIds] },
+    }));
+
+  if (collaborativeDeletes.length > 0) {
+    await Promise.all(collaborativeDeletes);
+  }
 }
 
 export async function getNowPlaying(accessToken: string): Promise<NowPlayingState> {
