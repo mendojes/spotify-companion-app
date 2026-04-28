@@ -2,6 +2,7 @@ import { getCurrentPlaybackSource, getStoredRecentPlays, syncRecentPlays } from 
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+import { deriveGenreBasedMoodInsightsFromSummaries } from "@/lib/moods";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import {
   PlaylistArtistSummary,
@@ -1813,6 +1814,11 @@ function playlistFromPlaybackSource(
   };
 }
 
+function getPrimaryMoodLabel(detail: Pick<PlaylistDetail, "topGenres">) {
+  const moodInsights = deriveGenreBasedMoodInsightsFromSummaries(detail.topGenres);
+  return [...moodInsights.moodData].sort((a, b) => b.share - a.share)[0]?.mood ?? "Bright Pulse";
+}
+
 export async function getPublicPlaylistInsights(accessToken: string, playlists: SpotifyPlaylist[], limit = DASHBOARD_PLAYLIST_COUNT): Promise<PlaylistInsight[]> {
   if (playlists.length === 0) {
     return [] as PlaylistInsight[];
@@ -1823,6 +1829,7 @@ export async function getPublicPlaylistInsights(accessToken: string, playlists: 
   if (details.length > 0) {
     return uniqueById(details.map((detail) => ({
       ...toInsight(detail, []),
+      mood: getPrimaryMoodLabel(detail),
       listeningCadence: "Public playlist snapshot only",
       lastListenedAt: undefined,
     })));
@@ -1842,6 +1849,7 @@ export async function getPublicPlaylistDetail(accessToken: string, playlistId: s
     if (detail) {
       return {
         ...detail,
+        mood: getPrimaryMoodLabel(detail),
         listeningCadence: "Public playlist snapshot only",
         lastListenedAt: undefined,
         listenTimeline: [],

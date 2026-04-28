@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const account = await authenticateLocalAccount({
-      email: String(formData.get("email") ?? ""),
+      username: String(formData.get("username") ?? ""),
       password: String(formData.get("password") ?? ""),
     });
 

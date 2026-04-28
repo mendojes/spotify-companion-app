@@ -176,7 +176,7 @@ export function buildSession(
 export function buildLocalSession(account: {
   id: string;
   displayName: string;
-  email: string;
+  email?: string;
   spotifyProfileUrl: string;
   spotifyUserId?: string;
 }) {

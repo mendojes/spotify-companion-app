@@ -5,7 +5,7 @@ import { useState } from "react";
 function InputField(props: {
   label: string;
   name: string;
-  type?: "text" | "email" | "password" | "url";
+  type?: "text" | "password" | "url";
   required?: boolean;
   minLength?: number;
   placeholder?: string;
@@ -52,7 +52,7 @@ export function LocalAccountAccess({
               <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">Use your Listening Lore account to open the public-profile dashboard experience.</p>
             </div>
             {!enabled ? <p className="text-sm leading-7 text-[var(--theme-body)]">Local login needs MongoDB configured first.</p> : null}
-            <InputField label="Email" name="email" type="email" required />
+            <InputField label="Username" name="username" required />
             <InputField label="Password" name="password" type="password" required />
             <button
               type="submit"
@@ -69,8 +69,7 @@ export function LocalAccountAccess({
               <p className="mt-2 text-sm leading-7 text-[var(--theme-body)]">Paste your public Spotify profile link and Listening Lore will build the public-data dashboard around it.</p>
             </div>
             {!enabled ? <p className="text-sm leading-7 text-[var(--theme-body)]">Account creation needs MongoDB configured first.</p> : null}
-            <InputField label="Display name" name="displayName" required />
-            <InputField label="Email" name="email" type="email" required />
+            <InputField label="Username" name="username" required placeholder="yourname" />
             <InputField label="Password" name="password" type="password" minLength={8} required />
             <InputField
               label="Spotify profile link"

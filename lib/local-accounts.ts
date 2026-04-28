@@ -6,8 +6,9 @@ const PASSWORD_KEY_LENGTH = 64;
 
 export type LocalAccount = {
   id: string;
+  username: string;
   displayName: string;
-  email: string;
+  email?: string;
   passwordHash: string;
   spotifyProfileUrl: string;
   spotifyUserId?: string;
@@ -15,8 +16,8 @@ export type LocalAccount = {
   updatedAt: string;
 };
 
-export function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
+export function normalizeUsername(username: string) {
+  return username.trim().toLowerCase();
 }
 
 export function parseSpotifyProfileInput(value: string) {
@@ -94,26 +95,24 @@ async function getAccountsCollection() {
   }
 
   const collection = db.collection<LocalAccount>(LOCAL_ACCOUNTS_COLLECTION);
-  await collection.createIndex({ email: 1 }, { unique: true });
+  await collection.createIndex({ username: 1 }, { unique: true });
   return collection;
 }
 
 export async function createLocalAccount(input: {
-  displayName: string;
-  email: string;
+  username: string;
   password: string;
   spotifyProfileInput: string;
 }) {
-  const displayName = input.displayName.trim();
-  const email = normalizeEmail(input.email);
+  const username = normalizeUsername(input.username);
   const password = input.password.trim();
 
-  if (displayName.length < 2) {
-    throw new Error("Display name must be at least 2 characters.");
+  if (username.length < 3) {
+    throw new Error("Username must be at least 3 characters.");
   }
 
-  if (!email || !email.includes("@")) {
-    throw new Error("Enter a valid email address.");
+  if (!/^[a-z0-9._-]+$/.test(username)) {
+    throw new Error("Username can use letters, numbers, periods, underscores, and hyphens.");
   }
 
   if (password.length < 8) {
@@ -126,8 +125,8 @@ export async function createLocalAccount(input: {
 
   const account: LocalAccount = {
     id: crypto.randomUUID(),
-    displayName,
-    email,
+    username,
+    displayName: input.username.trim(),
     passwordHash: hashPassword(password),
     spotifyProfileUrl,
     spotifyUserId,
@@ -141,7 +140,7 @@ export async function createLocalAccount(input: {
     const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
 
     if (message.includes("duplicate")) {
-      throw new Error("An account with that email already exists.");
+      throw new Error("An account with that username already exists.");
     }
 
     throw error;
@@ -150,13 +149,13 @@ export async function createLocalAccount(input: {
   return account;
 }
 
-export async function authenticateLocalAccount(input: { email: string; password: string }) {
-  const email = normalizeEmail(input.email);
+export async function authenticateLocalAccount(input: { username: string; password: string }) {
+  const username = normalizeUsername(input.username);
   const collection = await getAccountsCollection();
-  const account = await collection.findOne({ email });
+  const account = await collection.findOne({ username });
 
   if (!account || !verifyPassword(input.password, account.passwordHash)) {
-    throw new Error("Incorrect email or password.");
+    throw new Error("Incorrect username or password.");
   }
 
   return account;

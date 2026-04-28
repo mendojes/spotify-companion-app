@@ -8,8 +8,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const account = await createLocalAccount({
-      displayName: String(formData.get("displayName") ?? ""),
-      email: String(formData.get("email") ?? ""),
+      username: String(formData.get("username") ?? ""),
       password: String(formData.get("password") ?? ""),
       spotifyProfileInput: String(formData.get("spotifyProfileUrl") ?? ""),
     });

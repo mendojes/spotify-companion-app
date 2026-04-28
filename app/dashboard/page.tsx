@@ -153,7 +153,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               </p>
               <div className="mt-6 space-y-3 rounded-[28px] border-[3px] border-[rgba(44,12,70,0.18)] bg-white/[0.42] p-5">
                 <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{session.displayName}</p>
-                <p className="text-sm text-[var(--theme-body)]">{session.email}</p>
                 <p className="text-sm leading-7 text-[var(--theme-body)]">
                   Public profile link:{" "}
                   {session.spotifyProfileUrl ? (

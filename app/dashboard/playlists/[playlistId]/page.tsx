@@ -79,10 +79,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             </div>
           </div>
 
-          <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-            This analysis comes from the public playlist page only, so private listening history, last-listened timing, and album-level stats are intentionally left out here.
-          </div>
-
           <PlaylistDetailView detail={detail} mode="public" />
         </div>
       </main>

@@ -54,7 +54,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </p>
             <div className="mt-6 space-y-3 rounded-[28px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/[0.48] p-5">
               <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{session.displayName}</p>
-              <p className="text-sm text-[var(--theme-body)]">{session.email}</p>
               <p className="text-sm leading-7 text-[var(--theme-body)]">Saved Spotify profile link: {session.spotifyProfileUrl ?? "Not available"}</p>
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
