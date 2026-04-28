@@ -1,7 +1,7 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { applyAuthEventCookie, applyClearedSessionCookies, getSession, hasSpotifyConnection } from "@/lib/auth";
 import { deleteSpotifyUserData } from "@/lib/account-data";
-import { deleteLocalAccount } from "@/lib/local-accounts";
+import { deleteLocalAccount, getLocalAccountById } from "@/lib/local-accounts";
 import { getAppUrl } from "@/lib/spotify";
 
 export async function POST(request: NextRequest) {
@@ -11,6 +11,12 @@ export async function POST(request: NextRequest) {
     if (hasSpotifyConnection(session)) {
       await deleteSpotifyUserData(session.spotifyUserId);
     } else {
+      const localAccount = await getLocalAccountById(session.userId).catch(() => null);
+
+      if (localAccount?.spotifyUserId) {
+        await deleteSpotifyUserData(localAccount.spotifyUserId).catch(() => undefined);
+      }
+
       await deleteLocalAccount(session.userId).catch(() => undefined);
     }
   }
