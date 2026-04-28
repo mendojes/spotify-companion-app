@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { DashboardDeepRefreshMonitor } from "@/components/dashboard-deep-refresh-monitor";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
+import { PublicMoodOverview } from "@/components/public-mood-overview";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { getAuthorizedSession, hasSpotifyConnection, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getDashboardOverviewData } from "@/lib/dashboard-overview";
@@ -307,6 +308,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     ) : null}
                   </div>
                 </div>
+
+                <PublicMoodOverview
+                  moodData={publicInsights.moodData}
+                  moodHeatmap={publicInsights.moodHeatmap}
+                  moodSource={publicInsights.moodSource}
+                />
               </div>
             ) : (
               <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">

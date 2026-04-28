@@ -1,7 +1,8 @@
 import { getCachedValue } from "@/lib/runtime-cache";
+import { deriveGenreBasedMoodInsights } from "@/lib/moods";
 import { getPublicPlaylistDetail, getPublicPlaylistInsights } from "@/lib/spotify-playlists";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
-import { PlaylistInsight, SpotifyPlaylist, SpotifyPlaylistsResponse } from "@/lib/types";
+import { MoodHeatmapCell, MoodPoint, PlaylistInsight, SpotifyPlaylist, SpotifyPlaylistsResponse } from "@/lib/types";
 
 export type PublicProfileArtist = {
   id: string;
@@ -18,6 +19,9 @@ export type PublicSpotifyProfileInsights = {
   publicPlaylistCount: number;
   publicPlaylists: SpotifyPlaylist[];
   playlistInsights: PlaylistInsight[];
+  moodData: MoodPoint[];
+  moodHeatmap: MoodHeatmapCell[];
+  moodSource: string;
   recentArtists: PublicProfileArtist[];
   recentArtistsVisible: boolean;
   fetchedAt: string;
@@ -226,6 +230,22 @@ async function scrapePublicPlaylistsFromProfile(profileUrl: string, accessToken:
   return playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
 }
 
+function extractGenreSeedsFromPlaylistInsights(playlistInsights: PlaylistInsight[]) {
+  return playlistInsights.flatMap((playlist) => {
+    const summary = playlist.topGenresSummary?.trim();
+
+    if (!summary) {
+      return [] as string[];
+    }
+
+    return summary
+      .replace(/\sand\s/gi, ", ")
+      .split(",")
+      .map((genre) => genre.trim())
+      .filter(Boolean);
+  });
+}
+
 export async function getPublicSpotifyProfileInsights(
   spotifyUserId: string,
   profileUrl?: string,
@@ -262,6 +282,7 @@ export async function getPublicSpotifyProfileInsights(
       getPublicPlaylistInsights(accessToken, publicPlaylists, Math.min(publicPlaylists.length, playlistInsightLimit) || PUBLIC_PLAYLIST_LIMIT).catch(() => [] as PlaylistInsight[]),
       Promise.resolve(profileHtml ? scrapeRecentArtistsFromProfileHtml(profileHtml) : []).catch(() => [] as PublicProfileArtist[]),
     ]);
+    const moodInsights = deriveGenreBasedMoodInsights(extractGenreSeedsFromPlaylistInsights(playlistInsights));
 
     return {
       spotifyUserId,
@@ -271,6 +292,9 @@ export async function getPublicSpotifyProfileInsights(
       publicPlaylistCount: publicPlaylists.length,
       publicPlaylists,
       playlistInsights,
+      moodData: moodInsights.moodData,
+      moodHeatmap: moodInsights.moodHeatmap,
+      moodSource: moodInsights.moodSource,
       recentArtists,
       recentArtistsVisible: recentArtists.length > 0,
       fetchedAt: new Date().toISOString(),
