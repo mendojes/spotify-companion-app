@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
-import { syncPlaylistDetail } from "@/lib/spotify-playlists";
+import { invalidateDashboardSectionRuntimeCache, writeStoredPlaylistsSectionCache } from "@/lib/dashboard-section-cache";
+import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache, syncPlaylistDetail } from "@/lib/spotify-playlists";
 
 type RouteContext = {
   params: Promise<{ playlistId: string }>;
@@ -33,6 +34,12 @@ export async function POST(_request: Request, context: RouteContext) {
 
   try {
     const result = await syncPlaylistDetail(authorizedSession.accessToken, authorizedSession.spotifyUserId, playlistId);
+    if (result.detail) {
+      invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
+      invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
+      invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
+      await writeStoredPlaylistsSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
+    }
     return NextResponse.json({
       completed: result.completed,
       fetchedCount: result.fetchedCount,

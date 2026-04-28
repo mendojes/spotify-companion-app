@@ -122,6 +122,34 @@ async function readStoredPlaylistsCache(spotifyUserId: string, sort: PlaylistSor
   }
 }
 
+async function writeStoredPlaylistsCacheEntries(spotifyUserId: string, updatedAt: string) {
+  const playlistsEntries = await Promise.all(
+    PLAYLIST_SORT_VALUES.map(async (sort) => [sort, await getPlaylistPageDataFromHistory(spotifyUserId, sort)] as const),
+  );
+
+  if (playlistsEntries.length === 0) {
+    return;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return;
+  }
+
+  await db.collection<StoredPlaylistsCache>(PLAYLISTS_CACHE_COLLECTION).bulkWrite(
+    playlistsEntries
+      .filter((entry): entry is readonly [PlaylistSortOption, PlaylistPageData] => Boolean(entry[1]))
+      .map(([sort, data]) => ({
+        updateOne: {
+          filter: { spotifyUserId, sort },
+          update: { $set: { spotifyUserId, sort, updatedAt, data } },
+          upsert: true,
+        },
+      })),
+    { ordered: false },
+  );
+}
+
 export function invalidateDashboardSectionRuntimeCache(spotifyUserId: string) {
   TOP_LIST_RANGE_VALUES.forEach((range) => invalidateCachedValue(sectionRuntimeKey(spotifyUserId, "top-lists", range)));
   DASHBOARD_RANGE_VALUES.forEach((range) => {
@@ -138,7 +166,7 @@ export async function writeStoredDashboardSectionCache(spotifyUserId: string, ac
   }
 
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
-  const [topListsEntries, analysisEntries, rediscoveryEntries, playlistsEntries] = await Promise.all([
+  const [topListsEntries, analysisEntries, rediscoveryEntries] = await Promise.all([
     Promise.all(
       TOP_LIST_RANGE_VALUES.map(async (range) => [
         range,
@@ -170,9 +198,6 @@ export async function writeStoredDashboardSectionCache(spotifyUserId: string, ac
             : undefined,
         ] as const;
       }),
-    ),
-    Promise.all(
-      PLAYLIST_SORT_VALUES.map(async (sort) => [sort, await getPlaylistPageDataFromHistory(spotifyUserId, sort)] as const),
     ),
   ]);
 
@@ -233,21 +258,21 @@ export async function writeStoredDashboardSectionCache(spotifyUserId: string, ac
           { ordered: false },
         )
         : Promise.resolve(),
-      playlistsEntries.length > 0
-        ? db.collection<StoredPlaylistsCache>(PLAYLISTS_CACHE_COLLECTION).bulkWrite(
-          playlistsEntries
-            .filter((entry): entry is readonly [PlaylistSortOption, PlaylistPageData] => Boolean(entry[1]))
-            .map(([sort, data]) => ({
-              updateOne: {
-                filter: { spotifyUserId, sort },
-                update: { $set: { spotifyUserId, sort, updatedAt, data } },
-                upsert: true,
-              },
-            })),
-          { ordered: false },
-        )
-        : Promise.resolve(),
+      writeStoredPlaylistsCacheEntries(spotifyUserId, updatedAt),
     ]);
+  } catch {
+    return;
+  }
+}
+
+export async function writeStoredPlaylistsSectionCache(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  try {
+    const updatedAt = new Date().toISOString();
+    await writeStoredPlaylistsCacheEntries(spotifyUserId, updatedAt);
   } catch {
     return;
   }

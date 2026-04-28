@@ -131,7 +131,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
   if (!hasSpotifyConnection(session)) {
     const publicInsights = session.spotifyUserId
-      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
+      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl, { playlistInsightLimit: 2 }).catch(() => null)
       : null;
     const publicPlaylistCards = (publicInsights?.playlistInsights ?? []).slice(0, 2);
 

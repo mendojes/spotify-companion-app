@@ -5,8 +5,10 @@ import {
   markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
 } from "@/lib/connected-users";
+import { invalidateDashboardSectionRuntimeCache, writeStoredPlaylistsSectionCache } from "@/lib/dashboard-section-cache";
 import { writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
 import { getMissingArtistMetadataIdsForUser as getMissingArtistMetadataIdsForOverviewUser } from "@/lib/spotify-dashboard";
+import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
 
 function normalizeRange(range?: string) {
   if (range === "month" || range === "all") {
@@ -44,6 +46,11 @@ export async function POST(request: NextRequest) {
 
     const startedAt = Date.now();
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", { range }).catch(() => undefined);
+    await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId).catch(() => undefined);
+    invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
+    invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
+    invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
+    await writeStoredPlaylistsSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
     await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, range, {
       allowLiveEnrichment: false,
     });

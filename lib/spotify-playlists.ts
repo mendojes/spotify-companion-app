@@ -627,6 +627,18 @@ async function writeStoredPlaylistTrackPage(
   }
 }
 
+async function writeStoredPlaylistTrackSnapshot(
+  spotifyUserId: string,
+  playlistId: string,
+  trackItems: PlaylistTrackWithMeta[],
+  totalTracks: number,
+) {
+  await writeStoredPlaylistTrackPage(spotifyUserId, playlistId, trackItems, 0, totalTracks, {
+    completed: true,
+    nextOffset: trackItems.length,
+  });
+}
+
 async function writeCachedPlaylistDetails(spotifyUserId: string, details: PlaylistDetail[]) {
   if (!hasMongoConfig() || details.length === 0) {
     return;
@@ -2106,10 +2118,13 @@ export async function getPlaylistPageDataFromHistory(
 }
 
 export async function getPlaylistDetailFromHistory(spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {
-  const [storedLibrary, cachedDetails, recentPlays] = await Promise.all([
+  const [storedLibrary, cachedDetails, recentPlays, storedTrackItems, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
     getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
     getCachedPlaylistDetails(spotifyUserId, [playlistId]).catch(() => [] as CachedPlaylistDetail[]),
     getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
+    getStoredPlaylistTrackItems(spotifyUserId, playlistId).catch(() => [] as PlaylistTrackWithMeta[]),
+    getAllTimeTrackAffinityMap(spotifyUserId),
+    getAllTimeArtistGenreMap(spotifyUserId),
   ]);
 
   const cached = cachedDetails[0];
@@ -2119,6 +2134,21 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
 
   const storedPlaylist = storedLibrary.find((playlist) => playlist.id === playlistId);
   if (storedPlaylist) {
+    if (storedTrackItems.length > 0) {
+      const recoveredDetail = await analyzePlaylistFromTrackItems(
+        storedPlaylist,
+        storedTrackItems,
+        recentPlays,
+        allTimeTrackAffinity,
+        allTimeArtistGenres,
+      );
+
+      if (recoveredDetail) {
+        await writeCachedPlaylistDetails(spotifyUserId, [recoveredDetail]);
+        return recoveredDetail;
+      }
+    }
+
     return {
       ...toBasicInsight(storedPlaylist, recentPlays),
       id: storedPlaylist.id,
@@ -2169,7 +2199,21 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
           allTimeArtistGenres,
         );
       })()
-      : await analyzePlaylist(accessToken, playlist, recentPlays, allTimeTrackAffinity, allTimeArtistGenres);
+      : await (async () => {
+        const trackItems = await fetchPlaylistTrackItems(accessToken, playlist.id);
+        if (trackItems.length > 0) {
+          await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlist.id, trackItems, playlist.tracks?.total ?? trackItems.length);
+        }
+
+        return analyzePlaylistFromTrackItems(
+          playlist,
+          trackItems,
+          recentPlays,
+          allTimeTrackAffinity,
+          allTimeArtistGenres,
+          accessToken,
+        );
+      })();
 
     if (detail) {
       await writeCachedPlaylistDetails(spotifyUserId, [detail]);
@@ -2235,6 +2279,10 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
   const trackItems = isLargePlaylist
     ? await getStoredPlaylistTrackItems(spotifyUserId, playlist.id)
     : await fetchPlaylistTrackItems(accessToken, playlist.id);
+
+  if (!isLargePlaylist && trackItems.length > 0) {
+    await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlist.id, trackItems, playlist.tracks?.total ?? trackItems.length);
+  }
 
   const detail = await analyzePlaylistFromTrackItems(
     playlist,
