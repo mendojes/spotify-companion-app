@@ -2,7 +2,7 @@ import { getCachedValue } from "@/lib/runtime-cache";
 import { deriveGenreBasedMoodInsights } from "@/lib/moods";
 import { getPublicPlaylistDetail, getPublicPlaylistInsights } from "@/lib/spotify-playlists";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
-import { MoodHeatmapCell, MoodPoint, PlaylistInsight, SpotifyPlaylist, SpotifyPlaylistsResponse } from "@/lib/types";
+import { MoodPoint, PlaylistInsight, SpotifyPlaylist, SpotifyPlaylistsResponse } from "@/lib/types";
 
 export type PublicProfileArtist = {
   id: string;
@@ -20,7 +20,6 @@ export type PublicSpotifyProfileInsights = {
   publicPlaylists: SpotifyPlaylist[];
   playlistInsights: PlaylistInsight[];
   moodData: MoodPoint[];
-  moodHeatmap: MoodHeatmapCell[];
   moodSource: string;
   recentArtists: PublicProfileArtist[];
   recentArtistsVisible: boolean;
@@ -278,11 +277,12 @@ export async function getPublicSpotifyProfileInsights(
       }
     });
     const publicPlaylists = [...dedupedPlaylists.values()].slice(0, PUBLIC_PLAYLIST_LIMIT);
-    const [playlistInsights, recentArtists] = await Promise.all([
+    const [playlistInsights, allPlaylistInsights, recentArtists] = await Promise.all([
       getPublicPlaylistInsights(accessToken, publicPlaylists, Math.min(publicPlaylists.length, playlistInsightLimit) || PUBLIC_PLAYLIST_LIMIT).catch(() => [] as PlaylistInsight[]),
+      getPublicPlaylistInsights(accessToken, publicPlaylists, publicPlaylists.length || PUBLIC_PLAYLIST_LIMIT).catch(() => [] as PlaylistInsight[]),
       Promise.resolve(profileHtml ? scrapeRecentArtistsFromProfileHtml(profileHtml) : []).catch(() => [] as PublicProfileArtist[]),
     ]);
-    const moodInsights = deriveGenreBasedMoodInsights(extractGenreSeedsFromPlaylistInsights(playlistInsights));
+    const moodInsights = deriveGenreBasedMoodInsights(extractGenreSeedsFromPlaylistInsights(allPlaylistInsights));
 
     return {
       spotifyUserId,
@@ -293,7 +293,6 @@ export async function getPublicSpotifyProfileInsights(
       publicPlaylists,
       playlistInsights,
       moodData: moodInsights.moodData,
-      moodHeatmap: moodInsights.moodHeatmap,
       moodSource: moodInsights.moodSource,
       recentArtists,
       recentArtistsVisible: recentArtists.length > 0,

@@ -1,4 +1,4 @@
-import { MoodHeatmapCell, MoodPoint } from "@/lib/types";
+import { MoodHeatmapCell, MoodPoint, PlaylistGenreSummary } from "@/lib/types";
 
 export const moodOrder = [
   "Adrenaline Rush",
@@ -123,4 +123,9 @@ export function deriveGenreBasedMoodInsights(genreNames: string[]) {
     moodHeatmap: deriveMoodHeatmapFallback(moodData),
     moodSource: "Genre-based fallback mood model",
   };
+}
+
+export function deriveGenreBasedMoodInsightsFromSummaries(topGenres: PlaylistGenreSummary[]) {
+  const weightedGenreNames = topGenres.flatMap((genre) => Array.from({ length: Math.max(1, genre.count) }, () => genre.genre));
+  return deriveGenreBasedMoodInsights(weightedGenreNames);
 }

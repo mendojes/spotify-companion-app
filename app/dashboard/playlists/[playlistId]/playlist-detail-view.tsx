@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { getVibeSummary } from "@/lib/insights";
+import { deriveGenreBasedMoodInsightsFromSummaries, getMoodDescription, moodColors } from "@/lib/moods";
 import { PlaylistDetail } from "@/lib/types";
 
 const genreColors = ["#7AF7FF", "#FF8AD8", "#FFD37B", "#8EFFD1", "#8FA2FF"];
@@ -118,6 +120,7 @@ export function PlaylistDetailView({ detail, mode = "authenticated" }: { detail:
   const hasGenres = genreData.length > 0;
   const topGenreLabel = genreData[0]?.genre;
   const extraInsights = mode === "public" ? [] : getExtraInsightCards(detail, topGenreLabel);
+  const publicMoodInsights = mode === "public" ? deriveGenreBasedMoodInsightsFromSummaries(detail.topGenres) : null;
 
   return (
     <div className="space-y-6">
@@ -215,6 +218,54 @@ export function PlaylistDetailView({ detail, mode = "authenticated" }: { detail:
           </div>
         ) : null}
       </div>
+
+      {mode === "public" && publicMoodInsights ? (
+        <div className="grid gap-6 2xl:grid-cols-[0.88fr_1.12fr]">
+          <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+            <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Mood analysis</p>
+            <h3 className="mt-3 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Playlist vibe radar</h3>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--theme-body)]">
+              {getVibeSummary(publicMoodInsights.moodData)} This uses the same mood categories and genre-based fallback model as the connected dashboard.
+            </p>
+            <div className="mt-6 h-[280px] rounded-[24px] border border-white/10 bg-white/[0.04] p-3">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={publicMoodInsights.moodData} dataKey="share" nameKey="mood" innerRadius={70} outerRadius={112} paddingAngle={4}>
+                    {publicMoodInsights.moodData.map((entry, index) => (
+                      <Cell key={entry.mood} fill={moodColors[index % moodColors.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: number) => [`${value}%`, "Share"]}
+                    contentStyle={{ background: "rgba(17,8,31,0.95)", borderRadius: 18, border: "1px solid rgba(255,255,255,0.14)" }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="glass-panel rounded-[32px] p-6 text-[var(--theme-text)]">
+            <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Top mood lanes</p>
+            <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
+              These percentages come from the public playlist&apos;s genre mix rather than tracked playback sessions.
+            </p>
+            <div className="mt-6 grid gap-3">
+              {[...publicMoodInsights.moodData]
+                .sort((a, b) => b.share - a.share)
+                .slice(0, 4)
+                .map((entry) => (
+                  <div key={entry.mood} className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{entry.mood}</p>
+                      <p className="font-mono text-sm uppercase tracking-[0.16em] text-[#2b7f97]">{entry.share}%</p>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{getMoodDescription(entry.mood)}</p>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="glass-panel rounded-[30px] p-6">

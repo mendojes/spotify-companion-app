@@ -311,7 +311,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
                 <PublicMoodOverview
                   moodData={publicInsights.moodData}
-                  moodHeatmap={publicInsights.moodHeatmap}
                   moodSource={publicInsights.moodSource}
                 />
               </div>
