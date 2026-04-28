@@ -2128,7 +2128,7 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
   ]);
 
   const cached = cachedDetails[0];
-  if (cached) {
+  if (cached && !isPlaylistDetailIncomplete(cached)) {
     return cached;
   }
 
@@ -2164,6 +2164,10 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
       topTracks: [],
       listenTimeline: buildListenTimeline(storedPlaylist.id, recentPlays),
     };
+  }
+
+  if (cached) {
+    return cached;
   }
 
   return null;
