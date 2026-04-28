@@ -9,8 +9,10 @@ import { PublicMoodOverview } from "@/components/public-mood-overview";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { getAuthorizedSession, hasSpotifyConnection, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getDashboardOverviewData } from "@/lib/dashboard-overview";
+import { deriveGenreBasedMoodInsights } from "@/lib/moods";
+import { getPlaylistPageDataFromHistory } from "@/lib/spotify-playlists";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { DashboardRange, TopListRange } from "@/lib/types";
+import { DashboardRange, PlaylistInsight, TopListRange } from "@/lib/types";
 
 type DashboardPageProps = {
   searchParams: Promise<{ range?: string; topRange?: string; topFrom?: string; topTo?: string; refreshed?: string; refresh_error?: string; welcome?: string; connect_spotify?: string }>;
@@ -83,6 +85,22 @@ function getAdaptivePlaylistTitleClass(value: string) {
   return `${base} text-3xl leading-[1] tracking-[0.08em]`;
 }
 
+function extractGenreSeedsFromPlaylistInsights(playlistInsights: PlaylistInsight[]) {
+  return playlistInsights.flatMap((playlist) => {
+    const summary = playlist.topGenresSummary?.trim();
+
+    if (!summary || summary.toLowerCase().startsWith("loading")) {
+      return [] as string[];
+    }
+
+    return summary
+      .replace(/\sand\s/gi, ", ")
+      .split(",")
+      .map((genre) => genre.trim())
+      .filter(Boolean);
+  });
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -134,7 +152,22 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const publicInsights = session.spotifyUserId
       ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl, { playlistInsightLimit: 2 }).catch(() => null)
       : null;
-    const publicPlaylistCards = (publicInsights?.playlistInsights ?? []).slice(0, 2);
+    const publicPlaylistPageData = session.spotifyUserId
+      ? await getPlaylistPageDataFromHistory(session.spotifyUserId, "last_listened_desc").catch(() => null)
+      : null;
+    const publicPlaylistSource = publicPlaylistPageData?.playlists.length
+      ? publicPlaylistPageData.playlists
+      : publicInsights?.playlistInsights ?? [];
+    const publicPlaylistCards = publicPlaylistSource.slice(0, 2);
+    const publicPlaylistCount = Math.max(publicInsights?.publicPlaylistCount ?? 0, publicPlaylistPageData?.playlistCount ?? 0);
+    const publicMoodFallback = publicPlaylistSource.length > 0
+      ? deriveGenreBasedMoodInsights(extractGenreSeedsFromPlaylistInsights(publicPlaylistSource))
+      : null;
+    const publicMoodData = publicInsights?.moodData ?? publicMoodFallback?.moodData;
+    const publicMoodSource = publicInsights?.moodSource ?? (publicMoodFallback ? `${publicMoodFallback.moodSource} (stored public playlist cache)` : undefined);
+    const publicRecentArtists = publicInsights?.recentArtists ?? [];
+    const publicVisiblePlaylists = publicInsights?.publicPlaylists ?? [];
+    const hasPublicSections = Boolean(publicInsights || publicPlaylistCount > 0 || publicPlaylistCards.length > 0);
 
     return (
       <main className="relative overflow-hidden pb-10">
@@ -165,12 +198,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 <div className="desktop-card p-4">
                   <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">Public playlists</p>
-                  <p className="mt-3 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{publicInsights?.publicPlaylistCount ?? 0}</p>
+                  <p className="mt-3 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{publicPlaylistCount}</p>
                 </div>
                 <div className="desktop-card p-4">
                   <p className="font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-muted)]">Recent artists visible</p>
                   <p className="mt-3 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">
-                    {publicInsights?.recentArtistsVisible ? `${publicInsights.recentArtists.length} found` : "Not shared"}
+                    {publicInsights?.recentArtistsVisible ? `${publicRecentArtists.length} found` : "Not shared"}
                   </p>
                 </div>
               </div>
@@ -181,22 +214,24 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               </div>
             </div>
 
-            {publicInsights ? (
+            {hasPublicSections ? (
               <div className="space-y-4">
                 <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="section-kicker">Public profile</p>
                       <h2 className="mt-2 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">
-                        {publicInsights.displayName}
+                        {publicInsights?.displayName ?? session.displayName}
                       </h2>
                       <p className="mt-3 text-sm leading-7 text-[var(--theme-body)]">
                         These sections come only from public Spotify data, so what shows up depends on what Spotify makes visible on the profile.
                       </p>
                     </div>
-                    <a href={publicInsights.profileUrl} target="_blank" rel="noreferrer" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
-                      Open Spotify profile
-                    </a>
+                    {publicInsights?.profileUrl || session.spotifyProfileUrl ? (
+                      <a href={publicInsights?.profileUrl ?? session.spotifyProfileUrl} target="_blank" rel="noreferrer" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                        Open Spotify profile
+                      </a>
+                    ) : null}
                   </div>
                 </div>
 
@@ -212,7 +247,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                       </div>
                     </div>
                     <div className="mt-5 space-y-3">
-                      {publicInsights.recentArtistsVisible ? publicInsights.recentArtists.map((artist) => (
+                      {publicInsights?.recentArtistsVisible ? publicRecentArtists.map((artist) => (
                         <a
                           key={artist.id}
                           href={artist.spotifyUrl}
@@ -225,7 +260,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                         </a>
                       )) : (
                         <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
-                          Spotify is not exposing recently played artists on this public profile right now, or the profile page did not include that section.
+                          Spotify is not exposing recently played artists on this public profile right now, or Listening Lore is using the stored public playlist cache for this session.
                         </div>
                       )}
                     </div>
@@ -242,7 +277,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                       </div>
                     </div>
                     <div className="mt-5 space-y-3">
-                      {publicPlaylistCards.length > 0 ? (
+                    {publicPlaylistCards.length > 0 ? (
                         <div className="grid gap-5 lg:grid-cols-2">
                           {publicPlaylistCards.map((playlistCard, index) => (
                             <Link
@@ -285,8 +320,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                             </Link>
                           ))}
                         </div>
-                      ) : publicInsights.publicPlaylists.length > 0 ? (
-                        publicInsights.publicPlaylists.map((playlist) => (
+                      ) : publicVisiblePlaylists.length > 0 ? (
+                        publicVisiblePlaylists.map((playlist) => (
                           <Link key={playlist.id} href={`/dashboard/playlists/${playlist.id}`} className="desktop-card block p-4 transition hover:border-cyan/30">
                             <p className="font-display text-xl uppercase tracking-[0.08em] text-[var(--theme-title)]">{playlist.name}</p>
                             <p className="mt-2 text-sm text-[var(--theme-body)]">{playlist.tracks.total} visible tracks</p>
@@ -298,7 +333,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                         </div>
                       )}
                     </div>
-                    {publicInsights.publicPlaylists.length > 0 ? (
+                    {publicPlaylistCount > 0 ? (
                       <div className="mt-4">
                         <Link href="/dashboard/playlists" className="pixel-chip inline-flex items-center gap-2 text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                           Open playlist lab
@@ -308,10 +343,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   </div>
                 </div>
 
-                <PublicMoodOverview
-                  moodData={publicInsights.moodData}
-                  moodSource={publicInsights.moodSource}
-                />
+                {publicMoodData && publicMoodSource ? (
+                  <PublicMoodOverview
+                    moodData={publicMoodData}
+                    moodSource={publicMoodSource}
+                  />
+                ) : null}
               </div>
             ) : (
               <div className="glass-panel rounded-[34px] p-6 text-[var(--theme-text)]">

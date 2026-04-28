@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyPlaylistDetail, getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { getPlaylistDetailFromHistory } from "@/lib/spotify-playlists";
+import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { PlaylistDetailSync } from "./playlist-detail-sync";
 import { formatPstDateTime } from "@/lib/time";
@@ -21,15 +21,29 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
   const session = await requireSession();
 
   if (!hasSpotifyConnection(session)) {
-    const publicInsights = session.spotifyUserId
-      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
-      : null;
+    const [publicInsights, storedPlaylists, storedDetail] = await Promise.all([
+      session.spotifyUserId
+        ? getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
+        : Promise.resolve(null),
+      session.spotifyUserId
+        ? getStoredPlaylistLibrary(session.spotifyUserId).catch(() => [] as Awaited<ReturnType<typeof getStoredPlaylistLibrary>>)
+        : Promise.resolve([] as Awaited<ReturnType<typeof getStoredPlaylistLibrary>>),
+      session.spotifyUserId
+        ? getPlaylistDetailFromHistory(session.spotifyUserId, playlistId).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const visiblePlaylistIds = new Set([
+      ...(publicInsights?.publicPlaylists ?? []).map((playlist) => playlist.id),
+      ...storedPlaylists.map((playlist) => playlist.id),
+    ]);
 
-    if (!publicInsights?.publicPlaylists.some((playlist) => playlist.id === playlistId)) {
+    if (visiblePlaylistIds.size > 0 && !visiblePlaylistIds.has(playlistId)) {
       notFound();
     }
 
-    const detail = await getPublicSpotifyPlaylistDetail(playlistId);
+    const liveDetail = await getPublicSpotifyPlaylistDetail(playlistId).catch(() => null);
+    const detail = liveDetail ?? storedDetail;
+    const usingStoredFallback = !liveDetail && Boolean(storedDetail);
 
     if (!detail) {
       notFound();
@@ -50,7 +64,9 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
                 <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">{detail.name}</h1>
                 <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
                   {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
-                  This playlist is being analyzed from public Spotify playlist data only.
+                  {usingStoredFallback
+                    ? "This playlist is being shown from Listening Lore's stored public playlist cache."
+                    : "This playlist is being analyzed from public Spotify playlist data only."}
                 </p>
               </div>
             </div>
@@ -78,6 +94,12 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
               <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">{detail.mood}</p>
             </div>
           </div>
+
+          {usingStoredFallback ? (
+            <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
+              Live public playlist details were unavailable on this request, so Listening Lore reopened the stored public playlist snapshot instead.
+            </div>
+          ) : null}
 
           <PlaylistDetailView detail={detail} mode="public" />
         </div>

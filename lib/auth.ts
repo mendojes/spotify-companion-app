@@ -154,6 +154,21 @@ function getAccessTokenCacheKey(refreshToken: string) {
   return `spotify-access:${crypto.createHash("sha256").update(refreshToken).digest("hex")}`;
 }
 
+function deriveSpotifyUserIdFromProfileUrl(profileUrl?: string) {
+  if (!profileUrl) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(profileUrl);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const userIndex = parts.findIndex((part) => part === "user");
+    return userIndex >= 0 ? parts[userIndex + 1] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildSession(
   profile: SpotifyProfile,
   accessToken: string,
@@ -186,7 +201,7 @@ export function buildLocalSession(account: {
     displayName: account.displayName,
     email: account.email,
     spotifyProfileUrl: account.spotifyProfileUrl,
-    spotifyUserId: account.spotifyUserId,
+    spotifyUserId: account.spotifyUserId ?? deriveSpotifyUserIdFromProfileUrl(account.spotifyProfileUrl),
     expiresAt: Date.now() + SESSION_TTL_MS,
   } satisfies AuthSession;
 }

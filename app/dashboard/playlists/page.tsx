@@ -188,7 +188,15 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
     const publicInsights = session.spotifyUserId
       ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
       : null;
-    const publicPlaylists = publicInsights?.playlistInsights ?? [];
+    const publicPageData = session.spotifyUserId
+      ? await getStoredPlaylistsSection(session.spotifyUserId, selectedSort).catch(() => null)
+        ?? await getPlaylistPageDataFromHistory(session.spotifyUserId, selectedSort).catch(() => null)
+      : null;
+    const publicPlaylists = publicPageData?.playlists.length
+      ? publicPageData.playlists
+      : publicInsights?.playlistInsights ?? [];
+    const publicPlaylistCount = Math.max(publicPageData?.playlistCount ?? 0, publicInsights?.publicPlaylistCount ?? 0, publicPlaylists.length);
+    const publicLastSyncedAt = publicPageData?.lastSyncedAt;
     const filteredPublicPlaylists = publicPlaylists.filter((playlist) => matchesPlaylistQuery(playlist, searchQuery));
     const totalPages = Math.max(1, Math.ceil(filteredPublicPlaylists.length / PLAYLISTS_PER_PAGE));
     const currentPage = Math.min(requestedPage, totalPages);
@@ -205,6 +213,10 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
               <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
                 This page analyzes public playlists only. It can show structure, genres, mood, and track makeup, but not private listening-history signals.
               </p>
+              <div className="mt-4 space-y-1 text-sm text-[var(--theme-muted)]">
+                <p>Stored public playlists: {publicPlaylistCount}</p>
+                <p>Last public playlist sync: {formatDateLabel(publicLastSyncedAt)}</p>
+              </div>
             </div>
             <div className="flex gap-3">
               <Link href="/dashboard" prefetch={false} className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
@@ -214,14 +226,33 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
           </div>
 
           <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-            Public playlist analysis uses only playlist contents that Spotify exposes publicly from your profile.
+            Public playlist analysis uses only playlist contents that Spotify exposes publicly from your profile. Listening Lore also keeps a stored public playlist cache so this tab can reopen after you sign in again.
           </div>
 
-          <SearchBar query={searchQuery} />
+          <div className="flex flex-wrap gap-3">
+            {sortOptions.map((option) => {
+              const active = option.key === selectedSort;
+
+              return (
+                <Link
+                  key={option.key}
+                  href={buildPlaylistsHref({ sort: option.key, query: searchQuery, page: 1 })}
+                  prefetch={false}
+                  className={`rounded-full px-4 py-2 text-sm transition ${
+                    active ? "bg-white text-slate-950" : "border border-[rgba(57,18,98,0.16)] bg-white/[0.18] text-[var(--theme-text)]"
+                  }`}
+                >
+                  {option.label}
+                </Link>
+              );
+            })}
+          </div>
+
+          <SearchBar query={searchQuery} sort={selectedSort} />
 
           {filteredPublicPlaylists.length === 0 ? (
             <div className="glass-panel rounded-[30px] p-8 text-sm leading-7 text-[var(--theme-body)]">
-              {searchQuery ? <>No public playlists matched &quot;{searchQuery}&quot;.</> : "No public playlists were available from this Spotify profile."}
+              {searchQuery ? <>No public playlists matched &quot;{searchQuery}&quot;.</> : "No public playlists were available from this Spotify profile or its stored cache yet."}
             </div>
           ) : (
             <>

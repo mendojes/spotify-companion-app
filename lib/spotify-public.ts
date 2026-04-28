@@ -1,6 +1,13 @@
 import { getCachedValue } from "@/lib/runtime-cache";
 import { deriveGenreBasedMoodInsights } from "@/lib/moods";
-import { getPublicPlaylistDetail, getPublicPlaylistInsights } from "@/lib/spotify-playlists";
+import { invalidateDashboardSectionRuntimeCache, writeStoredPlaylistsSectionCache } from "@/lib/dashboard-section-cache";
+import {
+  getPlaylistPageDataFromHistory,
+  getPublicPlaylistDetail,
+  getPublicPlaylistInsights,
+  getStoredPlaylistLibrary,
+  seedStoredPublicPlaylistSnapshot,
+} from "@/lib/spotify-playlists";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { MoodPoint, PlaylistInsight, SpotifyPlaylist, SpotifyPlaylistsResponse } from "@/lib/types";
 
@@ -35,26 +42,37 @@ type PublicSpotifyUser = {
   };
 };
 
+type PublicPlaylistFetchResult = {
+  playlists: SpotifyPlaylist[];
+  total: number;
+};
+
 const PUBLIC_PROFILE_TTL_MS = 1000 * 60 * 5;
-const PUBLIC_PLAYLIST_LIMIT = 6;
-const PUBLIC_PROFILE_CACHE_VERSION = "v3";
+const PUBLIC_PLAYLIST_PREVIEW_LIMIT = 6;
+const PUBLIC_PLAYLIST_PAGE_SIZE = 50;
+const PUBLIC_PLAYLIST_MAX_PAGES = 20;
+const PUBLIC_PROFILE_CACHE_VERSION = "v4";
 const PUBLIC_PROFILE_FETCH_TIMEOUT_MS = 8_000;
 
 async function fetchPublicSpotifyUser(accessToken: string, spotifyUserId: string) {
   return spotifyFetch<PublicSpotifyUser>(`/users/${spotifyUserId}`, accessToken);
 }
 
-async function fetchAllPublicPlaylists(accessToken: string, spotifyUserId: string, limit = PUBLIC_PLAYLIST_LIMIT) {
+async function fetchAllPublicPlaylists(accessToken: string, spotifyUserId: string): Promise<PublicPlaylistFetchResult> {
   const playlists: SpotifyPlaylist[] = [];
   let offset = 0;
+  let total = 0;
+  let pageCount = 0;
 
-  while (playlists.length < limit) {
+  while (pageCount < PUBLIC_PLAYLIST_MAX_PAGES) {
     const response = await spotifyFetch<SpotifyPlaylistsResponse>(
-      `/users/${spotifyUserId}/playlists?limit=${Math.min(50, limit)}&offset=${offset}`,
+      `/users/${spotifyUserId}/playlists?limit=${PUBLIC_PLAYLIST_PAGE_SIZE}&offset=${offset}`,
       accessToken,
     );
+    total = Math.max(total, response.total ?? 0);
 
     playlists.push(...response.items);
+    pageCount += 1;
 
     if (!response.next || response.items.length === 0) {
       break;
@@ -63,7 +81,10 @@ async function fetchAllPublicPlaylists(accessToken: string, spotifyUserId: strin
     offset += response.items.length;
   }
 
-  return playlists.slice(0, limit);
+  return {
+    playlists,
+    total: Math.max(total, playlists.length),
+  };
 }
 
 async function fetchPlaylistById(accessToken: string, playlistId: string) {
@@ -216,7 +237,7 @@ async function scrapePublicPlaylistsFromProfile(profileUrl: string, accessToken:
   if (!html) {
     return [] as SpotifyPlaylist[];
   }
-  const playlistIds = scrapePlaylistIdsFromProfileHtml(html).slice(0, PUBLIC_PLAYLIST_LIMIT);
+  const playlistIds = scrapePlaylistIdsFromProfileHtml(html).slice(0, PUBLIC_PLAYLIST_PAGE_SIZE);
 
   if (playlistIds.length === 0) {
     return [] as SpotifyPlaylist[];
@@ -233,7 +254,7 @@ function extractGenreSeedsFromPlaylistInsights(playlistInsights: PlaylistInsight
   return playlistInsights.flatMap((playlist) => {
     const summary = playlist.topGenresSummary?.trim();
 
-    if (!summary) {
+    if (!summary || summary.toLowerCase().startsWith("loading")) {
       return [] as string[];
     }
 
@@ -245,55 +266,134 @@ function extractGenreSeedsFromPlaylistInsights(playlistInsights: PlaylistInsight
   });
 }
 
+async function buildStoredPublicProfileFallback(
+  spotifyUserId: string,
+  profileUrl: string,
+  playlistInsightLimit: number,
+): Promise<PublicSpotifyProfileInsights | null> {
+  const [storedPlaylists, storedPageData] = await Promise.all([
+    getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
+    getPlaylistPageDataFromHistory(spotifyUserId, "last_listened_desc").catch(() => null),
+  ]);
+
+  if (storedPlaylists.length === 0 && !storedPageData) {
+    return null;
+  }
+
+  const playlistInsights = storedPageData?.playlists.slice(0, playlistInsightLimit) ?? [];
+  const moodInsights = deriveGenreBasedMoodInsights(
+    extractGenreSeedsFromPlaylistInsights(storedPageData?.playlists ?? playlistInsights),
+  );
+
+  return {
+    spotifyUserId,
+    displayName: "Spotify listener",
+    profileUrl,
+    publicPlaylistCount: Math.max(storedPageData?.playlistCount ?? 0, storedPlaylists.length),
+    publicPlaylists: storedPlaylists,
+    playlistInsights,
+    moodData: moodInsights.moodData,
+    moodSource: `${moodInsights.moodSource} (stored public playlist cache)`,
+    recentArtists: [],
+    recentArtistsVisible: false,
+    fetchedAt: storedPageData?.lastSyncedAt ?? new Date().toISOString(),
+  };
+}
+
 export async function getPublicSpotifyProfileInsights(
   spotifyUserId: string,
   profileUrl?: string,
   options?: { playlistInsightLimit?: number },
 ) {
-  const playlistInsightLimit = options?.playlistInsightLimit ?? PUBLIC_PLAYLIST_LIMIT;
+  const playlistInsightLimit = options?.playlistInsightLimit ?? PUBLIC_PLAYLIST_PREVIEW_LIMIT;
 
   return getCachedValue(`public-profile:${PUBLIC_PROFILE_CACHE_VERSION}:${spotifyUserId}:${profileUrl ?? "default"}:${playlistInsightLimit}`, PUBLIC_PROFILE_TTL_MS, async (): Promise<PublicSpotifyProfileInsights | null> => {
-    const accessToken = await getSpotifyClientCredentialsToken();
     const resolvedProfileUrl = profileUrl ?? `https://open.spotify.com/user/${spotifyUserId}`;
+    const storedFallback = await buildStoredPublicProfileFallback(spotifyUserId, resolvedProfileUrl, playlistInsightLimit).catch(() => null);
     const profileHtml = await fetchProfilePageHtml(resolvedProfileUrl).catch(() => null);
-    const user = await fetchPublicSpotifyUser(accessToken, spotifyUserId).catch(() => null);
+    const accessToken = await getSpotifyClientCredentialsToken().catch(() => null);
+    const user = accessToken ? await fetchPublicSpotifyUser(accessToken, spotifyUserId).catch(() => null) : null;
+    const recentArtists = profileHtml ? scrapeRecentArtistsFromProfileHtml(profileHtml) : storedFallback?.recentArtists ?? [];
 
-    if (!user && !profileHtml) {
+    if (!accessToken) {
+      if (!user && !profileHtml) {
+        return storedFallback;
+      }
+
+      return storedFallback
+        ? {
+          ...storedFallback,
+          displayName: user?.display_name ?? (profileHtml ? scrapeDisplayNameFromProfileHtml(profileHtml) : storedFallback.displayName),
+          imageUrl: user?.images?.[0]?.url ?? storedFallback.imageUrl,
+          profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
+          recentArtists,
+          recentArtistsVisible: recentArtists.length > 0,
+        }
+        : null;
+    }
+
+    if (!user && !profileHtml && !storedFallback) {
       return null;
     }
 
-    const apiPlaylists = await fetchAllPublicPlaylists(accessToken, spotifyUserId, PUBLIC_PLAYLIST_LIMIT).catch(() => [] as SpotifyPlaylist[]);
-    const scrapedPlaylists = profileHtml
-      ? await Promise.all(
-        scrapePlaylistIdsFromProfileHtml(profileHtml)
-          .slice(0, PUBLIC_PLAYLIST_LIMIT)
-          .map((playlistId) => fetchPlaylistById(accessToken, playlistId).catch(() => null)),
-      ).then((playlists) => playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)))
-      : await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(() => [] as SpotifyPlaylist[]);
+    const apiPlaylistResult = await fetchAllPublicPlaylists(accessToken, spotifyUserId).catch(() => ({
+      playlists: [] as SpotifyPlaylist[],
+      total: 0,
+    }));
+    const scrapedPlaylists = apiPlaylistResult.playlists.length > 0
+      ? [] as SpotifyPlaylist[]
+      : profileHtml
+        ? await Promise.all(
+          scrapePlaylistIdsFromProfileHtml(profileHtml)
+            .slice(0, PUBLIC_PLAYLIST_PAGE_SIZE)
+            .map((playlistId) => fetchPlaylistById(accessToken, playlistId).catch(() => null)),
+        ).then((playlists) => playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)))
+        : await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(() => [] as SpotifyPlaylist[]);
     const dedupedPlaylists = new Map<string, SpotifyPlaylist>();
-    [...apiPlaylists, ...scrapedPlaylists].forEach((playlist) => {
+
+    [...apiPlaylistResult.playlists, ...scrapedPlaylists].forEach((playlist) => {
       if (playlist?.id && !dedupedPlaylists.has(playlist.id)) {
         dedupedPlaylists.set(playlist.id, playlist);
       }
     });
-    const publicPlaylists = [...dedupedPlaylists.values()].slice(0, PUBLIC_PLAYLIST_LIMIT);
-    const [playlistInsights, allPlaylistInsights, recentArtists] = await Promise.all([
-      getPublicPlaylistInsights(accessToken, publicPlaylists, Math.min(publicPlaylists.length, playlistInsightLimit) || PUBLIC_PLAYLIST_LIMIT).catch(() => [] as PlaylistInsight[]),
-      getPublicPlaylistInsights(accessToken, publicPlaylists, publicPlaylists.length || PUBLIC_PLAYLIST_LIMIT).catch(() => [] as PlaylistInsight[]),
-      Promise.resolve(profileHtml ? scrapeRecentArtistsFromProfileHtml(profileHtml) : []).catch(() => [] as PublicProfileArtist[]),
-    ]);
-    const moodInsights = deriveGenreBasedMoodInsights(extractGenreSeedsFromPlaylistInsights(allPlaylistInsights));
+
+    const publicPlaylists = [...dedupedPlaylists.values()];
+    const seedInsightLimit = Math.min(
+      publicPlaylists.length,
+      Math.max(playlistInsightLimit, PUBLIC_PLAYLIST_PREVIEW_LIMIT),
+    );
+    const seededPlaylistInsights = publicPlaylists.length > 0
+      ? await getPublicPlaylistInsights(accessToken, publicPlaylists, seedInsightLimit).catch(() => [] as PlaylistInsight[])
+      : [] as PlaylistInsight[];
+
+    if (publicPlaylists.length > 0) {
+      await seedStoredPublicPlaylistSnapshot(spotifyUserId, publicPlaylists, seededPlaylistInsights).catch(() => undefined);
+      invalidateDashboardSectionRuntimeCache(spotifyUserId);
+      await writeStoredPlaylistsSectionCache(spotifyUserId).catch(() => undefined);
+    }
+
+    const fallbackAfterSeed = publicPlaylists.length > 0
+      ? await buildStoredPublicProfileFallback(spotifyUserId, resolvedProfileUrl, playlistInsightLimit).catch(() => storedFallback)
+      : storedFallback;
+    const playlistInsights = seededPlaylistInsights.length > 0
+      ? seededPlaylistInsights.slice(0, playlistInsightLimit)
+      : fallbackAfterSeed?.playlistInsights.slice(0, playlistInsightLimit) ?? [];
+    const moodSourceInsights = (fallbackAfterSeed?.playlistInsights.length ?? 0) > seededPlaylistInsights.length
+      ? fallbackAfterSeed?.playlistInsights ?? seededPlaylistInsights
+      : seededPlaylistInsights;
+    const moodInsights = deriveGenreBasedMoodInsights(extractGenreSeedsFromPlaylistInsights(moodSourceInsights));
+    const resolvedPlaylists = publicPlaylists.length > 0 ? publicPlaylists : fallbackAfterSeed?.publicPlaylists ?? [];
 
     return {
       spotifyUserId,
-      displayName: user?.display_name ?? (profileHtml ? scrapeDisplayNameFromProfileHtml(profileHtml) : "Spotify listener"),
-      imageUrl: user?.images?.[0]?.url,
+      displayName: user?.display_name ?? (profileHtml ? scrapeDisplayNameFromProfileHtml(profileHtml) : storedFallback?.displayName ?? "Spotify listener"),
+      imageUrl: user?.images?.[0]?.url ?? storedFallback?.imageUrl,
       profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
-      publicPlaylistCount: publicPlaylists.length,
-      publicPlaylists,
+      publicPlaylistCount: Math.max(apiPlaylistResult.total, resolvedPlaylists.length, fallbackAfterSeed?.publicPlaylistCount ?? 0),
+      publicPlaylists: resolvedPlaylists,
       playlistInsights,
       moodData: moodInsights.moodData,
-      moodSource: moodInsights.moodSource,
+      moodSource: seededPlaylistInsights.length > 0 ? moodInsights.moodSource : `${moodInsights.moodSource} (stored public playlist cache)`,
       recentArtists,
       recentArtistsVisible: recentArtists.length > 0,
       fetchedAt: new Date().toISOString(),

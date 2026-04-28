@@ -356,6 +356,45 @@ async function writeStoredPlaylistInsights(spotifyUserId: string, playlistInsigh
   }
 }
 
+export async function seedStoredPublicPlaylistSnapshot(
+  spotifyUserId: string,
+  playlists: SpotifyPlaylist[],
+  playlistInsights: PlaylistInsight[] = [],
+) {
+  const normalizedPlaylists = uniqueById(
+    playlists
+      .map((playlist) => normalizePlaylist(playlist))
+      .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)),
+  );
+
+  if (normalizedPlaylists.length === 0) {
+    return;
+  }
+
+  const insightById = new Map(
+    uniqueById(playlistInsights.filter((playlist): playlist is PlaylistInsight & { id: string } => Boolean(playlist?.id)))
+      .map((playlist) => [playlist.id, playlist]),
+  );
+
+  const seededInsights = normalizedPlaylists.map((playlist) => {
+    const existingInsight = insightById.get(playlist.id);
+
+    if (existingInsight) {
+      return existingInsight;
+    }
+
+    return {
+      ...toBasicInsight(playlist, []),
+      listeningCadence: "Public playlist snapshot only",
+    } satisfies PlaylistInsight;
+  });
+
+  await Promise.all([
+    writeStoredPlaylistLibrary(spotifyUserId, normalizedPlaylists),
+    writeStoredPlaylistInsights(spotifyUserId, seededInsights),
+  ]);
+}
+
 function reorderPlaylistInsightsFromRecentPlay(
   playlistInsights: PlaylistInsight[],
   recentPlays: StoredRecentPlay[],
