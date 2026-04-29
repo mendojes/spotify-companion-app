@@ -15,9 +15,9 @@ export function PublicPlaylistDetailRefresh({
   const router = useRouter();
 
   useEffect(() => {
-    if (!shouldRefresh) {
-      return;
-    }
+    if (!shouldRefresh) return;
+
+    console.log("[public-detail-refresh] starting", playlistId);
 
     let cancelled = false;
 
@@ -31,13 +31,13 @@ export function PublicPlaylistDetailRefresh({
           },
         );
 
-        if (!response.ok || cancelled) {
-          return;
-        }
+        console.log("[public-detail-refresh] response", response.status);
+
+        if (!response.ok || cancelled) return;
 
         router.refresh();
-      } catch {
-        // keep stored fallback visible
+      } catch (err) {
+        console.error("[public-detail-refresh] failed", err);
       }
     }
 

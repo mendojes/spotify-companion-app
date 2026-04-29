@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasSpotifyConnection, requireSession } from "@/lib/auth";
-import { getPublicSpotifyPlaylistDetail, getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { getPlaylistPageDataFromHistory, seedStoredPublicPlaylistSnapshot } from "@/lib/spotify-playlists";
+import {
+  getPlaylistPageDataFromHistory,
+  seedStoredPublicPlaylistSnapshot,
+} from "@/lib/spotify-playlists";
+import {
+  getPublicSpotifyPlaylistDetail,
+  getPublicSpotifyProfileInsights,
+} from "@/lib/spotify-public";
 import { PlaylistInsight } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-function detailToPlaylistInsight(detail: Awaited<ReturnType<typeof getPublicSpotifyPlaylistDetail>>): PlaylistInsight | null {
-  if (!detail) {
-    return null;
-  }
+function detailToPlaylistInsight(
+  detail: Awaited<ReturnType<typeof getPublicSpotifyPlaylistDetail>>,
+): PlaylistInsight | null {
+  if (!detail) return null;
 
   return {
     id: detail.id,
@@ -21,7 +27,7 @@ function detailToPlaylistInsight(detail: Awaited<ReturnType<typeof getPublicSpot
     mood: detail.mood,
     topGenresSummary:
       detail.topGenres.length > 0
-        ? detail.topGenres.slice(0, 3).join(", ")
+        ? detail.topGenres.slice(0, 3).map((g) => g.genre).join(", ")
         : detail.diversity,
     diversity: detail.diversity,
     listeningCadence: detail.listeningCadence,
@@ -30,6 +36,8 @@ function detailToPlaylistInsight(detail: Awaited<ReturnType<typeof getPublicSpot
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
+
   const session = await requireSession();
 
   if (hasSpotifyConnection(session)) {
@@ -52,23 +60,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing playlistId." }, { status: 400 });
   }
 
+  console.log(`[public-detail-sync] START user=${session.spotifyUserId} playlist=${playlistId}`);
+
   try {
     const [detail, publicInsights, storedPageData] = await Promise.all([
-      getPublicSpotifyPlaylistDetail(playlistId),
+      getPublicSpotifyPlaylistDetail(playlistId).catch((err) => {
+        console.error("[public-detail-sync] detail fetch failed", err);
+        return null;
+      }),
       getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null),
       getPlaylistPageDataFromHistory(session.spotifyUserId, "last_listened_desc").catch(() => null),
     ]);
 
     if (!detail) {
-      return NextResponse.json(
-        { error: "Public playlist detail could not be loaded." },
-        { status: 404 },
-      );
+      console.warn(`[public-detail-sync] NO DETAIL playlist=${playlistId}`);
+      return NextResponse.json({ error: "No detail returned" }, { status: 404 });
+    }
+
+    const nextInsight = detailToPlaylistInsight(detail);
+
+    if (!nextInsight) {
+      console.warn(`[public-detail-sync] FAILED TO BUILD INSIGHT playlist=${playlistId}`);
+      return NextResponse.json({ error: "Insight conversion failed" }, { status: 500 });
     }
 
     const publicLibrary = publicInsights?.publicPlaylists ?? [];
     const existingInsights = storedPageData?.playlists ?? [];
-    const nextInsight = detailToPlaylistInsight(detail);
 
     const mergedInsightsById = new Map<string, PlaylistInsight>();
 
@@ -78,31 +95,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (nextInsight?.id) {
-      mergedInsightsById.set(nextInsight.id, nextInsight);
-    }
+    mergedInsightsById.set(nextInsight.id!, nextInsight);
 
     await seedStoredPublicPlaylistSnapshot(
       session.spotifyUserId,
       publicLibrary,
       [...mergedInsightsById.values()],
-    ).catch(() => undefined);
+    ).catch((err) => {
+      console.error("[public-detail-sync] snapshot write failed", err);
+    });
+
+    console.log(
+      `[public-detail-sync] DONE playlist=${playlistId} durationMs=${Date.now() - startedAt}`,
+    );
 
     return NextResponse.json(
       { ok: true, playlistId },
-      {
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      },
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    console.error("[public-detail-sync] ERROR", error);
+
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to refresh public playlist detail.",
+        error: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },
     );

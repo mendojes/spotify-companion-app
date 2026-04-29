@@ -3,7 +3,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { PublicProfileSyncStatus } from "@/components/public-profile-sync-status";
 import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
 import { PlaylistDetail } from "@/lib/types";
 import { PlaylistDetailView } from "./playlist-detail-view";
@@ -179,18 +178,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             </div>
           </div>
 
-          {session.spotifyUserId ? (
-            <PublicProfileSyncStatus
-              spotifyUserId={session.spotifyUserId}
-              shouldStart={Boolean(session.spotifyUserId)}
-              expectedPlaylistCount={Math.max(
-                visiblePlaylistIds.size,
-                storedPlaylists.length,
-                publicInsights?.publicPlaylistCount ?? 0,
-              )}
-            />
-          ) : null}
-
           {!storedDetail ? (
             <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
               Detailed public playlist analysis is being refreshed in the background.
@@ -234,16 +221,13 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
               </div>
             ) : null}
             <div>
-              <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">
-                Playlist Lab
-              </p>
+              <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Playlist Lab</p>
               <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">
                 {detail.name}
               </h1>
               <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
                 {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
-                This view breaks down the playlist&apos;s mood center, genre
-                composition, repeat patterns, top tracks, and listening timeline.
+                This view breaks down the playlist&apos;s mood center, genre composition, repeat patterns, top tracks, and listening timeline.
               </p>
               <div className="mt-4 space-y-1 text-sm text-[var(--theme-muted)]">
                 <p>Created estimate: {formatDateLabel(detail.createdAt)}</p>
@@ -270,41 +254,29 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="glass-panel rounded-[28px] p-5">
             <p className="text-sm text-[var(--theme-muted)]">Tracks analyzed</p>
-            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">
-              {detail.trackCount}
-            </p>
+            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.trackCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
             <p className="text-sm text-[var(--theme-muted)]">Unique artists</p>
-            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">
-              {detail.uniqueArtistCount}
-            </p>
+            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueArtistCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
             <p className="text-sm text-[var(--theme-muted)]">Unique albums</p>
-            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">
-              {detail.uniqueAlbumCount}
-            </p>
+            <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{detail.uniqueAlbumCount}</p>
           </div>
           <div className="glass-panel rounded-[28px] p-5">
             <p className="text-sm text-[var(--theme-muted)]">Mood center</p>
-            <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">
-              {detail.mood}
-            </p>
+            <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">{detail.mood}</p>
           </div>
         </div>
 
         {isAnalysisPending ? (
           <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-            Listening Lore tried to refresh this playlist from Spotify, but only
-            partial stored analysis is available right now. Some sections may stay
-            minimal until Spotify returns enough playlist metadata or you refresh
-            the playlist snapshot again.
+            Listening Lore tried to refresh this playlist from Spotify, but only partial stored analysis is available right now. Some sections may stay minimal until Spotify returns enough playlist metadata or you refresh the playlist snapshot again.
           </div>
         ) : (
           <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-            This playlist page is using refreshed playlist analysis with stored
-            fallback so it can stay populated even if Spotify is slow.
+            This playlist page is using refreshed playlist analysis with stored fallback so it can stay populated even if Spotify is slow.
           </div>
         )}
 
