@@ -102,6 +102,10 @@ function extractGenreSeedsFromPlaylistInsights(playlistInsights: PlaylistInsight
   });
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isRetriableMongoError(error: unknown) {
   const message = getErrorMessage(error).toLowerCase();
   return message.includes("27017") || message.includes("timed out") || message.includes("server selection");
