@@ -145,18 +145,25 @@ export function PublicProfileSyncStatus({
     };
   }, [router, shouldStart, spotifyUserId]);
 
-  const display = useMemo(() => {
+  const display: PublicProfileSyncState = useMemo(() => {
     if (!syncState) {
       return {
+        spotifyUserId,
+        profileUrl: "",
         status: shouldStart ? "running" : "idle",
         phase: shouldStart ? "Preparing public playlist sync" : "Public playlist sync idle",
         processedPlaylists: 0,
         totalPlaylists: expectedPlaylistCount ?? 0,
-      } satisfies Partial<PublicProfileSyncState>;
+        startedAt: undefined,
+        finishedAt: undefined,
+        updatedAt: undefined,
+        durationMs: undefined,
+        error: undefined,
+      };
     }
 
     return syncState;
-  }, [expectedPlaylistCount, shouldStart, syncState]);
+  }, [expectedPlaylistCount, shouldStart, spotifyUserId, syncState]);
 
   const toneClass =
     display.status === "completed"
@@ -176,9 +183,10 @@ export function PublicProfileSyncStatus({
             ? "Syncing public playlists"
             : "Ready to sync";
 
-  const totalPlaylists = display.totalPlaylists && display.totalPlaylists > 0
-    ? display.totalPlaylists
-    : expectedPlaylistCount ?? 0;
+  const totalPlaylists =
+    display.totalPlaylists && display.totalPlaylists > 0
+      ? display.totalPlaylists
+      : expectedPlaylistCount ?? 0;
 
   return (
     <div className={`rounded-[24px] border px-5 py-4 text-[var(--theme-body)] ${toneClass} ${className}`.trim()}>
