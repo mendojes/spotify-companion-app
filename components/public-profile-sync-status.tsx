@@ -10,6 +10,8 @@ type PublicProfileSyncState = {
   phase: string;
   processedPlaylists: number;
   totalPlaylists: number;
+  skippedPlaylists: number;
+  skippedPlaylistNames?: string[];
   startedAt?: string;
   finishedAt?: string;
   updatedAt?: string;
@@ -47,6 +49,7 @@ function formatDuration(durationMs?: number) {
   }
 
   const totalSeconds = Math.round(durationMs / 1000);
+
   if (totalSeconds < 60) {
     return `${totalSeconds}s`;
   }
@@ -112,6 +115,7 @@ export function PublicProfileSyncStatus({
       }
 
       didStartRef.current = true;
+
       void fetch("/api/public/profile-sync", {
         method: "POST",
         cache: "no-store",
@@ -154,6 +158,8 @@ export function PublicProfileSyncStatus({
         phase: shouldStart ? "Preparing public playlist sync" : "Public playlist sync idle",
         processedPlaylists: 0,
         totalPlaylists: expectedPlaylistCount ?? 0,
+        skippedPlaylists: 0,
+        skippedPlaylistNames: [],
         startedAt: undefined,
         finishedAt: undefined,
         updatedAt: undefined,
@@ -188,6 +194,8 @@ export function PublicProfileSyncStatus({
       ? display.totalPlaylists
       : expectedPlaylistCount ?? 0;
 
+  const skippedNames = display.skippedPlaylistNames ?? [];
+
   return (
     <div className={`rounded-[24px] border px-5 py-4 text-[var(--theme-body)] ${toneClass} ${className}`.trim()}>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -196,12 +204,17 @@ export function PublicProfileSyncStatus({
           <p className="font-display text-2xl text-[var(--theme-title)]">{statusLabel}</p>
           <p className="text-sm leading-6">{display.phase}</p>
         </div>
-        <div className="rounded-full border border-white/50 bg-white/50 px-4 py-2 text-sm text-[var(--theme-text)]">
-          {display.processedPlaylists ?? 0}/{totalPlaylists} playlists
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="rounded-full border border-white/50 bg-white/50 px-4 py-2 text-sm text-[var(--theme-text)]">
+            {display.processedPlaylists ?? 0}/{totalPlaylists} playlists
+          </div>
+          <div className="rounded-full border border-white/50 bg-white/50 px-4 py-2 text-sm text-[var(--theme-text)]">
+            {display.skippedPlaylists ?? 0} skipped
+          </div>
         </div>
       </div>
 
-      <div className={`mt-4 grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-4"}`}>
+      <div className={`mt-4 grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-5"}`}>
         <div className="rounded-2xl border border-white/40 bg-white/50 px-4 py-3">
           <p className="text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">Started</p>
           <p className="mt-2 text-sm text-[var(--theme-text)]">{formatClock(display.startedAt)}</p>
@@ -218,7 +231,18 @@ export function PublicProfileSyncStatus({
           <p className="text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">Last update</p>
           <p className="mt-2 text-sm text-[var(--theme-text)]">{formatClock(display.updatedAt)}</p>
         </div>
+        <div className="rounded-2xl border border-white/40 bg-white/50 px-4 py-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">Skipped</p>
+          <p className="mt-2 text-sm text-[var(--theme-text)]">{display.skippedPlaylists ?? 0}</p>
+        </div>
       </div>
+
+      {skippedNames.length > 0 ? (
+        <div className="mt-4 rounded-2xl border border-amber-200/60 bg-white/60 px-4 py-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-[var(--theme-muted)]">Skipped playlists</p>
+          <p className="mt-2 text-sm leading-6 text-[var(--theme-text)]">{skippedNames.join(", ")}</p>
+        </div>
+      ) : null}
 
       {display.error ? (
         <p className="mt-4 rounded-2xl border border-rose-200/60 bg-white/60 px-4 py-3 text-sm text-rose-700">

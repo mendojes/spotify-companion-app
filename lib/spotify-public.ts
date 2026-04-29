@@ -41,6 +41,8 @@ export type PublicProfileSyncState = {
   phase: string;
   processedPlaylists: number;
   totalPlaylists: number;
+  skippedPlaylists: number;
+  skippedPlaylistNames?: string[];
   startedAt?: string;
   finishedAt?: string;
   updatedAt?: string;
@@ -70,10 +72,27 @@ const PUBLIC_PROFILE_TTL_MS = 1000 * 60 * 5;
 const PUBLIC_PLAYLIST_PREVIEW_LIMIT = 6;
 const PUBLIC_PLAYLIST_PAGE_SIZE = 50;
 const PUBLIC_PLAYLIST_MAX_PAGES = 20;
-const PUBLIC_PROFILE_CACHE_VERSION = "v5";
+const PUBLIC_PROFILE_CACHE_VERSION = "v6";
 const PUBLIC_PROFILE_FETCH_TIMEOUT_MS = 8_000;
 const PUBLIC_PROFILE_SYNC_COLLECTION = "public_profile_sync_status";
 const PUBLIC_PROFILE_SYNC_STALE_MS = 1000 * 60 * 10;
+const PUBLIC_PLAYLIST_ANALYSIS_TIMEOUT_MS = 15_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
 
 async function fetchPublicSpotifyUser(accessToken: string, spotifyUserId: string) {
   return spotifyFetch<PublicSpotifyUser>(`/users/${spotifyUserId}`, accessToken);
@@ -113,7 +132,9 @@ async function fetchPlaylistById(accessToken: string, playlistId: string) {
 }
 
 function getScriptPayloads(html: string) {
-  return [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1]?.trim()).filter(Boolean) as string[];
+  return [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((match) => match[1]?.trim())
+    .filter(Boolean) as string[];
 }
 
 async function fetchProfilePageHtml(profileUrl: string) {
@@ -161,11 +182,12 @@ function normalizeArtistCandidate(value: unknown): PublicProfileArtist | null {
   }
 
   const candidate = value as Record<string, unknown>;
-  const id = typeof candidate.id === "string"
-    ? candidate.id
-    : typeof candidate.uri === "string" && candidate.uri.startsWith("spotify:artist:")
-      ? candidate.uri.slice("spotify:artist:".length)
-      : null;
+  const id =
+    typeof candidate.id === "string"
+      ? candidate.id
+      : typeof candidate.uri === "string" && candidate.uri.startsWith("spotify:artist:")
+        ? candidate.uri.slice("spotify:artist:".length)
+        : null;
   const name = typeof candidate.name === "string" ? candidate.name : null;
 
   if (!id || !name) {
@@ -176,9 +198,12 @@ function normalizeArtistCandidate(value: unknown): PublicProfileArtist | null {
   const images = candidate.images;
 
   if (Array.isArray(images)) {
-    const firstImage = images.find((image) => image && typeof image === "object" && typeof (image as { url?: unknown }).url === "string") as
-      | { url: string }
-      | undefined;
+    const firstImage = images.find(
+      (image) =>
+        image &&
+        typeof image === "object" &&
+        typeof (image as { url?: unknown }).url === "string",
+    ) as { url: string } | undefined;
     imageUrl = firstImage?.url;
   }
 
@@ -190,7 +215,11 @@ function normalizeArtistCandidate(value: unknown): PublicProfileArtist | null {
   };
 }
 
-function collectRecentArtistCandidates(value: unknown, path: string[] = [], results: PublicProfileArtist[] = []) {
+function collectRecentArtistCandidates(
+  value: unknown,
+  path: string[] = [],
+  results: PublicProfileArtist[] = [],
+) {
   if (Array.isArray(value)) {
     const normalized = value
       .map((item) => normalizeArtistCandidate(item))
@@ -248,6 +277,7 @@ async function scrapePublicPlaylistsFromProfile(profileUrl: string, accessToken:
   if (!html) {
     return [] as SpotifyPlaylist[];
   }
+
   const playlistIds = scrapePlaylistIdsFromProfileHtml(html).slice(0, PUBLIC_PLAYLIST_PAGE_SIZE);
 
   if (playlistIds.length === 0) {
@@ -331,6 +361,8 @@ function defaultSyncState(spotifyUserId: string, profileUrl?: string): PublicPro
     phase: "Waiting to start",
     processedPlaylists: 0,
     totalPlaylists: 0,
+    skippedPlaylists: 0,
+    skippedPlaylistNames: [],
   };
 }
 
@@ -349,6 +381,7 @@ async function writePublicProfileSyncState(
   }
 
   const now = new Date().toISOString();
+
   await db.collection<StoredPublicProfileSyncState>(PUBLIC_PROFILE_SYNC_COLLECTION).updateOne(
     { id: spotifyUserId },
     {
@@ -395,6 +428,8 @@ export async function getPublicProfileSyncState(
       phase: stored.phase,
       processedPlaylists: stored.processedPlaylists,
       totalPlaylists: stored.totalPlaylists,
+      skippedPlaylists: stored.skippedPlaylists ?? 0,
+      skippedPlaylistNames: stored.skippedPlaylistNames ?? [],
       startedAt: stored.startedAt,
       finishedAt: stored.finishedAt,
       updatedAt: stored.updatedAt,
@@ -411,7 +446,12 @@ function estimateSyncDurationMs(playlists: SpotifyPlaylist[]) {
   return 1500 + playlists.length * 900 + totalTracks * 180;
 }
 
-async function fetchVisiblePublicPlaylists(accessToken: string | null, spotifyUserId: string, resolvedProfileUrl: string, profileHtml: string | null) {
+async function fetchVisiblePublicPlaylists(
+  accessToken: string | null,
+  spotifyUserId: string,
+  resolvedProfileUrl: string,
+  profileHtml: string | null,
+) {
   if (!accessToken) {
     return {
       playlists: [] as SpotifyPlaylist[],
@@ -423,17 +463,22 @@ async function fetchVisiblePublicPlaylists(accessToken: string | null, spotifyUs
     playlists: [] as SpotifyPlaylist[],
     total: 0,
   }));
-  const scrapedPlaylists = apiPlaylistResult.playlists.length > 0
-    ? [] as SpotifyPlaylist[]
-    : profileHtml
-      ? await Promise.all(
-        scrapePlaylistIdsFromProfileHtml(profileHtml)
-          .slice(0, PUBLIC_PLAYLIST_PAGE_SIZE)
-          .map((playlistId) => fetchPlaylistById(accessToken, playlistId).catch(() => null)),
-      ).then((playlists) => playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)))
-      : await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(() => [] as SpotifyPlaylist[]);
+
+  const scrapedPlaylists =
+    apiPlaylistResult.playlists.length > 0
+      ? ([] as SpotifyPlaylist[])
+      : profileHtml
+        ? await Promise.all(
+            scrapePlaylistIdsFromProfileHtml(profileHtml)
+              .slice(0, PUBLIC_PLAYLIST_PAGE_SIZE)
+              .map((playlistId) => fetchPlaylistById(accessToken, playlistId).catch(() => null)),
+          ).then((playlists) => playlists.filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist)))
+        : await scrapePublicPlaylistsFromProfile(resolvedProfileUrl, accessToken).catch(
+            () => [] as SpotifyPlaylist[],
+          );
 
   const dedupedPlaylists = new Map<string, SpotifyPlaylist>();
+
   [...apiPlaylistResult.playlists, ...scrapedPlaylists].forEach((playlist) => {
     if (playlist?.id && !dedupedPlaylists.has(playlist.id)) {
       dedupedPlaylists.set(playlist.id, playlist);
@@ -462,11 +507,14 @@ export async function runPublicProfileInsightsSync(
   }
 
   const startedAt = new Date().toISOString();
+
   await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, {
     status: "running",
     phase: "Loading public Spotify profile",
     processedPlaylists: 0,
     totalPlaylists: 0,
+    skippedPlaylists: 0,
+    skippedPlaylistNames: [],
     startedAt,
     finishedAt: undefined,
     durationMs: undefined,
@@ -484,6 +532,8 @@ export async function runPublicProfileInsightsSync(
       phase: accessToken ? "Loading public playlists" : "Spotify app token unavailable",
       processedPlaylists: 0,
       totalPlaylists: 0,
+      skippedPlaylists: 0,
+      skippedPlaylistNames: [],
       startedAt,
       error: accessToken ? undefined : "Could not fetch a Spotify app token for public playlist analysis.",
     });
@@ -491,6 +541,7 @@ export async function runPublicProfileInsightsSync(
     if (!accessToken) {
       const finishedAt = new Date().toISOString();
       const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+
       const failedState: PublicProfileSyncState = {
         spotifyUserId,
         profileUrl: resolvedProfileUrl,
@@ -498,17 +549,26 @@ export async function runPublicProfileInsightsSync(
         phase: "Spotify app token unavailable",
         processedPlaylists: 0,
         totalPlaylists: 0,
+        skippedPlaylists: 0,
+        skippedPlaylistNames: [],
         startedAt,
         finishedAt,
         updatedAt: finishedAt,
         durationMs,
         error: "Missing or invalid Spotify client credentials for public playlist analysis.",
       };
+
       await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, failedState);
       return failedState;
     }
 
-    const playlistFetchResult = await fetchVisiblePublicPlaylists(accessToken, spotifyUserId, resolvedProfileUrl, profileHtml);
+    const playlistFetchResult = await fetchVisiblePublicPlaylists(
+      accessToken,
+      spotifyUserId,
+      resolvedProfileUrl,
+      profileHtml,
+    );
+
     const publicPlaylists = playlistFetchResult.playlists;
     const totalPlaylists = Math.max(playlistFetchResult.total, publicPlaylists.length);
 
@@ -524,25 +584,50 @@ export async function runPublicProfileInsightsSync(
       phase: publicPlaylists.length > 0 ? "Analyzing public playlists" : "No public playlists found",
       processedPlaylists: 0,
       totalPlaylists,
+      skippedPlaylists: 0,
+      skippedPlaylistNames: [],
       startedAt,
       error: undefined,
     });
 
     const playlistInsights: PlaylistInsight[] = [];
+    const skippedPlaylistNames: string[] = [];
 
     for (let index = 0; index < publicPlaylists.length; index += 1) {
       const playlist = publicPlaylists[index];
-      const nextInsights = await getPublicPlaylistInsights(accessToken, [playlist], 1).catch(() => [] as PlaylistInsight[]);
+
+      await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, {
+        status: "running",
+        phase: `Analyzing playlist ${index + 1} of ${publicPlaylists.length}: ${playlist.name}`,
+        processedPlaylists: index,
+        totalPlaylists,
+        skippedPlaylists: skippedPlaylistNames.length,
+        skippedPlaylistNames,
+        startedAt,
+        durationMs: Date.now() - new Date(startedAt).getTime(),
+      });
+
+      const nextInsights = await withTimeout(
+        getPublicPlaylistInsights(accessToken, [playlist], 1).catch(() => [] as PlaylistInsight[]),
+        PUBLIC_PLAYLIST_ANALYSIS_TIMEOUT_MS,
+        [] as PlaylistInsight[],
+      );
 
       if (nextInsights[0]) {
         playlistInsights.push(nextInsights[0]);
+      } else {
+        skippedPlaylistNames.push(playlist.name);
       }
 
       await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, {
         status: "running",
-        phase: `Analyzing public playlists (${index + 1}/${publicPlaylists.length})`,
+        phase: nextInsights[0]
+          ? `Finished playlist ${index + 1} of ${publicPlaylists.length}: ${playlist.name}`
+          : `Skipped playlist ${index + 1} of ${publicPlaylists.length}: ${playlist.name}`,
         processedPlaylists: index + 1,
         totalPlaylists,
+        skippedPlaylists: skippedPlaylistNames.length,
+        skippedPlaylistNames,
         startedAt,
         durationMs: Date.now() - new Date(startedAt).getTime(),
       });
@@ -556,13 +641,21 @@ export async function runPublicProfileInsightsSync(
     }
 
     const finishedAt = new Date().toISOString();
+
     const completedState: PublicProfileSyncState = {
       spotifyUserId,
       profileUrl: resolvedProfileUrl,
       status: "completed",
-      phase: publicPlaylists.length > 0 ? "Public playlist insights ready" : "No public playlists found",
+      phase:
+        publicPlaylists.length > 0
+          ? skippedPlaylistNames.length > 0
+            ? `Public playlist insights ready with ${skippedPlaylistNames.length} skipped`
+            : "Public playlist insights ready"
+          : "No public playlists found",
       processedPlaylists: publicPlaylists.length,
       totalPlaylists,
+      skippedPlaylists: skippedPlaylistNames.length,
+      skippedPlaylistNames,
       startedAt,
       finishedAt,
       updatedAt: finishedAt,
@@ -574,6 +667,7 @@ export async function runPublicProfileInsightsSync(
     return completedState;
   } catch (error) {
     const finishedAt = new Date().toISOString();
+
     const failedState: PublicProfileSyncState = {
       spotifyUserId,
       profileUrl: resolvedProfileUrl,
@@ -581,6 +675,8 @@ export async function runPublicProfileInsightsSync(
       phase: "Public playlist sync failed",
       processedPlaylists: existing.processedPlaylists ?? 0,
       totalPlaylists: existing.totalPlaylists ?? 0,
+      skippedPlaylists: existing.skippedPlaylists ?? 0,
+      skippedPlaylistNames: existing.skippedPlaylistNames ?? [],
       startedAt,
       finishedAt,
       updatedAt: finishedAt,
@@ -600,83 +696,123 @@ export async function getPublicSpotifyProfileInsights(
 ) {
   const playlistInsightLimit = options?.playlistInsightLimit ?? PUBLIC_PLAYLIST_PREVIEW_LIMIT;
 
-  return getCachedValue(`public-profile:${PUBLIC_PROFILE_CACHE_VERSION}:${spotifyUserId}:${profileUrl ?? "default"}:${playlistInsightLimit}`, PUBLIC_PROFILE_TTL_MS, async (): Promise<PublicSpotifyProfileInsights | null> => {
-    const resolvedProfileUrl = profileUrl ?? `https://open.spotify.com/user/${spotifyUserId}`;
-    const storedFallback = await buildStoredPublicProfileFallback(spotifyUserId, resolvedProfileUrl, playlistInsightLimit).catch(() => null);
-    const [profileHtml, accessToken] = await Promise.all([
-      fetchProfilePageHtml(resolvedProfileUrl).catch(() => null),
-      getSpotifyClientCredentialsToken().catch(() => null),
-    ]);
-    const user = accessToken ? await fetchPublicSpotifyUser(accessToken, spotifyUserId).catch(() => null) : null;
-    const recentArtists = profileHtml ? scrapeRecentArtistsFromProfileHtml(profileHtml) : storedFallback?.recentArtists ?? [];
+  return getCachedValue(
+    `public-profile:${PUBLIC_PROFILE_CACHE_VERSION}:${spotifyUserId}:${profileUrl ?? "default"}:${playlistInsightLimit}`,
+    PUBLIC_PROFILE_TTL_MS,
+    async (): Promise<PublicSpotifyProfileInsights | null> => {
+      const resolvedProfileUrl = profileUrl ?? `https://open.spotify.com/user/${spotifyUserId}`;
+      const storedFallback = await buildStoredPublicProfileFallback(
+        spotifyUserId,
+        resolvedProfileUrl,
+        playlistInsightLimit,
+      ).catch(() => null);
 
-    if (!accessToken) {
-      if (!user && !profileHtml) {
-        return storedFallback;
+      const [profileHtml, accessToken] = await Promise.all([
+        fetchProfilePageHtml(resolvedProfileUrl).catch(() => null),
+        getSpotifyClientCredentialsToken().catch(() => null),
+      ]);
+
+      const user = accessToken
+        ? await fetchPublicSpotifyUser(accessToken, spotifyUserId).catch(() => null)
+        : null;
+
+      const recentArtists = profileHtml
+        ? scrapeRecentArtistsFromProfileHtml(profileHtml)
+        : storedFallback?.recentArtists ?? [];
+
+      if (!accessToken) {
+        if (!user && !profileHtml) {
+          return storedFallback;
+        }
+
+        return storedFallback
+          ? {
+              ...storedFallback,
+              displayName:
+                user?.display_name ??
+                (profileHtml ? scrapeDisplayNameFromProfileHtml(profileHtml) : storedFallback.displayName),
+              imageUrl: user?.images?.[0]?.url ?? storedFallback.imageUrl,
+              profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
+              recentArtists,
+              recentArtistsVisible: recentArtists.length > 0,
+            }
+          : profileHtml
+            ? {
+                spotifyUserId,
+                displayName: scrapeDisplayNameFromProfileHtml(profileHtml),
+                imageUrl: undefined,
+                profileUrl: resolvedProfileUrl,
+                publicPlaylistCount: 0,
+                publicPlaylists: [],
+                playlistInsights: [],
+                moodData: [],
+                moodSource: "Public Spotify profile HTML only",
+                recentArtists,
+                recentArtistsVisible: recentArtists.length > 0,
+                fetchedAt: new Date().toISOString(),
+              }
+            : null;
       }
 
-      return storedFallback
-        ? {
-          ...storedFallback,
-          displayName: user?.display_name ?? (profileHtml ? scrapeDisplayNameFromProfileHtml(profileHtml) : storedFallback.displayName),
-          imageUrl: user?.images?.[0]?.url ?? storedFallback.imageUrl,
-          profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
-          recentArtists,
-          recentArtistsVisible: recentArtists.length > 0,
-        }
-        : profileHtml
-          ? {
-            spotifyUserId,
-            displayName: scrapeDisplayNameFromProfileHtml(profileHtml),
-            imageUrl: undefined,
-            profileUrl: resolvedProfileUrl,
-            publicPlaylistCount: 0,
-            publicPlaylists: [],
-            playlistInsights: [],
-            moodData: [],
-            moodSource: "Public Spotify profile HTML only",
-            recentArtists,
-            recentArtistsVisible: recentArtists.length > 0,
-            fetchedAt: new Date().toISOString(),
-          }
-          : null;
-    }
+      if (!user && !profileHtml && !storedFallback) {
+        return null;
+      }
 
-    if (!user && !profileHtml && !storedFallback) {
-      return null;
-    }
+      const playlistFetchResult = await fetchVisiblePublicPlaylists(
+        accessToken,
+        spotifyUserId,
+        resolvedProfileUrl,
+        profileHtml,
+      );
 
-    const playlistFetchResult = await fetchVisiblePublicPlaylists(accessToken, spotifyUserId, resolvedProfileUrl, profileHtml);
-    const publicPlaylists = playlistFetchResult.playlists;
+      const publicPlaylists = playlistFetchResult.playlists;
 
-    if (publicPlaylists.length > 0) {
-      await seedStoredPublicPlaylistSnapshot(spotifyUserId, publicPlaylists, []).catch(() => undefined);
-      invalidateDashboardSectionRuntimeCache(spotifyUserId);
-      await writeStoredPlaylistsSectionCache(spotifyUserId).catch(() => undefined);
-    }
+      if (publicPlaylists.length > 0) {
+        await seedStoredPublicPlaylistSnapshot(spotifyUserId, publicPlaylists, []).catch(() => undefined);
+        invalidateDashboardSectionRuntimeCache(spotifyUserId);
+        await writeStoredPlaylistsSectionCache(spotifyUserId).catch(() => undefined);
+      }
 
-    const fallbackAfterSeed = publicPlaylists.length > 0
-      ? await buildStoredPublicProfileFallback(spotifyUserId, resolvedProfileUrl, playlistInsightLimit).catch(() => storedFallback)
-      : storedFallback;
-    const playlistInsights = fallbackAfterSeed?.playlistInsights.slice(0, playlistInsightLimit) ?? [];
-    const moodInsights = deriveGenreBasedMoodInsights(extractGenreSeedsFromPlaylistInsights(fallbackAfterSeed?.playlistInsights ?? playlistInsights));
-    const resolvedPlaylists = publicPlaylists.length > 0 ? publicPlaylists : fallbackAfterSeed?.publicPlaylists ?? [];
+      const fallbackAfterSeed =
+        publicPlaylists.length > 0
+          ? await buildStoredPublicProfileFallback(
+              spotifyUserId,
+              resolvedProfileUrl,
+              playlistInsightLimit,
+            ).catch(() => storedFallback)
+          : storedFallback;
 
-    return {
-      spotifyUserId,
-      displayName: user?.display_name ?? (profileHtml ? scrapeDisplayNameFromProfileHtml(profileHtml) : storedFallback?.displayName ?? "Spotify listener"),
-      imageUrl: user?.images?.[0]?.url ?? storedFallback?.imageUrl,
-      profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
-      publicPlaylistCount: Math.max(playlistFetchResult.total, resolvedPlaylists.length, fallbackAfterSeed?.publicPlaylistCount ?? 0),
-      publicPlaylists: resolvedPlaylists,
-      playlistInsights,
-      moodData: moodInsights.moodData,
-      moodSource: `${moodInsights.moodSource} (public playlist sync continues in the background)`,
-      recentArtists,
-      recentArtistsVisible: recentArtists.length > 0,
-      fetchedAt: new Date().toISOString(),
-    };
-  });
+      const playlistInsights = fallbackAfterSeed?.playlistInsights.slice(0, playlistInsightLimit) ?? [];
+      const moodInsights = deriveGenreBasedMoodInsights(
+        extractGenreSeedsFromPlaylistInsights(fallbackAfterSeed?.playlistInsights ?? playlistInsights),
+      );
+      const resolvedPlaylists =
+        publicPlaylists.length > 0 ? publicPlaylists : fallbackAfterSeed?.publicPlaylists ?? [];
+
+      return {
+        spotifyUserId,
+        displayName:
+          user?.display_name ??
+          (profileHtml
+            ? scrapeDisplayNameFromProfileHtml(profileHtml)
+            : storedFallback?.displayName ?? "Spotify listener"),
+        imageUrl: user?.images?.[0]?.url ?? storedFallback?.imageUrl,
+        profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
+        publicPlaylistCount: Math.max(
+          playlistFetchResult.total,
+          resolvedPlaylists.length,
+          fallbackAfterSeed?.publicPlaylistCount ?? 0,
+        ),
+        publicPlaylists: resolvedPlaylists,
+        playlistInsights,
+        moodData: moodInsights.moodData,
+        moodSource: `${moodInsights.moodSource} (public playlist sync continues in the background)`,
+        recentArtists,
+        recentArtistsVisible: recentArtists.length > 0,
+        fetchedAt: new Date().toISOString(),
+      };
+    },
+  );
 }
 
 export function getEstimatedPublicPlaylistInsightTime(playlists: SpotifyPlaylist[]) {
