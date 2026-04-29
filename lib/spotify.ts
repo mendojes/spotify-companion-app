@@ -274,3 +274,7 @@ export async function spotifyFetchOptional<T>(path: string, accessToken: string)
 
   return response.json() as Promise<T>;
 }
+
+export async function getSpotifyProfile(accessToken: string) {
+  return spotifyFetch<SpotifyProfile>("/me", accessToken);
+}
