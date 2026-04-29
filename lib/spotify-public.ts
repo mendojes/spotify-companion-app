@@ -316,23 +316,36 @@ export async function getPublicSpotifyProfileInsights(
     const recentArtists = profileHtml ? scrapeRecentArtistsFromProfileHtml(profileHtml) : storedFallback?.recentArtists ?? [];
 
     if (!accessToken) {
-      if (!user && !profileHtml) {
-        return storedFallback;
-      }
-
-      return storedFallback
-        ? {
+      if (storedFallback) {
+        return {
           ...storedFallback,
-          displayName: user?.display_name ?? (profileHtml ? scrapeDisplayNameFromProfileHtml(profileHtml) : storedFallback.displayName),
-          imageUrl: user?.images?.[0]?.url ?? storedFallback.imageUrl,
-          profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
+          displayName: profileHtml
+            ? scrapeDisplayNameFromProfileHtml(profileHtml)
+            : storedFallback.displayName,
+          profileUrl: resolvedProfileUrl,
           recentArtists,
           recentArtistsVisible: recentArtists.length > 0,
-        }
-        : null;
-    }
+          fetchedAt: new Date().toISOString(),
+        };
+      }
 
-    if (!user && !profileHtml && !storedFallback) {
+      if (profileHtml) {
+        return {
+          spotifyUserId,
+          displayName: scrapeDisplayNameFromProfileHtml(profileHtml),
+          imageUrl: undefined,
+          profileUrl: resolvedProfileUrl,
+          publicPlaylistCount: 0,
+          publicPlaylists: [],
+          playlistInsights: [],
+          moodData: [],
+          moodSource: "Public profile HTML only",
+          recentArtists,
+          recentArtistsVisible: recentArtists.length > 0,
+          fetchedAt: new Date().toISOString(),
+        };
+      }
+
       return null;
     }
 
