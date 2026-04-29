@@ -114,8 +114,6 @@ type StoredArtistMetadata = {
   updatedAt: string;
 };
 
-const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
-
 function normalizeArtistCacheKey(value: string) {
   return value.trim().toLocaleLowerCase();
 }
