@@ -15,7 +15,9 @@ export function PublicPlaylistDetailRefresh({
   const router = useRouter();
 
   useEffect(() => {
-    if (!shouldRefresh) return;
+    if (!shouldRefresh) {
+      return;
+    }
 
     console.log("[public-detail-refresh] starting", playlistId);
 
@@ -31,11 +33,17 @@ export function PublicPlaylistDetailRefresh({
           },
         );
 
-        console.log("[public-detail-refresh] response", response.status);
+        const payload = await response.json().catch(() => null);
 
-        if (!response.ok || cancelled) return;
+        console.log("[public-detail-refresh] response", response.status, payload);
 
-        router.refresh();
+        if (cancelled) {
+          return;
+        }
+
+        if (response.ok && payload?.ok) {
+          router.refresh();
+        }
       } catch (err) {
         console.error("[public-detail-refresh] failed", err);
       }
