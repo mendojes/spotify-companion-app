@@ -2,8 +2,12 @@ import { FavoritePickerTargetSummary, FavoritePickerTargetType, FavoritePickerTr
 import { AuthSession, getAuthorizedSession, hasSpotifyConnection } from "@/lib/auth";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { SpotifyPlaylist, SpotifyPlaylistTrackItem, SpotifyPlaylistTracksResponse, SpotifyTrack } from "@/lib/types";
-import { getStoredPlaylistLibrary, getPlaylistPageDataFromHistory  } from "@/lib/spotify-playlists";
-import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
+import {
+  getStoredPlaylistLibrary,
+  getPlaylistPageDataFromHistory,
+  getPlaylistDetailFromHistory,
+  getStoredPlaylistTrackItems,
+} from "@/lib/spotify-playlists";import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 
 
 type SpotifyImage = { url: string };
@@ -172,6 +176,15 @@ function toFavoritePickerTrack(
     sourceTargetIds: [sourceTarget.id],
     sourceLabels: [`${sourceTarget.type}: ${sourceTarget.name}`],
   } satisfies FavoritePickerTrack;
+}
+
+function isUsableSpotifyTrack(value: unknown): value is SpotifyTrack {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const track = value as SpotifyTrack;
+  return Boolean(track.id && track.name && track.album?.name && Array.isArray(track.artists) && track.artists.length > 0);
 }
 
 function mergeTracks(tracks: FavoritePickerTrack[]) {
@@ -537,8 +550,42 @@ export async function getFavoritePickerPlaylistLibrary(session: AuthSession | nu
   return uniqueById(results);
 }
 
-async function resolveSingleTarget(accessToken: string, target: PickerTargetInput) {
+async function resolveSingleTarget(
+  session: AuthSession | null,
+  accessToken: string,
+  target: PickerTargetInput,
+) {
   if (target.type === "playlist") {
+    if (!hasSpotifyConnection(session) && session?.spotifyUserId) {
+      const [cachedDetail, cachedTrackItems] = await Promise.all([
+        getPlaylistDetailFromHistory(session.spotifyUserId, target.id).catch(() => null),
+        getStoredPlaylistTrackItems(session.spotifyUserId, target.id).catch(() => []),
+      ]);
+
+      const cachedTracks = cachedTrackItems
+        .map((item) => item?.track)
+        .filter(isUsableSpotifyTrack);
+
+      if (cachedDetail && cachedTracks.length > 0) {
+        const summary = toTargetSummary({
+          id: cachedDetail.id,
+          type: "playlist",
+          name: cachedDetail.name,
+          subtitle: cachedDetail.ownerName
+            ? `Your public playlists • ${cachedDetail.ownerName}`
+            : "Your public playlists",
+          imageUrl: cachedDetail.imageUrl,
+          spotifyUrl: `https://open.spotify.com/playlist/${cachedDetail.id}`,
+          trackCount: cachedDetail.trackCount ?? cachedTracks.length,
+        });
+
+        return {
+          target: summary,
+          tracks: mergeTracks(cachedTracks.map((track) => toFavoritePickerTrack(track, summary))),
+        };
+      }
+    }
+
     const playlist = await fetchPlaylist(accessToken, target.id);
     const summary = toTargetSummary({
       id: playlist.id,
@@ -607,8 +654,18 @@ export async function resolveFavoritePickerTargets(
   }
 
   const accessToken = await getPickerAccessToken(session);
-  const results = await Promise.all(parsedTargets.map((target) => resolveSingleTarget(accessToken, target).catch(() => null)));
-  const validResults = results.filter((result): result is NonNullable<typeof result> => Boolean(result));
+  const results = await Promise.all(
+    parsedTargets.map((target) =>
+      resolveSingleTarget(session, accessToken, target).catch((error) => {
+        console.error("[favorite-picker] failed to resolve target", target, error);
+        return null;
+      }),
+    ),
+  );  const validResults = results.filter((result): result is NonNullable<typeof result> => Boolean(result));
+
+  if (validResults.length === 0) {
+    throw new Error("None of the selected Spotify targets could be loaded right now.");
+  }
 
   return {
     targets: validResults.map((result) => result.target),

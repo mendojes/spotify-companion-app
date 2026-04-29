@@ -779,7 +779,7 @@ async function getStoredPlaylistTrackSyncState(spotifyUserId: string, playlistId
   }
 }
 
-async function getStoredPlaylistTrackItems(spotifyUserId: string, playlistId: string) {
+export async function getStoredPlaylistTrackItems(spotifyUserId: string, playlistId: string) {
   if (!hasMongoConfig()) {
     return [] as PlaylistTrackWithMeta[];
   }
