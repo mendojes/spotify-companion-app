@@ -1,51 +1,60 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef } from "react";
 
 export function PublicPlaylistBackgroundWorker({
   playlistIds,
 }: {
   playlistIds: string[];
 }) {
-  const router = useRouter();
-  const running = useRef(false);
+  const startedRef = useRef(false);
+
+  const stablePlaylistIds = useMemo(
+    () => [...new Set(playlistIds.filter(Boolean))].sort(),
+    [playlistIds],
+  );
 
   useEffect(() => {
-    if (running.current) return;
-    running.current = true;
+    if (startedRef.current) {
+      return;
+    }
 
+    if (stablePlaylistIds.length === 0) {
+      return;
+    }
+
+    startedRef.current = true;
     let cancelled = false;
 
     async function sleep(ms: number) {
-      return new Promise((r) => setTimeout(r, ms));
+      return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     async function run() {
-      for (const id of playlistIds) {
-        if (cancelled) break;
+      for (const playlistId of stablePlaylistIds) {
+        if (cancelled) {
+          return;
+        }
 
         try {
-          await fetch(`/api/public/playlist-detail-sync?playlistId=${id}`, {
+          await fetch(`/api/public/playlist-detail-sync?playlistId=${encodeURIComponent(playlistId)}`, {
             method: "POST",
             cache: "no-store",
           });
-        } catch {}
+        } catch (error) {
+          console.error("[public-playlist-worker] failed", playlistId, error);
+        }
 
         await sleep(2000);
       }
-
-      running.current = false;
-      if (!cancelled) router.refresh();
     }
 
-    run();
+    void run();
 
     return () => {
       cancelled = true;
-      running.current = false;
     };
-  }, [playlistIds, router]);
+  }, [stablePlaylistIds]);
 
   return null;
 }

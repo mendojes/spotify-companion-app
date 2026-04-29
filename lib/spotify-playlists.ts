@@ -274,8 +274,14 @@ function isUsablePlaylistTrack(track: unknown): track is SpotifyTrack {
 }
 
 function isPlaylistDetailIncomplete(detail: PlaylistDetail | CachedPlaylistDetail) {
-  return detail.trackCount <= 0 || detail.mood.toLowerCase().includes("analysis pending");
+  return (
+    detail.trackCount <= 0 ||
+    detail.uniqueArtistCount <= 0 ||
+    detail.mood.toLowerCase().includes("analysis pending") ||
+    detail.topGenres.length === 0
+  );
 }
+
 function normalizePlaylist(playlist: Partial<SpotifyPlaylist> | null | undefined): SpotifyPlaylist | null {
   if (!playlist?.id || !playlist.name) {
     return null;
@@ -942,11 +948,32 @@ function uniqueById<T extends Identifiable>(items: T[]) {
 
 function decodeHtmlEntities(value: string) {
   return value
+    .replace(/(?:&|\$)#x27;/gi, "'")
+    .replace(/(?:&|\$)#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&rsquo;/g, "’")
+    .replace(/&lsquo;/g, "‘")
+    .replace(/&rdquo;/g, "”")
+    .replace(/&ldquo;/g, "“")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+      try {
+        return String.fromCodePoint(Number.parseInt(hex, 16));
+      } catch {
+        return "";
+      }
+    })
+    .replace(/&#(\d+);/g, (_, code) => {
+      try {
+        return String.fromCodePoint(Number.parseInt(code, 10));
+      } catch {
+        return "";
+      }
+    })
     .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ");
 }
 
 async function fetchPublicPlaylistPageHtml(playlistId: string) {
@@ -1580,6 +1607,46 @@ async function fetchMusicBrainzArtistTags(artistNames: string[]) {
   return tagMap;
 }
 
+function buildGenreSummaryFromTextFallback(tracks: SpotifyTrack[]): PlaylistGenreSummary[] {
+  const text = tracks
+    .flatMap((track) => [
+      track.name,
+      track.album?.name,
+      ...track.artists.map((artist) => artist.name),
+    ])
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const genreScores = new Map<string, number>();
+
+  function add(genre: string, score: number) {
+    genreScores.set(genre, (genreScores.get(genre) ?? 0) + score);
+  }
+
+  if (/(lo[-\s]?fi|jhfly|flovry|kendall miles|i eat plants|tender spring|chillhop|beats?)/i.test(text)) {
+    add("lo-fi beats", tracks.length);
+    add("instrumental hip hop", Math.max(1, Math.round(tracks.length * 0.7)));
+  }
+
+  if (/(dream|memory|warm|soft|sleep|ambient|hazy|sequence|drift)/i.test(text)) {
+    add("ambient chill", Math.max(1, Math.round(tracks.length * 0.6)));
+  }
+
+  if (/(jazz|bossa|soul|groove|keys|piano)/i.test(text)) {
+    add("jazz-influenced", Math.max(1, Math.round(tracks.length * 0.5)));
+  }
+
+  if (genreScores.size === 0 && tracks.length > 0) {
+    add("public playlist deep cuts", tracks.length);
+  }
+
+  return [...genreScores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([genre, count]) => ({ genre, count }));
+}
+
 function normalizeArtistName(value: string) {
   return value.trim().toLowerCase();
 }
@@ -1999,6 +2066,10 @@ if (topGenres.length === 0) {
   if (artistTags.size > 0) {
     await writeMusicBrainzGenresToPermanentArtistCache(tracks, artistTags).catch(() => undefined);
     topGenres = buildGenreSummaryFromArtistTags(tracks, artistTags);
+  }
+
+  if (topGenres.length === 0) {
+    topGenres = buildGenreSummaryFromTextFallback(tracks);
   }
 }
   const sampleTracks = buildSampleTracks(tracks);
