@@ -1,4 +1,4 @@
-import { getDatabase, hasMongoConfig } from "@/lib/mongo";
+import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 
 const COLLECTION = "public_playlist_sync_state";
 
