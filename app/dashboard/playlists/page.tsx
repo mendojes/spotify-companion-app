@@ -251,11 +251,12 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
             playlistIds={publicPlaylists
               .filter((playlist) =>
                 playlist.mood.toLowerCase().includes("pending") ||
-                (playlist.topGenresSummary ?? "").toLowerCase().includes("loading"),
+                (playlist.topGenresSummary ?? "").toLowerCase().includes("loading") ||
+                (playlist.topGenresSummary ?? "").toLowerCase().includes("cached artist metadata") ||
+                playlist.trackCount === 0,
               )
               .map((playlist) => playlist.id ?? "")
-              .filter(Boolean)}
-          />
+              .filter(Boolean)}          />
         ) : null}
 
         <div className="mx-auto max-w-7xl space-y-8">

@@ -4,6 +4,7 @@ import {
   getPlaylistDetailFromHistory,
   getPlaylistPageDataFromHistory,
   getStoredPlaylistLibrary,
+  storePublicPlaylistAnalysisResult,
   seedStoredPublicPlaylistSnapshot,
 } from "@/lib/spotify-playlists";
 import { getPublicSpotifyPlaylistDetail } from "@/lib/spotify-public";
@@ -65,7 +66,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Pro
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   const timeoutPromise = new Promise<T>((resolve) => {
-    timeoutId = setTimeout(() => resolve(fallback), ms);
+    timeoutId = setTimeout(() => resolve(fallback));
   });
 
   try {
@@ -114,6 +115,7 @@ export async function POST(request: NextRequest) {
       storedDetail &&
       storedDetail.trackCount > 0 &&
       storedDetail.uniqueArtistCount > 0 &&
+      storedDetail.topGenres.length > 0 &&
       !storedDetail.mood.toLowerCase().includes("pending")
     ) {
       console.log(
@@ -121,7 +123,7 @@ export async function POST(request: NextRequest) {
       );
 
       return NextResponse.json(
-        { ok: true, cached: true, playlistId },
+        { ok: true, cached: true, playlistId, done: true },
         { headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -139,13 +141,22 @@ export async function POST(request: NextRequest) {
       detailToPlaylistInsight(detail) ??
       buildPendingInsightFromStoredLibrary({ playlistId, storedLibrary });
 
+    if (detail) {
+      await storePublicPlaylistAnalysisResult(session.spotifyUserId, detail).catch((error) => {
+        console.error(
+          `[public-detail-sync] DETAIL STORE FAILED user=${session.spotifyUserId} playlist=${playlistId}`,
+          error,
+        );
+      });
+    }
+
     if (!nextInsight) {
       console.warn(
         `[public-detail-sync] NO DETAIL OR STORED LIBRARY user=${session.spotifyUserId} playlist=${playlistId} durationMs=${Date.now() - startedAt}`,
       );
 
       return NextResponse.json(
-        { ok: false, playlistId, reason: "detail_unavailable" },
+        { ok: false, playlistId, reason: "detail_unavailable", done: false },
         { status: 202, headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -177,7 +188,18 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json(
-      { ok: true, partial: !detail, playlistId },
+      {
+        ok: true,
+        partial: !detail,
+        playlistId,
+        done: Boolean(
+          detail &&
+          detail.trackCount > 0 &&
+          detail.uniqueArtistCount > 0 &&
+          detail.topGenres.length > 0 &&
+          !detail.mood.toLowerCase().includes("pending"),
+        ),
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
@@ -188,6 +210,7 @@ export async function POST(request: NextRequest) {
         ok: false,
         playlistId,
         error: error instanceof Error ? error.message : "Failed to refresh public playlist detail.",
+        done: false,
       },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );

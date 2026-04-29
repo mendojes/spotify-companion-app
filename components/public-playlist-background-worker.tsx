@@ -11,19 +11,44 @@ type WorkerResponse = {
   ok?: boolean;
   partial?: boolean;
   playlistId?: string;
+  done?: boolean;
   reason?: string;
   error?: string;
 };
+
+const STORAGE_KEY = "public-playlist-worker-completed";
+
+function readCompletedIds() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return new Set<string>();
+    }
+
+    return new Set<string>(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeCompletedIds(ids: Set<string>) {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore
+  }
+}
 
 export function PublicPlaylistBackgroundWorker({
   playlistIds,
 }: PublicPlaylistBackgroundWorkerProps) {
   const router = useRouter();
+  const runningRef = useRef(false);
+
   const queue = useMemo(
     () => [...new Set(playlistIds.filter(Boolean))],
     [playlistIds],
   );
-  const runningRef = useRef(false);
 
   useEffect(() => {
     if (queue.length === 0 || runningRef.current) {
@@ -38,9 +63,16 @@ export function PublicPlaylistBackgroundWorker({
     }
 
     async function run() {
+      const completedIds = readCompletedIds();
+      let didCompleteAny = false;
+
       for (const playlistId of queue) {
         if (cancelled) {
           break;
+        }
+
+        if (completedIds.has(playlistId)) {
+          continue;
         }
 
         try {
@@ -55,8 +87,10 @@ export function PublicPlaylistBackgroundWorker({
           const payload = (await response.json().catch(() => null)) as WorkerResponse | null;
           console.log("[public-playlist-worker]", playlistId, response.status, payload);
 
-          if (payload?.ok) {
-            router.refresh();
+          if (payload?.done) {
+            completedIds.add(playlistId);
+            writeCompletedIds(completedIds);
+            didCompleteAny = true;
           }
 
           await sleep(1500);
@@ -67,6 +101,10 @@ export function PublicPlaylistBackgroundWorker({
       }
 
       runningRef.current = false;
+
+      if (!cancelled && didCompleteAny) {
+        router.refresh();
+      }
     }
 
     void run();

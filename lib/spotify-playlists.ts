@@ -334,6 +334,47 @@ export async function getStoredPlaylistLibrary(spotifyUserId: string) {
     .filter((playlist): playlist is SpotifyPlaylist => Boolean(playlist));
 }
 
+export async function storePublicPlaylistAnalysisResult(
+  spotifyUserId: string,
+  detail: PlaylistDetail,
+) {
+  await writeCachedPlaylistDetails(spotifyUserId, [detail]);
+
+  const existingInsights = await getStoredPlaylistInsights(spotifyUserId).catch(
+    () => [] as PlaylistInsight[],
+  );
+
+  const nextInsight: PlaylistInsight = {
+    id: detail.id,
+    name: detail.name,
+    imageUrl: detail.imageUrl,
+    trackCount: detail.trackCount,
+    createdAt: detail.createdAt,
+    lastListenedAt: detail.lastListenedAt,
+    mood: detail.mood,
+    topGenresSummary:
+      detail.topGenres.length > 0
+        ? detail.topGenres.slice(0, 3).map((genre) => genre.genre).join(", ")
+        : detail.diversity,
+    diversity: detail.diversity,
+    listeningCadence: detail.listeningCadence,
+    overlap: detail.overlap,
+  };
+
+  const mergedInsightsById = new Map<string, PlaylistInsight>();
+
+  for (const insight of existingInsights) {
+    if (insight.id) {
+      mergedInsightsById.set(insight.id, insight);
+    }
+  }
+
+  mergedInsightsById.set(nextInsight.id!, nextInsight);
+
+  await writeStoredPlaylistInsights(spotifyUserId, [...mergedInsightsById.values()]);
+  invalidatePlaylistInsightsCache(spotifyUserId);
+}
+
 export async function getPlaylistLibraryStatus(spotifyUserId: string): Promise<PlaylistLibraryStatus> {
   if (!hasMongoConfig()) {
     return { playlistCount: 0 };
