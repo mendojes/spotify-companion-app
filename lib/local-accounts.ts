@@ -4,8 +4,13 @@ import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 const LOCAL_ACCOUNTS_COLLECTION = "local_accounts";
 const PASSWORD_KEY_LENGTH = 64;
 const ADMIN_ACCOUNT_ID = "local-admin";
-const ADMIN_USERNAME = (process.env.LOCAL_ADMIN_USERNAME ?? process.env.ADMIN_USERNAME ?? "admin").trim().toLowerCase();
-const ADMIN_PASSWORD = process.env.LOCAL_ADMIN_PASSWORD ?? process.env.ADMIN_PASSWORD ?? "admin12345!";
+const ADMIN_USERNAME = (
+  process.env.LOCAL_ADMIN_USERNAME ??
+  process.env.ADMIN_USERNAME ??
+  "admin"
+)
+  .trim()
+  .toLowerCase();
 
 export type LocalAccountRole = "user" | "admin";
 
@@ -22,20 +27,49 @@ export type LocalAccount = {
   updatedAt: string;
 };
 
-export type LocalAccountSummary = Pick<LocalAccount, "id" | "username" | "displayName" | "spotifyProfileUrl" | "spotifyUserId" | "createdAt" | "updatedAt" | "role">;
+export type LocalAccountSummary = Pick<
+  LocalAccount,
+  | "id"
+  | "username"
+  | "displayName"
+  | "spotifyProfileUrl"
+  | "spotifyUserId"
+  | "createdAt"
+  | "updatedAt"
+  | "role"
+>;
+
+type MongoDuplicateKeyError = {
+  code?: number;
+  keyPattern?: Record<string, number>;
+  keyValue?: Record<string, unknown>;
+  message?: string;
+};
 
 export function normalizeUsername(username: string) {
   return username.trim().toLowerCase();
 }
 
+function getAdminPassword() {
+  const password =
+    process.env.LOCAL_ADMIN_PASSWORD ?? process.env.ADMIN_PASSWORD;
+
+  if (!password) {
+    throw new Error("Missing LOCAL_ADMIN_PASSWORD environment variable.");
+  }
+
+  return password;
+}
+
 function buildAdminAccount(): LocalAccount {
   const now = new Date().toISOString();
+  const adminPassword = getAdminPassword();
 
   return {
     id: ADMIN_ACCOUNT_ID,
     username: ADMIN_USERNAME,
     displayName: "Administrator",
-    passwordHash: hashPassword(ADMIN_PASSWORD, "local-admin"),
+    passwordHash: hashPassword(adminPassword, "local-admin"),
     spotifyProfileUrl: "https://open.spotify.com/user/admin",
     spotifyUserId: "admin",
     role: "admin",
@@ -44,8 +78,15 @@ function buildAdminAccount(): LocalAccount {
   };
 }
 
-export function isAdminAccount(account: Pick<LocalAccount, "role" | "username" | "id"> | null | undefined) {
-  return Boolean(account && (account.role === "admin" || account.id === ADMIN_ACCOUNT_ID || normalizeUsername(account.username) === ADMIN_USERNAME));
+export function isAdminAccount(
+  account: Pick<LocalAccount, "role" | "username" | "id"> | null | undefined,
+) {
+  return Boolean(
+    account &&
+      (account.role === "admin" ||
+        account.id === ADMIN_ACCOUNT_ID ||
+        normalizeUsername(account.username) === ADMIN_USERNAME),
+  );
 }
 
 export function parseSpotifyProfileInput(value: string) {
@@ -85,7 +126,9 @@ export function parseSpotifyProfileInput(value: string) {
   const spotifyUserId = userIndex >= 0 ? parts[userIndex + 1] : undefined;
 
   if (!spotifyUserId) {
-    throw new Error("Use your Spotify profile link, like open.spotify.com/user/...");
+    throw new Error(
+      "Use your Spotify profile link, like open.spotify.com/user/...",
+    );
   }
 
   return {
@@ -96,7 +139,10 @@ export function parseSpotifyProfileInput(value: string) {
 
 function hashPassword(password: string, salt?: string) {
   const nextSalt = salt ?? crypto.randomBytes(16).toString("hex");
-  const derivedKey = crypto.scryptSync(password, nextSalt, PASSWORD_KEY_LENGTH).toString("hex");
+  const derivedKey = crypto
+    .scryptSync(password, nextSalt, PASSWORD_KEY_LENGTH)
+    .toString("hex");
+
   return `${nextSalt}:${derivedKey}`;
 }
 
@@ -108,7 +154,11 @@ function verifyPassword(password: string, storedHash: string) {
   }
 
   const actualHash = hashPassword(password, salt).split(":")[1]!;
-  return crypto.timingSafeEqual(Buffer.from(actualHash, "hex"), Buffer.from(expectedHash, "hex"));
+
+  return crypto.timingSafeEqual(
+    Buffer.from(actualHash, "hex"),
+    Buffer.from(expectedHash, "hex"),
+  );
 }
 
 async function getAccountsCollection() {
@@ -123,8 +173,41 @@ async function getAccountsCollection() {
   }
 
   const collection = db.collection<LocalAccount>(LOCAL_ACCOUNTS_COLLECTION);
+
   await collection.createIndex({ username: 1 }, { unique: true });
+  await collection.createIndex(
+    { spotifyUserId: 1 },
+    {
+      unique: true,
+      sparse: true,
+    },
+  );
+
   return collection;
+}
+
+function buildDuplicateAccountError(error: MongoDuplicateKeyError) {
+  if (error.keyPattern?.username) {
+    return new Error("An account with that username already exists.");
+  }
+
+  if (error.keyPattern?.spotifyUserId) {
+    return new Error("An account with that Spotify profile already exists.");
+  }
+
+  if (error.keyPattern?.spotifyProfileUrl) {
+    return new Error(
+      "An account with that Spotify profile URL already exists.",
+    );
+  }
+
+  const duplicateFields = Object.keys(error.keyPattern ?? {});
+
+  if (duplicateFields.length > 0) {
+    return new Error(`Duplicate value for: ${duplicateFields.join(", ")}.`);
+  }
+
+  return new Error("A duplicate account record already exists.");
 }
 
 export async function createLocalAccount(input: {
@@ -140,7 +223,9 @@ export async function createLocalAccount(input: {
   }
 
   if (!/^[a-z0-9._-]+$/.test(username)) {
-    throw new Error("Username can use letters, numbers, periods, underscores, and hyphens.");
+    throw new Error(
+      "Username can use letters, numbers, periods, underscores, and hyphens.",
+    );
   }
 
   if (username === ADMIN_USERNAME) {
@@ -151,7 +236,9 @@ export async function createLocalAccount(input: {
     throw new Error("Password must be at least 8 characters.");
   }
 
-  const { spotifyProfileUrl, spotifyUserId } = parseSpotifyProfileInput(input.spotifyProfileInput);
+  const { spotifyProfileUrl, spotifyUserId } = parseSpotifyProfileInput(
+    input.spotifyProfileInput,
+  );
   const collection = await getAccountsCollection();
   const now = new Date().toISOString();
 
@@ -169,11 +256,11 @@ export async function createLocalAccount(input: {
 
   try {
     await collection.insertOne(account);
-  } catch (error) {
-    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  } catch (error: unknown) {
+    const mongoError = error as MongoDuplicateKeyError;
 
-    if (message.includes("duplicate")) {
-      throw new Error("An account with that username already exists.");
+    if (mongoError?.code === 11000) {
+      throw buildDuplicateAccountError(mongoError);
     }
 
     throw error;
@@ -182,11 +269,16 @@ export async function createLocalAccount(input: {
   return account;
 }
 
-export async function authenticateLocalAccount(input: { username: string; password: string }) {
+export async function authenticateLocalAccount(input: {
+  username: string;
+  password: string;
+}) {
   const username = normalizeUsername(input.username);
 
   if (username === ADMIN_USERNAME) {
-    if (input.password !== ADMIN_PASSWORD) {
+    const adminPassword = getAdminPassword();
+
+    if (input.password !== adminPassword) {
       throw new Error("Incorrect username or password.");
     }
 

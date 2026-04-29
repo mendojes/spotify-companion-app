@@ -4,6 +4,7 @@ const uri = process.env.spotify_app_MONGODB_URI || process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB_NAME || "spotify-app-db";
 
 const CONNECTED_USERS_COLLECTION = "connected_users";
+const LOCAL_ACCOUNTS_COLLECTION = "local_accounts";
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const DASHBOARD_OVERVIEW_COLLECTION = "dashboard_overview_cache";
@@ -32,24 +33,73 @@ try {
   const db = client.db(dbName);
 
   await Promise.all([
-    db.collection(CONNECTED_USERS_COLLECTION).createIndex({ spotifyUserId: 1 }, { unique: true }),
+    db
+      .collection(CONNECTED_USERS_COLLECTION)
+      .createIndex({ spotifyUserId: 1 }, { unique: true }),
     db.collection(CONNECTED_USERS_COLLECTION).createIndex({ lastSeenAt: -1 }),
+
+    db
+      .collection(LOCAL_ACCOUNTS_COLLECTION)
+      .createIndex({ username: 1 }, { unique: true }),
+    db.collection(LOCAL_ACCOUNTS_COLLECTION).createIndex(
+      { spotifyUserId: 1 },
+      {
+        unique: true,
+        sparse: true,
+      },
+    ),
+
     db.collection(RECENT_PLAYS_COLLECTION).createIndex(
       { spotifyUserId: 1, playedAt: -1, trackId: 1 },
       { unique: true },
     ),
-    db.collection(RECENT_PLAYS_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, playedAt: -1 }),
-    db.collection(SNAPSHOT_HISTORY_COLLECTION).createIndex({ spotifyUserId: 1, fetchedAt: -1 }),
-    db.collection(DASHBOARD_OVERVIEW_COLLECTION).createIndex({ spotifyUserId: 1 }, { unique: true }),
-    db.collection(DASHBOARD_TOP_LISTS_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, range: 1 }, { unique: true }),
-    db.collection(DASHBOARD_ANALYSIS_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, key: 1 }, { unique: true }),
-    db.collection(DASHBOARD_REDISCOVERY_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, range: 1 }, { unique: true }),
-    db.collection(DASHBOARD_PLAYLISTS_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, sort: 1 }, { unique: true }),
-    db.collection(ARTIST_METADATA_COLLECTION).createIndex({ artistId: 1 }, { unique: true }),
-    db.collection(AUDIO_FEATURE_CACHE_COLLECTION).createIndex({ id: 1 }, { unique: true }),
-    db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, position: 1 }, { unique: true }),
-    db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1, updatedAt: -1 }),
-    db.collection(PLAYLIST_TRACK_SYNC_COLLECTION).createIndex({ spotifyUserId: 1, playlistId: 1 }, { unique: true }),
+    db
+      .collection(RECENT_PLAYS_COLLECTION)
+      .createIndex({ spotifyUserId: 1, playlistId: 1, playedAt: -1 }),
+
+    db
+      .collection(SNAPSHOT_HISTORY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, fetchedAt: -1 }),
+
+    db
+      .collection(DASHBOARD_OVERVIEW_COLLECTION)
+      .createIndex({ spotifyUserId: 1 }, { unique: true }),
+
+    db
+      .collection(DASHBOARD_TOP_LISTS_CACHE_COLLECTION)
+      .createIndex({ spotifyUserId: 1, range: 1 }, { unique: true }),
+
+    db
+      .collection(DASHBOARD_ANALYSIS_CACHE_COLLECTION)
+      .createIndex({ spotifyUserId: 1, key: 1 }, { unique: true }),
+
+    db
+      .collection(DASHBOARD_REDISCOVERY_CACHE_COLLECTION)
+      .createIndex({ spotifyUserId: 1, range: 1 }, { unique: true }),
+
+    db
+      .collection(DASHBOARD_PLAYLISTS_CACHE_COLLECTION)
+      .createIndex({ spotifyUserId: 1, sort: 1 }, { unique: true }),
+
+    db
+      .collection(ARTIST_METADATA_COLLECTION)
+      .createIndex({ artistId: 1 }, { unique: true }),
+
+    db
+      .collection(AUDIO_FEATURE_CACHE_COLLECTION)
+      .createIndex({ id: 1 }, { unique: true }),
+
+    db.collection(PLAYLIST_TRACK_CACHE_COLLECTION).createIndex(
+      { spotifyUserId: 1, playlistId: 1, position: 1 },
+      { unique: true },
+    ),
+    db
+      .collection(PLAYLIST_TRACK_CACHE_COLLECTION)
+      .createIndex({ spotifyUserId: 1, playlistId: 1, updatedAt: -1 }),
+
+    db
+      .collection(PLAYLIST_TRACK_SYNC_COLLECTION)
+      .createIndex({ spotifyUserId: 1, playlistId: 1 }, { unique: true }),
   ]);
 
   console.log(`MongoDB indexes ensured for ${dbName}.`);
