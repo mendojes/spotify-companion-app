@@ -2,6 +2,8 @@ import { FavoritePickerTargetSummary, FavoritePickerTargetType, FavoritePickerTr
 import { AuthSession, getAuthorizedSession, hasSpotifyConnection } from "@/lib/auth";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { SpotifyPlaylist, SpotifyPlaylistTrackItem, SpotifyPlaylistTracksResponse, SpotifyTrack } from "@/lib/types";
+import { getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
+import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 
 type SpotifyImage = { url: string };
 
@@ -442,38 +444,69 @@ export async function getFavoritePickerSearchResultsPage(
 }
 
 export async function getFavoritePickerPlaylistLibrary(session: AuthSession | null) {
-  if (!session || !hasSpotifyConnection(session)) {
+  if (!session) {
     return [] as FavoritePickerTargetSummary[];
   }
 
-  const authorized = await getAuthorizedSession(session);
-  const results: FavoritePickerTargetSummary[] = [];
-  let offset = 0;
+  if (hasSpotifyConnection(session)) {
+    const authorized = await getAuthorizedSession(session);
+    const results: FavoritePickerTargetSummary[] = [];
+    let offset = 0;
 
-  while (true) {
-    const page = await spotifyFetch<{ items: SpotifyPlaylist[]; next: string | null }>(
-      `/me/playlists?limit=50&offset=${offset}`,
-      authorized.accessToken,
-    );
+    while (true) {
+      const page = await spotifyFetch<{ items: SpotifyPlaylist[]; next: string | null }>(
+        `/me/playlists?limit=50&offset=${offset}`,
+        authorized.accessToken,
+      );
 
-    results.push(...page.items.map((playlist) => toTargetSummary({
-      id: playlist.id,
-      type: "playlist",
-      name: playlist.name,
-      subtitle: playlist.owner?.display_name ? `Your library • ${playlist.owner.display_name}` : "Your library",
-      imageUrl: playlist.images?.[0]?.url,
-      trackCount: playlist.tracks?.total,
-      spotifyUrl: `https://open.spotify.com/playlist/${playlist.id}`,
-    })));
+      results.push(...page.items.map((playlist) => toTargetSummary({
+        id: playlist.id,
+        type: "playlist",
+        name: playlist.name,
+        subtitle: playlist.owner?.display_name ? `Your library • ${playlist.owner.display_name}` : "Your library",
+        imageUrl: playlist.images?.[0]?.url,
+        trackCount: playlist.tracks?.total,
+        spotifyUrl: `https://open.spotify.com/playlist/${playlist.id}`,
+      })));
 
-    if (!page.next || page.items.length === 0) {
-      break;
+      if (!page.next || page.items.length === 0) {
+        break;
+      }
+
+      offset += page.items.length;
     }
 
-    offset += page.items.length;
+    return uniqueById(results);
   }
 
-  return uniqueById(results);
+  if (!session.spotifyUserId) {
+    return [] as FavoritePickerTargetSummary[];
+  }
+
+  const storedLibrary = await getStoredPlaylistLibrary(session.spotifyUserId).catch(() => []);
+  const livePublicLibrary = storedLibrary.length === 0
+    ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
+    : null;
+
+  const playlists = storedLibrary.length > 0
+    ? storedLibrary
+    : (livePublicLibrary?.publicPlaylists ?? []);
+
+  return uniqueById(
+    playlists.map((playlist) =>
+      toTargetSummary({
+        id: playlist.id,
+        type: "playlist",
+        name: playlist.name,
+        subtitle: playlist.owner?.display_name
+          ? `Your public playlists • ${playlist.owner.display_name}`
+          : "Your public playlists",
+        imageUrl: playlist.images?.[0]?.url,
+        trackCount: playlist.tracks?.total,
+        spotifyUrl: `https://open.spotify.com/playlist/${playlist.id}`,
+      }),
+    ),
+  );
 }
 
 async function resolveSingleTarget(accessToken: string, target: PickerTargetInput) {

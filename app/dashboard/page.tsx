@@ -6,7 +6,6 @@ import { DashboardDeepRefreshMonitor } from "@/components/dashboard-deep-refresh
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { PublicMoodOverview } from "@/components/public-mood-overview";
-import { PublicProfileSyncStatus } from "@/components/public-profile-sync-status";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { getAuthorizedSession, hasSpotifyConnection, isAdminSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getDashboardOverviewData } from "@/lib/dashboard-overview";
@@ -173,14 +172,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const publicRecentArtists = publicInsights?.recentArtists ?? [];
     const publicVisiblePlaylists = publicInsights?.publicPlaylists ?? [];
     const hasPublicSections = Boolean(publicInsights || publicPlaylistCount > 0 || publicPlaylistCards.length > 0);
-    const publicSyncShouldStart = Boolean(
-      session.spotifyUserId && (
-        publicVisiblePlaylists.length > 0 ||
-        publicPlaylistCount > 0 ||
-        publicPlaylistSource.length === 0 ||
-        publicPlaylistSource.some((playlist) => playlist.mood.toLowerCase().includes("pending") || (playlist.topGenresSummary ?? "").toLowerCase().includes("loading"))
-      ),
-    );
 
     return (
       <main className="relative overflow-hidden pb-10">
@@ -225,15 +216,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   Account details
                 </Link>
               </div>
-
-              {session.spotifyUserId ? (
-                <PublicProfileSyncStatus
-                  spotifyUserId={session.spotifyUserId}
-                  shouldStart={publicSyncShouldStart}
-                  expectedPlaylistCount={publicPlaylistCount}
-                  className="mt-6"
-                />
-              ) : null}
             </div>
 
             {hasPublicSections ? (

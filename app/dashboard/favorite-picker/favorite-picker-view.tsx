@@ -187,28 +187,24 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
     }
   }, [userId]);
 
-  useEffect(() => {
-    if (!spotifyConnected) {
-      return;
-    }
+useEffect(() => {
+  setLoadingLibrary(true);
+  fetch("/api/favorite-picker/library", { cache: "no-store" })
+    .then(async (response) => {
+      const payload = await response.json() as { results?: FavoritePickerTargetSummary[]; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Could not load your playlists.");
+      }
 
-    setLoadingLibrary(true);
-    fetch("/api/favorite-picker/library", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json() as { results?: FavoritePickerTargetSummary[]; error?: string };
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Could not load Spotify playlists.");
-        }
-
-        setLibraryTargets(payload.results ?? []);
-      })
-      .catch((error) => {
-        setMessage(error instanceof Error ? error.message : "Could not load your Spotify playlists.");
-      })
-      .finally(() => {
-        setLoadingLibrary(false);
-      });
-  }, [spotifyConnected]);
+      setLibraryTargets(payload.results ?? []);
+    })
+    .catch((error) => {
+      setMessage(error instanceof Error ? error.message : "Could not load your playlists.");
+    })
+    .finally(() => {
+      setLoadingLibrary(false);
+    });
+}, []);
 
   const currentChoice = useMemo(() => (pickerState ? getFavoritePickerChoice(pickerState) : null), [pickerState]);
   const rankedTracks = useMemo(() => (pickerState ? getFavoritePickerRankedTracks(pickerState) : []), [pickerState]);
@@ -471,10 +467,10 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
           Rank songs head-to-head until your favorites shake out.
         </h1>
         <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--theme-body)]">
-          {spotifyConnected
-            ? `${displayName}, you can mix your own Spotify playlists with public albums, artists, and playlists from search or pasted links.`
-            : `${displayName}, you can use public Spotify playlists, albums, and artists from search or pasted links without connecting Spotify.`}
-        </p>
+        {spotifyConnected
+          ? `${displayName}, you can mix your own Spotify playlists with public albums, artists, and playlists from search or pasted links.`
+          : `${displayName}, you can use public Spotify playlists, albums, and artists from search or pasted links without connecting Spotify.`
+          }        </p>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <div className="desktop-card p-4">
             <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">Multi-source</p>
@@ -544,7 +540,7 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
                 </div>
                 <div className="desktop-card p-4">
                   <p className="font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">Mode</p>
-                  <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{spotifyConnected ? "Private playlists + public Spotify targets" : "Public Spotify targets"}</p>
+                  <p className="mt-2 text-sm leading-6 text-[var(--theme-body)]">{spotifyConnected ? "Your playlists + public Spotify targets" : "Your public playlists + public Spotify targets"}</p>
                 </div>
               </div>
 
@@ -718,27 +714,31 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
               </div>
             </div>
 
-            {spotifyConnected ? (
-              <div className="glass-panel rounded-[32px] p-4 text-[var(--theme-text)] sm:p-6">
-                <div className="flex items-center gap-3">
-                  <LibraryBig className="h-5 w-5 text-cyan" />
-                  <div>
-                    <p className="section-kicker">Your Spotify library</p>
-                    <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Pull from your own playlists</h2>
+            <div className="glass-panel rounded-[32px] p-4 text-[var(--theme-text)] sm:p-6">
+              <div className="flex items-center gap-3">
+                <LibraryBig className="h-5 w-5 text-cyan" />
+                <div>
+                  <p className="section-kicker">Your Spotify library</p>
+                  <h2 className="mt-1 font-display text-3xl uppercase tracking-[0.08em] text-[var(--theme-title)]">
+                    {spotifyConnected ? "Pull from your own playlists" : "Pull from your public playlists"}
+                  </h2>
+                </div>
+              </div>
+              <div className="mt-5">
+                <input
+                  value={libraryQuery}
+                  onChange={(event) => setLibraryQuery(event.target.value)}
+                  placeholder={spotifyConnected ? "Search your playlists" : "Search your public playlists"}
+                  className="w-full rounded-[18px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/70 px-4 py-3 text-base text-[var(--theme-text)]"
+                />
+              </div>
+              <div className="mt-5 space-y-3">
+                {loadingLibrary ? (
+                  <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
+                    {spotifyConnected ? "Loading your playlists..." : "Loading your public playlists..."}
                   </div>
-                </div>
-                <div className="mt-5">
-                  <input
-                    value={libraryQuery}
-                    onChange={(event) => setLibraryQuery(event.target.value)}
-                    placeholder="Search your playlists"
-                    className="w-full rounded-[18px] border-[3px] border-[rgba(44,12,70,0.2)] bg-white/70 px-4 py-3 text-base text-[var(--theme-text)]"
-                  />
-                </div>
-                <div className="mt-5 space-y-3">
-                  {loadingLibrary ? (
-                    <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">Loading your playlists...</div>
-                  ) : filteredLibraryTargets.length > 0 ? filteredLibraryTargets.slice(0, 18).map((target) => (
+                ) : filteredLibraryTargets.length > 0 ? (
+                  filteredLibraryTargets.slice(0, 18).map((target) => (
                     <TargetCard
                       key={`${target.type}-${target.id}`}
                       target={target}
@@ -751,15 +751,18 @@ export function FavoritePickerView({ spotifyConnected, displayName, userId }: Fa
                         </button>
                       )}
                     />
-                  )) : (
-                    <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
-                      {libraryTargets.length > 0 ? "No playlists matched that search." : "No playlists were available from your Spotify account yet."}
-                    </div>
-                  )}
-                </div>
+                  ))
+                ) : (
+                  <div className="desktop-card p-4 text-sm leading-7 text-[var(--theme-body)]">
+                    {libraryTargets.length > 0
+                      ? "No playlists matched that search."
+                      : spotifyConnected
+                        ? "No playlists were available from your Spotify account yet."
+                        : "No public playlists were available from your saved Spotify profile yet."}
+                  </div>
+                )}
               </div>
-            ) : null}
-          </section>
+            </div>          </section>
         </div>
       ) : null}
 
