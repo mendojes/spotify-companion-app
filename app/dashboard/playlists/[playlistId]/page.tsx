@@ -34,9 +34,9 @@ function buildPendingPublicDetail(args: {
     uniqueArtistCount: 0,
     uniqueAlbumCount: 0,
     mood: "Analysis pending",
-    diversity: "Pending genre analysis",
-    overlap: "Pending overlap analysis",
-    listeningCadence: "Pending cadence analysis",
+    diversity: "Preparing genre analysis",
+    overlap: "Preparing overlap analysis",
+    listeningCadence: "Preparing cadence analysis",
     createdAt: undefined,
     lastListenedAt: undefined,
     topGenres: [],
@@ -71,9 +71,9 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
         ).catch(() => null)
       : null;
 
-    const publicPlaylist = publicInsights?.publicPlaylists.find(
-      (playlist) => playlist.id === playlistId,
-    );
+    const libraryPlaylist =
+      publicInsights?.publicPlaylists.find((playlist) => playlist.id === playlistId) ??
+      storedPlaylists.find((playlist) => playlist.id === playlistId);
 
     const visiblePlaylistIds = new Set([
       ...(publicInsights?.publicPlaylists ?? []).map((playlist) => playlist.id),
@@ -86,13 +86,13 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
     const detail =
       storedDetail ??
-      (publicPlaylist
+      (libraryPlaylist
         ? buildPendingPublicDetail({
-            playlistId: publicPlaylist.id,
-            name: publicPlaylist.name,
-            imageUrl: publicPlaylist.images?.[0]?.url,
-            ownerName: publicPlaylist.owner?.display_name ?? publicPlaylist.owner?.id,
-            trackCount: publicPlaylist.tracks?.total ?? 0,
+            playlistId: libraryPlaylist.id,
+            name: libraryPlaylist.name,
+            imageUrl: libraryPlaylist.images?.[0]?.url,
+            ownerName: libraryPlaylist.owner?.display_name ?? libraryPlaylist.owner?.id,
+            trackCount: libraryPlaylist.tracks?.total ?? 0,
           })
         : null);
 
@@ -136,8 +136,8 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
                 <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
                   {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
                   {storedDetail
-                    ? "This playlist is being shown from Listening Lore's stored public playlist cache."
-                    : "This playlist is being shown from the public profile list while detailed analysis is prepared in the background."}
+                    ? "This playlist is being shown from Listening Lore's cached public playlist analysis."
+                    : "This playlist is being staged for cached analysis now. Once the track, artist, and insight stages finish, this page will refresh automatically."}
                 </p>
               </div>
             </div>
@@ -180,8 +180,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
           {!storedDetail ? (
             <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-              Detailed public playlist analysis is being refreshed in the background.
-              This page is using the visible public playlist snapshot for now.
+              Public playlist detail analysis is running in stages: playlist tracks are cached first, then artist metadata is resolved from Mongo and Spotify only when missing, and only then is the final analysis computed and stored.
             </div>
           ) : null}
 
@@ -211,20 +210,12 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
           <div className="flex items-center gap-6">
             {detail.imageUrl ? (
               <div className="relative h-36 w-36 overflow-hidden rounded-[32px] border border-white/10 bg-white/5">
-                <Image
-                  src={detail.imageUrl}
-                  alt={detail.name}
-                  fill
-                  sizes="144px"
-                  className="object-contain bg-white/[0.2]"
-                />
+                <Image src={detail.imageUrl} alt={detail.name} fill sizes="144px" className="object-contain bg-white/[0.2]" />
               </div>
             ) : null}
             <div>
               <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Playlist Lab</p>
-              <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">
-                {detail.name}
-              </h1>
+              <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">{detail.name}</h1>
               <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
                 {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
                 This view breaks down the playlist&apos;s mood center, genre composition, repeat patterns, top tracks, and listening timeline.
@@ -236,16 +227,10 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             </div>
           </div>
           <div className="flex gap-3">
-            <Link
-              href="/dashboard/playlists"
-              className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]"
-            >
+            <Link href="/dashboard/playlists" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               All playlists
             </Link>
-            <Link
-              href="/dashboard"
-              className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]"
-            >
+            <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               Dashboard
             </Link>
           </div>

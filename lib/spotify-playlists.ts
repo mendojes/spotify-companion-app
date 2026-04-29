@@ -34,6 +34,8 @@ const PLAYLIST_DETAIL_CACHE_COLLECTION = "spotify_playlist_detail_cache";
 const PLAYLIST_LIBRARY_COLLECTION = "spotify_playlist_library";
 const PLAYLIST_TRACK_CACHE_COLLECTION = "spotify_playlist_track_cache";
 const PLAYLIST_TRACK_SYNC_COLLECTION = "spotify_playlist_track_sync";
+const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
+const PUBLIC_PLAYLIST_DETAIL_STAGE_COLLECTION = "public_playlist_detail_stage";
 const PLAYLIST_DETAIL_REFRESH_LIMIT = 6;
 const MUSICBRAINZ_USER_AGENT = "SoundScope/0.1 ( playlist genre fallback )";
 const PLAYLIST_PUBLIC_TAG_FETCH_LIMIT = 30;
@@ -101,6 +103,31 @@ type StoredPlaylistTrackSyncState = {
 type TrackAffinity = {
   playCount: number;
   lastPlayedAt?: string;
+};
+
+type StoredArtistMetadata = {
+  artistId: string;
+  name: string;
+  genres: string[];
+  imageUrl?: string;
+  popularity: number;
+  updatedAt: string;
+};
+
+export type PublicPlaylistDetailStageState = {
+  spotifyUserId: string;
+  playlistId: string;
+  stage: "idle" | "tracks" | "artists" | "finalizing" | "completed" | "failed";
+  phase: string;
+  trackCount: number;
+  artistsResolved: number;
+  artistsTotal: number;
+  updatedAt?: string;
+  error?: string;
+};
+
+type StoredPublicPlaylistDetailStageState = PublicPlaylistDetailStageState & {
+  id: string;
 };
 
 type SpotifyTracksResponse = {
@@ -1091,6 +1118,111 @@ async function syncPlaylistTrackCache(
   };
 }
 
+function toStoredArtistMetadata(artist: SpotifyArtist): StoredArtistMetadata | null {
+  if (!artist?.id || !artist.name) {
+    return null;
+  }
+
+  return {
+    artistId: artist.id,
+    name: artist.name,
+    genres: Array.isArray(artist.genres) ? artist.genres : [],
+    imageUrl: artist.images?.[0]?.url,
+    popularity: artist.popularity ?? 0,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function toSpotifyArtistFromStoredMetadata(artist: StoredArtistMetadata): SpotifyArtist {
+  return {
+    id: artist.artistId,
+    name: artist.name,
+    genres: artist.genres ?? [],
+    popularity: artist.popularity ?? 0,
+    images: artist.imageUrl ? [{ url: artist.imageUrl }] : undefined,
+  };
+}
+
+async function getStoredArtistMetadataByIdsForPlaylistAnalysis(artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))];
+
+  if (!hasMongoConfig() || uniqueArtistIds.length === 0) {
+    return [] as SpotifyArtist[];
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return [] as SpotifyArtist[];
+    }
+
+    const records = await db
+      .collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION)
+      .find({ artistId: { $in: uniqueArtistIds } })
+      .toArray();
+
+    return records.map(toSpotifyArtistFromStoredMetadata);
+  } catch {
+    return [] as SpotifyArtist[];
+  }
+}
+
+async function getMissingStoredArtistMetadataIdsForPlaylistAnalysis(artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))];
+
+  if (!hasMongoConfig() || uniqueArtistIds.length === 0) {
+    return [] as string[];
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return uniqueArtistIds;
+    }
+
+    const records = await db
+      .collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION)
+      .find({ artistId: { $in: uniqueArtistIds } })
+      .project<{ artistId: string }>({ artistId: 1 })
+      .toArray();
+
+    const storedIds = new Set(records.map((record) => record.artistId));
+    return uniqueArtistIds.filter((artistId) => !storedIds.has(artistId));
+  } catch {
+    return uniqueArtistIds;
+  }
+}
+
+async function writeStoredArtistMetadataForPlaylistAnalysis(artists: SpotifyArtist[]) {
+  const metadata = artists
+    .map((artist) => toStoredArtistMetadata(artist))
+    .filter((artist): artist is StoredArtistMetadata => Boolean(artist));
+
+  if (!hasMongoConfig() || metadata.length === 0) {
+    return;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    await db.collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION).bulkWrite(
+      metadata.map((artist) => ({
+        updateOne: {
+          filter: { artistId: artist.artistId },
+          update: { $set: artist },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    );
+  } catch {
+    return;
+  }
+}
+
 async function fetchArtists(accessToken: string, artistIds: string[]) {
   const uniqueArtistIds = [...new Set(artistIds)];
 
@@ -1680,7 +1812,9 @@ async function analyzePlaylistFromTrackItems(
   const tracks = trackItems.map((item) => item.track);
   const artistIds = getTopArtistIdsByFrequency(tracks);
   const [artists, features] = await Promise.all([
-    accessToken ? fetchArtists(accessToken, artistIds).catch(() => [] as SpotifyArtist[]) : Promise.resolve([] as SpotifyArtist[]),
+    accessToken
+      ? fetchArtists(accessToken, artistIds).catch(() => [] as SpotifyArtist[])
+      : getStoredArtistMetadataByIdsForPlaylistAnalysis(artistIds).catch(() => [] as SpotifyArtist[]),
     accessToken ? fetchAudioFeatures(accessToken, tracks).catch(() => [] as SpotifyAudioFeature[]) : Promise.resolve([] as SpotifyAudioFeature[]),
   ]);
 
@@ -1693,7 +1827,7 @@ async function analyzePlaylistFromTrackItems(
     topGenres = buildGenreSummaryFromArtistGenreMap(tracks, allTimeArtistGenres);
   }
 
-  if (topGenres.length === 0) {
+  if (topGenres.length === 0 && accessToken) {
     const spotifySearchGenres = await fetchSpotifyArtistGenresBySearch(
       getTopArtistNamesByFrequency(tracks),
     ).catch(() => new Map<string, string[]>());
@@ -1703,7 +1837,7 @@ async function analyzePlaylistFromTrackItems(
     }
   }
 
-  if (topGenres.length === 0) {
+  if (topGenres.length === 0 && accessToken) {
     const artistTags = await fetchMusicBrainzArtistTags(
       getTopArtistNamesByFrequency(tracks),
     ).catch(() => new Map<string, string[]>());
@@ -2456,6 +2590,264 @@ export async function primeIgnoredPlaylistTrackCaches(
     } catch {
       continue;
     }
+  }
+}
+
+function defaultPublicPlaylistDetailStageState(spotifyUserId: string, playlistId: string): PublicPlaylistDetailStageState {
+  return {
+    spotifyUserId,
+    playlistId,
+    stage: "idle",
+    phase: "Waiting to start",
+    trackCount: 0,
+    artistsResolved: 0,
+    artistsTotal: 0,
+  };
+}
+
+async function readPublicPlaylistDetailStageState(spotifyUserId: string, playlistId: string) {
+  const fallback = defaultPublicPlaylistDetailStageState(spotifyUserId, playlistId);
+
+  if (!hasMongoConfig()) {
+    return fallback;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return fallback;
+    }
+
+    const stored = await db
+      .collection<StoredPublicPlaylistDetailStageState>(PUBLIC_PLAYLIST_DETAIL_STAGE_COLLECTION)
+      .findOne({ id: `${spotifyUserId}:${playlistId}` });
+
+    if (!stored) {
+      return fallback;
+    }
+
+    return {
+      spotifyUserId: stored.spotifyUserId,
+      playlistId: stored.playlistId,
+      stage: stored.stage,
+      phase: stored.phase,
+      trackCount: stored.trackCount,
+      artistsResolved: stored.artistsResolved,
+      artistsTotal: stored.artistsTotal,
+      updatedAt: stored.updatedAt,
+      error: stored.error,
+    } satisfies PublicPlaylistDetailStageState;
+  } catch {
+    return fallback;
+  }
+}
+
+async function writePublicPlaylistDetailStageState(
+  spotifyUserId: string,
+  playlistId: string,
+  updates: Partial<PublicPlaylistDetailStageState>,
+) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    await db.collection<StoredPublicPlaylistDetailStageState>(PUBLIC_PLAYLIST_DETAIL_STAGE_COLLECTION).updateOne(
+      { id: `${spotifyUserId}:${playlistId}` },
+      {
+        $set: {
+          id: `${spotifyUserId}:${playlistId}` ,
+          spotifyUserId,
+          playlistId,
+          updatedAt: now,
+          ...updates,
+        },
+      },
+      { upsert: true },
+    );
+  } catch {
+    return;
+  }
+}
+
+export async function getPublicPlaylistDetailAnalysisState(spotifyUserId: string, playlistId: string) {
+  return readPublicPlaylistDetailStageState(spotifyUserId, playlistId);
+}
+
+export async function advancePublicPlaylistDetailAnalysis(spotifyUserId: string, playlistId: string) {
+  const startedAt = Date.now();
+  const [recentPlays, storedInsights, allTimeTrackAffinity, allTimeArtistGenres, cachedDetails, storedTrackItemsExisting] = await Promise.all([
+    getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
+    getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
+    getAllTimeTrackAffinityMap(spotifyUserId),
+    getAllTimeArtistGenreMap(spotifyUserId),
+    getCachedPlaylistDetails(spotifyUserId, [playlistId]).catch(() => [] as CachedPlaylistDetail[]),
+    getStoredPlaylistTrackItems(spotifyUserId, playlistId).catch(() => [] as PlaylistTrackWithMeta[]),
+  ]);
+
+  const cached = cachedDetails[0];
+  if (cached && !isPlaylistDetailIncomplete(cached)) {
+    const done = {
+      spotifyUserId,
+      playlistId,
+      stage: "completed",
+      phase: "Playlist analysis ready",
+      trackCount: cached.trackCount,
+      artistsResolved: cached.uniqueArtistCount,
+      artistsTotal: cached.uniqueArtistCount,
+      updatedAt: new Date().toISOString(),
+      error: undefined,
+    } satisfies PublicPlaylistDetailStageState;
+    await writePublicPlaylistDetailStageState(spotifyUserId, playlistId, done);
+    return done;
+  }
+
+  try {
+    const accessToken = await getSpotifyClientCredentialsToken();
+    const playlist = await fetchPlaylistById(accessToken, playlistId);
+    await upsertStoredPlaylist(spotifyUserId, playlist);
+
+    let storedTrackItems = storedTrackItemsExisting;
+    const expectedTrackCount = playlist.tracks?.total ?? storedTrackItems.length;
+
+    if (storedTrackItems.length == 0) {
+      await writePublicPlaylistDetailStageState(spotifyUserId, playlistId, {
+        stage: "tracks",
+        phase: "Fetching playlist tracks",
+        trackCount: expectedTrackCount,
+        artistsResolved: 0,
+        artistsTotal: 0,
+        error: undefined,
+      });
+
+      const trackItems = await fetchPlaylistTrackItems(accessToken, playlistId);
+      if (trackItems.length === 0) {
+        throw new Error("No playlist tracks returned from Spotify.");
+      }
+
+      await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlist.id, trackItems, playlist.tracks?.total ?? trackItems.length);
+      storedTrackItems = trackItems;
+
+      const state = {
+        spotifyUserId,
+        playlistId,
+        stage: "tracks",
+        phase: `Cached ${trackItems.length} playlist tracks`,
+        trackCount: playlist.tracks?.total ?? trackItems.length,
+        artistsResolved: 0,
+        artistsTotal: getTopArtistIdsByFrequency(trackItems.map((item) => item.track)).length,
+        updatedAt: new Date().toISOString(),
+        error: undefined,
+      } satisfies PublicPlaylistDetailStageState;
+      await writePublicPlaylistDetailStageState(spotifyUserId, playlistId, state);
+      return state;
+    }
+
+    const tracks = storedTrackItems.map((item) => item.track);
+    const topArtistIds = getTopArtistIdsByFrequency(tracks);
+    const missingArtistIds = await getMissingStoredArtistMetadataIdsForPlaylistAnalysis(topArtistIds);
+
+    if (missingArtistIds.length > 0) {
+      const batch = missingArtistIds.slice(0, 50);
+      await writePublicPlaylistDetailStageState(spotifyUserId, playlistId, {
+        stage: "artists",
+        phase: `Caching artist metadata (${topArtistIds.length - missingArtistIds.length}/${topArtistIds.length})`,
+        trackCount: expectedTrackCount,
+        artistsResolved: topArtistIds.length - missingArtistIds.length,
+        artistsTotal: topArtistIds.length,
+        error: undefined,
+      });
+
+      const artists = await fetchArtists(accessToken, batch);
+      await writeStoredArtistMetadataForPlaylistAnalysis(artists);
+
+      const remainingAfterBatch = await getMissingStoredArtistMetadataIdsForPlaylistAnalysis(topArtistIds);
+      const state = {
+        spotifyUserId,
+        playlistId,
+        stage: remainingAfterBatch.length > 0 ? "artists" : "finalizing",
+        phase: remainingAfterBatch.length > 0
+          ? `Cached artist metadata (${topArtistIds.length - remainingAfterBatch.length}/${topArtistIds.length})`
+          : "Artist metadata ready",
+        trackCount: expectedTrackCount,
+        artistsResolved: topArtistIds.length - remainingAfterBatch.length,
+        artistsTotal: topArtistIds.length,
+        updatedAt: new Date().toISOString(),
+        error: undefined,
+      } satisfies PublicPlaylistDetailStageState;
+      await writePublicPlaylistDetailStageState(spotifyUserId, playlistId, state);
+      return state;
+    }
+
+    await writePublicPlaylistDetailStageState(spotifyUserId, playlistId, {
+      stage: "finalizing",
+      phase: "Building cached playlist insight",
+      trackCount: expectedTrackCount,
+      artistsResolved: topArtistIds.length,
+      artistsTotal: topArtistIds.length,
+      error: undefined,
+    });
+
+    const detail = await analyzePlaylistFromTrackItems(
+      playlist,
+      storedTrackItems,
+      recentPlays,
+      allTimeTrackAffinity,
+      allTimeArtistGenres,
+      undefined,
+    );
+
+    if (!detail) {
+      throw new Error("Playlist analysis could not be computed from stored data.");
+    }
+
+    await writeCachedPlaylistDetails(spotifyUserId, [detail]);
+    const nextInsights = uniqueById([
+      {
+        ...toInsight(detail, recentPlays),
+        lastListenedAt: storedInsights.find((entry) => entry.id === detail.id)?.lastListenedAt ?? detail.lastListenedAt,
+      },
+      ...storedInsights,
+    ]);
+
+    if (nextInsights.length > 0) {
+      await writeStoredPlaylistInsights(spotifyUserId, nextInsights);
+    }
+
+    const state = {
+      spotifyUserId,
+      playlistId,
+      stage: "completed",
+      phase: `Playlist analysis ready in ${Date.now() - startedAt}ms`,
+      trackCount: detail.trackCount,
+      artistsResolved: detail.uniqueArtistCount,
+      artistsTotal: detail.uniqueArtistCount,
+      updatedAt: new Date().toISOString(),
+      error: undefined,
+    } satisfies PublicPlaylistDetailStageState;
+    await writePublicPlaylistDetailStageState(spotifyUserId, playlistId, state);
+    return state;
+  } catch (error) {
+    const state = {
+      spotifyUserId,
+      playlistId,
+      stage: "failed",
+      phase: "Playlist analysis failed",
+      trackCount: storedTrackItemsExisting.length,
+      artistsResolved: 0,
+      artistsTotal: 0,
+      updatedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+    } satisfies PublicPlaylistDetailStageState;
+    await writePublicPlaylistDetailStageState(spotifyUserId, playlistId, state);
+    return state;
   }
 }
 
