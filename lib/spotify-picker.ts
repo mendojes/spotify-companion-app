@@ -7,10 +7,10 @@ import {
   getPlaylistPageDataFromHistory,
   getPlaylistDetailFromHistory,
   getStoredPlaylistTrackItems,
-} from "@/lib/spotify-playlists";import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
+} from "@/lib/spotify-playlists";
+import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 
-
-type SpotifyImage = { url: string };
+type SpotifyImage = { url: string; width?: number; height?: number };
 
 type SpotifyArtistSummary = {
   id: string;
@@ -72,6 +72,18 @@ type SpotifySearchResponse = {
   };
 };
 
+type SpotifyTracksLookupResponse = {
+  tracks: Array<{
+    id: string;
+    name: string;
+    external_urls?: { spotify?: string };
+    album?: {
+      name?: string;
+      images?: SpotifyImage[];
+    };
+  } | null>;
+};
+
 type PickerTargetInput = {
   id: string;
   type: FavoritePickerTargetType;
@@ -89,6 +101,7 @@ export type FavoritePickerSearchResultPage = {
 
 const SEARCH_TARGET_LIMIT = 8;
 const ARTIST_ALBUM_BATCH_SIZE = 4;
+const TRACK_IMAGE_LOOKUP_BATCH_SIZE = 50;
 
 function uniqueById<T extends { id: string }>(items: T[]) {
   const seen = new Set<string>();
@@ -124,6 +137,15 @@ function isSearchPlaylistResult(
   return Boolean(value?.id && value?.name);
 }
 
+function isUsableSpotifyTrack(value: unknown): value is SpotifyTrack {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const track = value as SpotifyTrack;
+  return Boolean(track.id && track.name && track.album?.name && Array.isArray(track.artists) && track.artists.length > 0);
+}
+
 function getTrackDedupKey(track: SpotifyTrack | SpotifyAlbumTrack) {
   if ("id" in track && track.id) {
     return `spotify:${track.id}`;
@@ -154,6 +176,15 @@ function toTargetSummary(target: {
   return target;
 }
 
+function getLargestImage(images?: SpotifyImage[], fallbackImageUrl?: string) {
+  if (!images || images.length === 0) {
+    return fallbackImageUrl;
+  }
+
+  const sorted = [...images].sort((a, b) => (b.width ?? 0) - (a.width ?? 0));
+  return sorted[0]?.url ?? fallbackImageUrl;
+}
+
 function toFavoritePickerTrack(
   track: SpotifyTrack | SpotifyAlbumTrack,
   sourceTarget: FavoritePickerTargetSummary,
@@ -161,7 +192,10 @@ function toFavoritePickerTrack(
   fallbackAlbumName?: string,
 ) {
   const artists = track.artists.map((artist) => artist.name);
-  const imageUrl = "album" in track ? track.album.images?.[0]?.url ?? fallbackImageUrl : fallbackImageUrl;
+  const imageUrl =
+    "album" in track
+      ? getLargestImage(track.album.images, fallbackImageUrl)
+      : fallbackImageUrl;
   const albumName = "album" in track ? track.album.name : fallbackAlbumName ?? sourceTarget.name;
 
   return {
@@ -176,15 +210,6 @@ function toFavoritePickerTrack(
     sourceTargetIds: [sourceTarget.id],
     sourceLabels: [`${sourceTarget.type}: ${sourceTarget.name}`],
   } satisfies FavoritePickerTrack;
-}
-
-function isUsableSpotifyTrack(value: unknown): value is SpotifyTrack {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const track = value as SpotifyTrack;
-  return Boolean(track.id && track.name && track.album?.name && Array.isArray(track.artists) && track.artists.length > 0);
 }
 
 function mergeTracks(tracks: FavoritePickerTrack[]) {
@@ -212,6 +237,67 @@ function mergeTracks(tracks: FavoritePickerTrack[]) {
   });
 
   return [...merged.values()];
+}
+
+async function hydrateFavoritePickerTrackImages(
+  accessToken: string,
+  tracks: FavoritePickerTrack[],
+) {
+  const spotifyIds = [...new Set(
+    tracks
+      .map((track) => track.spotifyId)
+      .filter((id): id is string => Boolean(id)),
+  )];
+
+  if (spotifyIds.length === 0) {
+    return tracks;
+  }
+
+  const hydratedById = new Map<string, { imageUrl?: string; albumName?: string; spotifyUrl?: string }>();
+
+  for (let index = 0; index < spotifyIds.length; index += TRACK_IMAGE_LOOKUP_BATCH_SIZE) {
+    const batch = spotifyIds.slice(index, index + TRACK_IMAGE_LOOKUP_BATCH_SIZE);
+
+    try {
+      const response = await spotifyFetch<SpotifyTracksLookupResponse>(
+        `/tracks?ids=${batch.join(",")}`,
+        accessToken,
+        { allowRetry: false },
+      );
+
+      for (const track of response.tracks ?? []) {
+        if (!track?.id) {
+          continue;
+        }
+
+        hydratedById.set(track.id, {
+          imageUrl: getLargestImage(track.album?.images),
+          albumName: track.album?.name,
+          spotifyUrl: track.external_urls?.spotify,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return tracks.map((track) => {
+    if (!track.spotifyId) {
+      return track;
+    }
+
+    const hydrated = hydratedById.get(track.spotifyId);
+    if (!hydrated) {
+      return track;
+    }
+
+    return {
+      ...track,
+      imageUrl: hydrated.imageUrl ?? track.imageUrl,
+      albumName: hydrated.albumName ?? track.albumName,
+      spotifyUrl: hydrated.spotifyUrl ?? track.spotifyUrl,
+    };
+  });
 }
 
 export function parseFavoritePickerInput(input: string): PickerTargetInput | null {
@@ -394,7 +480,11 @@ export async function getFavoritePickerSearchResultsPage(
     offset: String((safePage - 1) * SEARCH_TARGET_LIMIT),
   });
 
-  const response = await spotifyFetch<SpotifySearchResponse>(`/search?${searchParams.toString()}`, accessToken);
+  const response = await spotifyFetch<SpotifySearchResponse>(
+    `/search?${searchParams.toString()}`,
+    accessToken,
+    { allowRetry: false },
+  );
 
   if (type === "artist") {
     const items = (response.artists?.items ?? []).filter(isSearchArtistResult);
@@ -426,7 +516,7 @@ export async function getFavoritePickerSearchResultsPage(
         type: "album",
         name: album.name,
         subtitle: `Album by ${album.artists.map((artist) => artist.name).join(", ")}`,
-        imageUrl: album.images?.[0]?.url,
+        imageUrl: getLargestImage(album.images),
         spotifyUrl: album.external_urls?.spotify,
         trackCount: album.total_tracks,
       })),
@@ -446,7 +536,7 @@ export async function getFavoritePickerSearchResultsPage(
       type: "playlist",
       name: playlist.name,
       subtitle: playlist.owner?.display_name ? `Playlist by ${playlist.owner.display_name}` : "Playlist",
-      imageUrl: playlist.images?.[0]?.url,
+      imageUrl: getLargestImage(playlist.images),
       spotifyUrl: playlist.external_urls?.spotify,
       trackCount: playlist.tracks?.total,
     })),
@@ -482,7 +572,7 @@ export async function getFavoritePickerPlaylistLibrary(session: AuthSession | nu
             subtitle: playlist.owner?.display_name
               ? `Your library • ${playlist.owner.display_name}`
               : "Your library",
-            imageUrl: playlist.images?.[0]?.url,
+            imageUrl: getLargestImage(playlist.images),
             trackCount: playlist.tracks?.total,
             spotifyUrl: `https://open.spotify.com/playlist/${playlist.id}`,
           }),
@@ -528,7 +618,7 @@ export async function getFavoritePickerPlaylistLibrary(session: AuthSession | nu
     const bestName = insight?.name ?? playlist.name;
     const bestImage =
       insight?.imageUrl ??
-      playlist.images?.[0]?.url;
+      getLargestImage(playlist.images);
     const bestTrackCount =
       insight?.trackCount ??
       playlist.tracks?.total ??
@@ -581,7 +671,10 @@ async function resolveSingleTarget(
 
         return {
           target: summary,
-          tracks: mergeTracks(cachedTracks.map((track) => toFavoritePickerTrack(track, summary))),
+          tracks: await hydrateFavoritePickerTrackImages(
+            accessToken,
+            mergeTracks(cachedTracks.map((track) => toFavoritePickerTrack(track, summary))),
+          ),
         };
       }
     }
@@ -592,7 +685,7 @@ async function resolveSingleTarget(
       type: "playlist",
       name: playlist.name,
       subtitle: playlist.owner?.display_name ? `Playlist by ${playlist.owner.display_name}` : "Playlist",
-      imageUrl: playlist.images?.[0]?.url,
+      imageUrl: getLargestImage(playlist.images),
       spotifyUrl: playlist.external_urls?.spotify ?? `https://open.spotify.com/playlist/${playlist.id}`,
       trackCount: playlist.tracks?.total,
     });
@@ -600,7 +693,10 @@ async function resolveSingleTarget(
 
     return {
       target: summary,
-      tracks: mergeTracks(playlistTracks.map((track) => toFavoritePickerTrack(track, summary))),
+      tracks: await hydrateFavoritePickerTrackImages(
+        accessToken,
+        mergeTracks(playlistTracks.map((track) => toFavoritePickerTrack(track, summary))),
+      ),
     };
   }
 
@@ -611,14 +707,17 @@ async function resolveSingleTarget(
       type: "album",
       name: album.name,
       subtitle: `Album by ${album.artists.map((artist) => artist.name).join(", ")}`,
-      imageUrl: album.images?.[0]?.url,
+      imageUrl: getLargestImage(album.images),
       spotifyUrl: album.external_urls?.spotify ?? `https://open.spotify.com/album/${album.id}`,
       trackCount: album.total_tracks ?? tracks.length,
     });
 
     return {
       target: summary,
-      tracks: mergeTracks(tracks.map((track) => toFavoritePickerTrack(track, summary, album.images?.[0]?.url, album.name))),
+      tracks: await hydrateFavoritePickerTrackImages(
+        accessToken,
+        mergeTracks(tracks.map((track) => toFavoritePickerTrack(track, summary, getLargestImage(album.images), album.name))),
+      ),
     };
   }
 
@@ -628,13 +727,16 @@ async function resolveSingleTarget(
     type: "artist",
     name: artist.name,
     subtitle: "Artist discography",
-    imageUrl: artist.images?.[0]?.url,
+    imageUrl: getLargestImage(artist.images),
     spotifyUrl: artist.external_urls?.spotify ?? `https://open.spotify.com/artist/${artist.id}`,
   });
 
   return {
     target: artistSummary,
-    tracks: await fetchArtistTracks(accessToken, artistSummary),
+    tracks: await hydrateFavoritePickerTrackImages(
+      accessToken,
+      await fetchArtistTracks(accessToken, artistSummary),
+    ),
   };
 }
 
@@ -661,7 +763,8 @@ export async function resolveFavoritePickerTargets(
         return null;
       }),
     ),
-  );  const validResults = results.filter((result): result is NonNullable<typeof result> => Boolean(result));
+  );
+  const validResults = results.filter((result): result is NonNullable<typeof result> => Boolean(result));
 
   if (validResults.length === 0) {
     throw new Error("None of the selected Spotify targets could be loaded right now.");
