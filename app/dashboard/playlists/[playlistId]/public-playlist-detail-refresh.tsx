@@ -3,12 +3,6 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-type StageResponse = {
-  stage?: "idle" | "tracks" | "artists" | "finalizing" | "completed" | "failed";
-  phase?: string;
-  error?: string;
-};
-
 type PublicPlaylistDetailRefreshProps = {
   playlistId: string;
   shouldRefresh: boolean;
@@ -25,12 +19,12 @@ export function PublicPlaylistDetailRefresh({
       return;
     }
 
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    console.log("[public-detail-refresh] starting", playlistId);
 
-    async function tick() {
+    let cancelled = false;
+
+    async function run() {
       try {
-        console.log("[public-detail-refresh] stage-start", playlistId);
         const response = await fetch(
           `/api/public/playlist-detail-sync?playlistId=${encodeURIComponent(playlistId)}`,
           {
@@ -39,37 +33,26 @@ export function PublicPlaylistDetailRefresh({
           },
         );
 
-        const payload = (await response.json().catch(() => null)) as StageResponse | null;
-        console.log("[public-detail-refresh] stage-response", response.status, payload);
+        const payload = await response.json().catch(() => null);
 
-        if (cancelled || !payload) {
+        console.log("[public-detail-refresh] response", response.status, payload);
+
+        if (cancelled) {
           return;
         }
 
-        if (payload.stage === "completed") {
+        if (payload?.ok) {
           router.refresh();
-          return;
         }
-
-        if (payload.stage === "failed") {
-          return;
-        }
-
-        timeoutId = setTimeout(() => {
-          void tick();
-        }, 1200);
-      } catch (error) {
-        console.error("[public-detail-refresh] stage-failed", error);
+      } catch (err) {
+        console.error("[public-detail-refresh] failed", err);
       }
     }
 
-    void tick();
+    void run();
 
     return () => {
       cancelled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
     };
   }, [playlistId, router, shouldRefresh]);
 

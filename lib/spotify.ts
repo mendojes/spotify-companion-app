@@ -4,6 +4,7 @@ const spotifyCallbackPath = "/api/auth/callback/spotify";
 const MAX_SPOTIFY_RETRIES = 2;
 const SPOTIFY_FETCH_TIMEOUT_MS = 10_000;
 const CLIENT_CREDENTIALS_CACHE_TTL_MS = 1000 * 60 * 50;
+const MAX_SPOTIFY_RETRY_DELAY_MS = 1_500;
 
 let cachedClientCredentialsToken: { accessToken: string; expiresAt: number } | null = null;
 
@@ -62,14 +63,16 @@ function wait(ms: number) {
 
 function getRetryDelayMs(response: Response, attempt: number) {
   const retryAfter = response.headers.get("retry-after");
+
   if (retryAfter) {
     const seconds = Number(retryAfter);
+
     if (Number.isFinite(seconds) && seconds >= 0) {
-      return seconds * 1000;
+      return Math.min(seconds * 1000, MAX_SPOTIFY_RETRY_DELAY_MS);
     }
   }
 
-  return 400 * Math.pow(2, attempt);
+  return Math.min(400 * Math.pow(2, attempt), MAX_SPOTIFY_RETRY_DELAY_MS);
 }
 
 async function spotifyRequest(pathOrUrl: string, init: RequestInit, allowRetry: boolean) {
@@ -83,6 +86,7 @@ async function spotifyRequest(pathOrUrl: string, init: RequestInit, allowRetry: 
     });
 
     const shouldRetry = allowRetry && (response.status === 429 || response.status >= 500);
+
     if (response.ok || !shouldRetry || attempt === MAX_SPOTIFY_RETRIES) {
       return response;
     }
@@ -222,6 +226,7 @@ export async function getSpotifyClientCredentialsToken() {
   }
 
   const token = (await response.json()) as SpotifyTokenResponse;
+
   cachedClientCredentialsToken = {
     accessToken: token.access_token,
     expiresAt: Date.now() + Math.min(token.expires_in * 1000, CLIENT_CREDENTIALS_CACHE_TTL_MS),
@@ -230,12 +235,20 @@ export async function getSpotifyClientCredentialsToken() {
   return token.access_token;
 }
 
-export async function spotifyFetch<T>(path: string, accessToken: string, options?: { allowRetry?: boolean }): Promise<T> {
-  const response = await spotifyRequest(path, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
+export async function spotifyFetch<T>(
+  path: string,
+  accessToken: string,
+  options?: { allowRetry?: boolean },
+): Promise<T> {
+  const response = await spotifyRequest(
+    path,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     },
-  }, options?.allowRetry ?? true);
+    options?.allowRetry ?? true,
+  );
 
   if (!response.ok) {
     throw new Error(`Spotify request failed: ${response.status}`);
@@ -245,11 +258,15 @@ export async function spotifyFetch<T>(path: string, accessToken: string, options
 }
 
 export async function spotifyFetchOptional<T>(path: string, accessToken: string): Promise<T | null> {
-  const response = await spotifyRequest(path, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
+  const response = await spotifyRequest(
+    path,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     },
-  }, true);
+    true,
+  );
 
   if (!response.ok) {
     return null;
@@ -257,11 +274,3 @@ export async function spotifyFetchOptional<T>(path: string, accessToken: string)
 
   return response.json() as Promise<T>;
 }
-
-export function getSpotifyProfile(accessToken: string) {
-  return spotifyFetch<SpotifyProfile>("/me", accessToken, { allowRetry: true });
-}
-
-
-
-
