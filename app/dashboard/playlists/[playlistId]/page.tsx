@@ -87,10 +87,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
     return (
       <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
-        <PublicPlaylistDetailRefresh
-          playlistId={playlistId}
-          shouldRefresh={Boolean(session.spotifyUserId && shouldRefreshDetail)}
-        />
 
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="flex flex-wrap items-center justify-between gap-4">

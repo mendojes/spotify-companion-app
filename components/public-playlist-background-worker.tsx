@@ -1,119 +1,51 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-
-type PublicPlaylistBackgroundWorkerProps = {
-  playlistIds: string[];
-};
-
-type WorkerResponse = {
-  ok?: boolean;
-  partial?: boolean;
-  playlistId?: string;
-  done?: boolean;
-  reason?: string;
-  error?: string;
-};
-
-const STORAGE_KEY = "public-playlist-worker-completed";
-
-function readCompletedIds() {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return new Set<string>();
-    }
-
-    return new Set<string>(JSON.parse(raw) as string[]);
-  } catch {
-    return new Set<string>();
-  }
-}
-
-function writeCompletedIds(ids: Set<string>) {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]));
-  } catch {
-    // ignore
-  }
-}
 
 export function PublicPlaylistBackgroundWorker({
   playlistIds,
-}: PublicPlaylistBackgroundWorkerProps) {
+}: {
+  playlistIds: string[];
+}) {
   const router = useRouter();
-  const runningRef = useRef(false);
-
-  const queue = useMemo(
-    () => [...new Set(playlistIds.filter(Boolean))],
-    [playlistIds],
-  );
+  const running = useRef(false);
 
   useEffect(() => {
-    if (queue.length === 0 || runningRef.current) {
-      return;
-    }
+    if (running.current) return;
+    running.current = true;
 
     let cancelled = false;
-    runningRef.current = true;
 
     async function sleep(ms: number) {
-      await new Promise((resolve) => setTimeout(resolve, ms));
+      return new Promise((r) => setTimeout(r, ms));
     }
 
     async function run() {
-      const completedIds = readCompletedIds();
-      let didCompleteAny = false;
-
-      for (const playlistId of queue) {
-        if (cancelled) {
-          break;
-        }
-
-        if (completedIds.has(playlistId)) {
-          continue;
-        }
+      for (const id of playlistIds) {
+        if (cancelled) break;
 
         try {
-          const response = await fetch(
-            `/api/public/playlist-detail-sync?playlistId=${encodeURIComponent(playlistId)}`,
-            {
-              method: "POST",
-              cache: "no-store",
-            },
-          );
+          await fetch(`/api/public/playlist-detail-sync?playlistId=${id}`, {
+            method: "POST",
+            cache: "no-store",
+          });
+        } catch {}
 
-          const payload = (await response.json().catch(() => null)) as WorkerResponse | null;
-          console.log("[public-playlist-worker]", playlistId, response.status, payload);
-
-          if (payload?.done) {
-            completedIds.add(playlistId);
-            writeCompletedIds(completedIds);
-            didCompleteAny = true;
-          }
-
-          await sleep(1500);
-        } catch (error) {
-          console.error("[public-playlist-worker] failed", playlistId, error);
-          await sleep(2000);
-        }
+        await sleep(2000);
       }
 
-      runningRef.current = false;
-
-      if (!cancelled && didCompleteAny) {
-        router.refresh();
-      }
+      running.current = false;
+      if (!cancelled) router.refresh();
     }
 
-    void run();
+    run();
 
     return () => {
       cancelled = true;
-      runningRef.current = false;
+      running.current = false;
     };
-  }, [queue, router]);
+  }, [playlistIds, router]);
 
   return null;
 }
