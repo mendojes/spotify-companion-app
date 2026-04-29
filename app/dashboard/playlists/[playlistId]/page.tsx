@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { PublicProfileBackgroundSync } from "@/components/public-profile-background-sync";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyPlaylistDetail, getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
@@ -16,22 +17,6 @@ function formatDateLabel(value?: string) {
   return formatPstDateTime(value);
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((resolve) => {
-        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
 
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {
   const { playlistId } = await params;
@@ -47,11 +32,10 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
         : Promise.resolve(null),
     ]);
     const publicInsights = session.spotifyUserId && storedPlaylists.length === 0
-      ? await withTimeout(
-        getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null),
-        2500,
-        null,
-      )
+      ? await getPublicSpotifyProfileInsights(
+        session.spotifyUserId,
+        session.spotifyProfileUrl,
+      ).catch(() => null)
       : null;
     const visiblePlaylistIds = new Set([
       ...(publicInsights?.publicPlaylists ?? []).map((playlist) => playlist.id),
@@ -64,7 +48,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
     const liveDetail = storedDetail
       ? null
-      : await withTimeout(getPublicSpotifyPlaylistDetail(playlistId).catch(() => null), 2500, null);
+      : await getPublicSpotifyPlaylistDetail(playlistId).catch(() => null);
     const detail = liveDetail ?? storedDetail;
     const usingStoredFallback = !liveDetail && Boolean(storedDetail);
 
@@ -74,6 +58,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
     return (
       <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
+        {session.spotifyUserId ? <PublicProfileBackgroundSync spotifyUserId={session.spotifyUserId} /> : null}
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-6">

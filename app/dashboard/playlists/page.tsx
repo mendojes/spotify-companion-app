@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { PublicProfileBackgroundSync } from "@/components/public-profile-background-sync";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getStoredPlaylistsSection } from "@/lib/dashboard-section-cache";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
@@ -20,22 +21,6 @@ const sortOptions: Array<{ key: PlaylistSortOption; label: string }> = [
 
 const PLAYLISTS_PER_PAGE = 12;
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((resolve) => {
-        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
 
 function normalizeSort(sort?: string): PlaylistSortOption {
   if (
@@ -207,11 +192,10 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
         ?? await getPlaylistPageDataFromHistory(session.spotifyUserId, selectedSort).catch(() => null)
       : null;
     const publicInsights = session.spotifyUserId && !publicPageData?.playlists.length
-      ? await withTimeout(
-        getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null),
-        2500,
-        null,
-      )
+      ? await getPublicSpotifyProfileInsights(
+        session.spotifyUserId,
+        session.spotifyProfileUrl,
+      ).catch(() => null)
       : null;
     const publicPlaylists = publicPageData?.playlists.length
       ? publicPageData.playlists
@@ -226,6 +210,7 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
 
     return (
       <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
+        {session.spotifyUserId ? <PublicProfileBackgroundSync spotifyUserId={session.spotifyUserId} /> : null}
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>

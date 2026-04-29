@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Disc3, LibraryBig, Sparkles, UserRound } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardDeepRefreshMonitor } from "@/components/dashboard-deep-refresh-monitor";
+import { PublicProfileBackgroundSync } from "@/components/public-profile-background-sync";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { PublicMoodOverview } from "@/components/public-mood-overview";
@@ -105,22 +106,6 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((resolve) => {
-        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
 
 function isRetriableMongoError(error: unknown) {
   const message = getErrorMessage(error).toLowerCase();
@@ -174,11 +159,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       ? await getPlaylistPageDataFromHistory(session.spotifyUserId, "last_listened_desc").catch(() => null)
       : null;
     const publicInsights = session.spotifyUserId && !publicPlaylistPageData?.playlists.length
-      ? await withTimeout(
-        getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl, { playlistInsightLimit: 2 }).catch(() => null),
-        2500,
-        null,
-      )
+      ? await getPublicSpotifyProfileInsights(
+        session.spotifyUserId,
+        session.spotifyProfileUrl,
+        { playlistInsightLimit: 2 },
+      ).catch(() => null)
       : null;
     const publicPlaylistSource = publicPlaylistPageData?.playlists.length
       ? publicPlaylistPageData.playlists
@@ -196,6 +181,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
     return (
       <main className="relative overflow-hidden pb-10">
+        {session.spotifyUserId ? <PublicProfileBackgroundSync spotifyUserId={session.spotifyUserId} /> : null}
         <div className="space-y-4 px-6 pt-6 md:px-10">
           {welcome ? <Notice tone="cyan">Your Listening Lore account is ready.</Notice> : null}
           {connectSpotify ? <Notice tone="gold">That section needs private Spotify account data, so Listening Lore brought you back to the public-profile dashboard.</Notice> : null}
