@@ -1,35 +1,20 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { refreshPublicSpotifyProfileInsights } from "@/lib/spotify-public";
+import { getPublicProfileSyncState, runPublicProfileInsightsSync } from "@/lib/spotify-public";
 
 export async function POST() {
   const session = await getSession();
 
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.spotifyUserId) {
+    return NextResponse.json({ error: "Spotify profile is required." }, { status: 400 });
   }
 
-  if (session.accountType !== "local") {
-    return NextResponse.json({ error: "Local account required." }, { status: 403 });
+  const current = await getPublicProfileSyncState(session.spotifyUserId, session.spotifyProfileUrl);
+
+  if (current.status === "running") {
+    return NextResponse.json(current, { status: 202 });
   }
 
-  if (!session.spotifyUserId) {
-    return NextResponse.json({ error: "Missing Spotify profile id." }, { status: 400 });
-  }
-
-  try {
-    const result = await refreshPublicSpotifyProfileInsights(
-      session.spotifyUserId,
-      session.spotifyProfileUrl,
-    );
-
-    return NextResponse.json({
-      ok: true,
-      refreshed: result.refreshed,
-      playlistCount: result.playlistCount,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not refresh public profile.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  const result = await runPublicProfileInsightsSync(session.spotifyUserId, session.spotifyProfileUrl);
+  return NextResponse.json(result, { status: result.status === "failed" ? 500 : 200 });
 }

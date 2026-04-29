@@ -166,7 +166,7 @@ export function PlaylistDetailView({ detail, mode = "authenticated" }: { detail:
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(value: number) => [`${value}%`, "Share"]}
+                      formatter={(value: number, _name: string, item: { payload?: { genre?: string; mood?: string } }) => [`${value}%`, item?.payload?.genre ?? item?.payload?.mood ?? "Share"]}
                       contentStyle={chartTooltipContentStyle}
                       labelStyle={chartTooltipLabelStyle}
                       itemStyle={chartTooltipItemStyle}
@@ -249,7 +249,7 @@ export function PlaylistDetailView({ detail, mode = "authenticated" }: { detail:
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value: number) => [`${value}%`, "Share"]}
+                    formatter={(value: number, _name: string, item: { payload?: { genre?: string; mood?: string } }) => [`${value}%`, item?.payload?.genre ?? item?.payload?.mood ?? "Share"]}
                     contentStyle={chartTooltipContentStyle}
                     labelStyle={chartTooltipLabelStyle}
                     itemStyle={chartTooltipItemStyle}

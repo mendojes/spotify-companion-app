@@ -1,9 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
-import { PublicProfileBackgroundSync } from "@/components/public-profile-background-sync";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getStoredPlaylistsSection } from "@/lib/dashboard-section-cache";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
+import { PublicProfileSyncStatus } from "@/components/public-profile-sync-status";
 import { getPlaylistPageDataFromHistory } from "@/lib/spotify-playlists";
 import { PlaylistInsight, PlaylistSortOption } from "@/lib/types";
 import { formatPstDateTime } from "@/lib/time";
@@ -20,7 +20,6 @@ const sortOptions: Array<{ key: PlaylistSortOption; label: string }> = [
 ];
 
 const PLAYLISTS_PER_PAGE = 12;
-
 
 function normalizeSort(sort?: string): PlaylistSortOption {
   if (
@@ -192,16 +191,20 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
         ?? await getPlaylistPageDataFromHistory(session.spotifyUserId, selectedSort).catch(() => null)
       : null;
     const publicInsights = session.spotifyUserId && !publicPageData?.playlists.length
-      ? await getPublicSpotifyProfileInsights(
-        session.spotifyUserId,
-        session.spotifyProfileUrl,
-      ).catch(() => null)
+      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
       : null;
     const publicPlaylists = publicPageData?.playlists.length
       ? publicPageData.playlists
       : publicInsights?.playlistInsights ?? [];
     const publicPlaylistCount = Math.max(publicPageData?.playlistCount ?? 0, publicInsights?.publicPlaylistCount ?? 0, publicPlaylists.length);
     const publicLastSyncedAt = publicPageData?.lastSyncedAt;
+    const publicSyncShouldStart = Boolean(
+      session.spotifyUserId && (
+        publicPlaylistCount > 0 ||
+        publicPlaylists.length === 0 ||
+        publicPlaylists.some((playlist) => playlist.mood.toLowerCase().includes("pending") || (playlist.topGenresSummary ?? "").toLowerCase().includes("loading"))
+      )
+    );
     const filteredPublicPlaylists = publicPlaylists.filter((playlist) => matchesPlaylistQuery(playlist, searchQuery));
     const totalPages = Math.max(1, Math.ceil(filteredPublicPlaylists.length / PLAYLISTS_PER_PAGE));
     const currentPage = Math.min(requestedPage, totalPages);
@@ -210,7 +213,6 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
 
     return (
       <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
-        {session.spotifyUserId ? <PublicProfileBackgroundSync spotifyUserId={session.spotifyUserId} /> : null}
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -234,6 +236,15 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
           <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
             Public playlist analysis uses only playlist contents that Spotify exposes publicly from your profile. Listening Lore also keeps a stored public playlist cache so this tab can reopen after you sign in again.
           </div>
+
+          {session.spotifyUserId ? (
+            <PublicProfileSyncStatus
+              spotifyUserId={session.spotifyUserId}
+              shouldStart={publicSyncShouldStart}
+              expectedPlaylistCount={publicPlaylistCount}
+              className=""
+            />
+          ) : null}
 
           <div className="flex flex-wrap gap-3">
             {sortOptions.map((option) => {

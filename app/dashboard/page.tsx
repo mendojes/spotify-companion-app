@@ -3,10 +3,10 @@ import Link from "next/link";
 import { Disc3, LibraryBig, Sparkles, UserRound } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardDeepRefreshMonitor } from "@/components/dashboard-deep-refresh-monitor";
-import { PublicProfileBackgroundSync } from "@/components/public-profile-background-sync";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { PublicMoodOverview } from "@/components/public-mood-overview";
+import { PublicProfileSyncStatus } from "@/components/public-profile-sync-status";
 import { SpotifyComplianceNote } from "@/components/spotify-compliance-note";
 import { getAuthorizedSession, hasSpotifyConnection, isAdminSession, isSessionRefreshFailure, requireSession } from "@/lib/auth";
 import { getDashboardOverviewData } from "@/lib/dashboard-overview";
@@ -102,11 +102,6 @@ function extractGenreSeedsFromPlaylistInsights(playlistInsights: PlaylistInsight
   });
 }
 
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-
 function isRetriableMongoError(error: unknown) {
   const message = getErrorMessage(error).toLowerCase();
   return message.includes("27017") || message.includes("timed out") || message.includes("server selection");
@@ -159,11 +154,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       ? await getPlaylistPageDataFromHistory(session.spotifyUserId, "last_listened_desc").catch(() => null)
       : null;
     const publicInsights = session.spotifyUserId && !publicPlaylistPageData?.playlists.length
-      ? await getPublicSpotifyProfileInsights(
-        session.spotifyUserId,
-        session.spotifyProfileUrl,
-        { playlistInsightLimit: 2 },
-      ).catch(() => null)
+      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl, { playlistInsightLimit: 2 }).catch(() => null)
       : null;
     const publicPlaylistSource = publicPlaylistPageData?.playlists.length
       ? publicPlaylistPageData.playlists
@@ -178,10 +169,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     const publicRecentArtists = publicInsights?.recentArtists ?? [];
     const publicVisiblePlaylists = publicInsights?.publicPlaylists ?? [];
     const hasPublicSections = Boolean(publicInsights || publicPlaylistCount > 0 || publicPlaylistCards.length > 0);
+    const publicSyncShouldStart = Boolean(
+      session.spotifyUserId && (
+        publicVisiblePlaylists.length > 0 ||
+        publicPlaylistCount > 0 ||
+        publicPlaylistSource.length === 0 ||
+        publicPlaylistSource.some((playlist) => playlist.mood.toLowerCase().includes("pending") || (playlist.topGenresSummary ?? "").toLowerCase().includes("loading"))
+      ),
+    );
 
     return (
       <main className="relative overflow-hidden pb-10">
-        {session.spotifyUserId ? <PublicProfileBackgroundSync spotifyUserId={session.spotifyUserId} /> : null}
         <div className="space-y-4 px-6 pt-6 md:px-10">
           {welcome ? <Notice tone="cyan">Your Listening Lore account is ready.</Notice> : null}
           {connectSpotify ? <Notice tone="gold">That section needs private Spotify account data, so Listening Lore brought you back to the public-profile dashboard.</Notice> : null}
@@ -223,6 +221,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   Account details
                 </Link>
               </div>
+
+              {session.spotifyUserId ? (
+                <PublicProfileSyncStatus
+                  spotifyUserId={session.spotifyUserId}
+                  shouldStart={publicSyncShouldStart}
+                  expectedPlaylistCount={publicPlaylistCount}
+                  className="mt-6"
+                />
+              ) : null}
             </div>
 
             {hasPublicSections ? (

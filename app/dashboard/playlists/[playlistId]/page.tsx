@@ -1,9 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { PublicProfileBackgroundSync } from "@/components/public-profile-background-sync";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyPlaylistDetail, getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
+import { PublicProfileSyncStatus } from "@/components/public-profile-sync-status";
 import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { PlaylistDetailSync } from "./playlist-detail-sync";
@@ -16,7 +16,6 @@ type PlaylistDetailPageProps = {
 function formatDateLabel(value?: string) {
   return formatPstDateTime(value);
 }
-
 
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {
   const { playlistId } = await params;
@@ -32,10 +31,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
         : Promise.resolve(null),
     ]);
     const publicInsights = session.spotifyUserId && storedPlaylists.length === 0
-      ? await getPublicSpotifyProfileInsights(
-        session.spotifyUserId,
-        session.spotifyProfileUrl,
-      ).catch(() => null)
+      ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
       : null;
     const visiblePlaylistIds = new Set([
       ...(publicInsights?.publicPlaylists ?? []).map((playlist) => playlist.id),
@@ -51,6 +47,14 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
       : await getPublicSpotifyPlaylistDetail(playlistId).catch(() => null);
     const detail = liveDetail ?? storedDetail;
     const usingStoredFallback = !liveDetail && Boolean(storedDetail);
+    const publicSyncShouldStart = Boolean(
+      session.spotifyUserId && (
+        visiblePlaylistIds.size > 0 ||
+        !storedDetail ||
+        storedDetail.mood.toLowerCase().includes("pending") ||
+        storedDetail.topGenres.length === 0
+      )
+    );
 
     if (!detail) {
       notFound();
@@ -58,7 +62,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
     return (
       <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
-        {session.spotifyUserId ? <PublicProfileBackgroundSync spotifyUserId={session.spotifyUserId} /> : null}
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-6">
@@ -102,6 +105,14 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
               <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">{detail.mood}</p>
             </div>
           </div>
+
+          {session.spotifyUserId ? (
+            <PublicProfileSyncStatus
+              spotifyUserId={session.spotifyUserId}
+              shouldStart={publicSyncShouldStart}
+              expectedPlaylistCount={Math.max(visiblePlaylistIds.size, storedPlaylists.length)}
+            />
+          ) : null}
 
           {usingStoredFallback ? (
             <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
