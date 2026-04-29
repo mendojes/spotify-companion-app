@@ -190,21 +190,54 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
       ? await getStoredPlaylistsSection(session.spotifyUserId, selectedSort).catch(() => null)
         ?? await getPlaylistPageDataFromHistory(session.spotifyUserId, selectedSort).catch(() => null)
       : null;
-    const publicInsights = session.spotifyUserId && !publicPageData?.playlists.length
+
+    const publicInsights = session.spotifyUserId
       ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
       : null;
-    const publicPlaylists = publicPageData?.playlists.length
-      ? publicPageData.playlists
-      : publicInsights?.playlistInsights ?? [];
-    const publicPlaylistCount = Math.max(publicPageData?.playlistCount ?? 0, publicInsights?.publicPlaylistCount ?? 0, publicPlaylists.length);
-    const publicLastSyncedAt = publicPageData?.lastSyncedAt;
-    const publicSyncShouldStart = Boolean(
-      session.spotifyUserId && (
-        publicPlaylistCount > 0 ||
-        publicPlaylists.length === 0 ||
-        publicPlaylists.some((playlist) => playlist.mood.toLowerCase().includes("pending") || (playlist.topGenresSummary ?? "").toLowerCase().includes("loading"))
-      )
+
+    const storedInsights = publicPageData?.playlists ?? [];
+    const publicLibrary = publicInsights?.publicPlaylists ?? [];
+
+    const storedInsightsById = new Map(
+      storedInsights
+        .filter((playlist) => playlist.id)
+        .map((playlist) => [playlist.id as string, playlist]),
     );
+
+    const publicPlaylists: PlaylistInsight[] =
+      publicLibrary.length > 0
+        ? publicLibrary.map((playlist) => {
+            const stored = storedInsightsById.get(playlist.id);
+
+            if (stored) {
+              return stored;
+            }
+
+            return {
+              id: playlist.id,
+              name: playlist.name,
+              imageUrl: playlist.images?.[0]?.url,
+              trackCount: playlist.tracks?.total ?? 0,
+              createdAt: undefined,
+              lastListenedAt: undefined,
+              mood: "Analysis pending",
+              topGenresSummary: "Loading public playlist analysis",
+              diversity: "Pending genre analysis",
+              listeningCadence: "Pending cadence analysis",
+              overlap: "Pending overlap analysis",
+            } satisfies PlaylistInsight;
+          })
+        : storedInsights;
+
+    const publicPlaylistCount = Math.max(
+      publicPageData?.playlistCount ?? 0,
+      publicInsights?.publicPlaylistCount ?? 0,
+      publicLibrary.length,
+      publicPlaylists.length,
+    );
+
+    const publicLastSyncedAt = publicPageData?.lastSyncedAt ?? publicInsights?.fetchedAt;
+
     const filteredPublicPlaylists = publicPlaylists.filter((playlist) => matchesPlaylistQuery(playlist, searchQuery));
     const totalPages = Math.max(1, Math.ceil(filteredPublicPlaylists.length / PLAYLISTS_PER_PAGE));
     const currentPage = Math.min(requestedPage, totalPages);
@@ -240,9 +273,8 @@ export default async function PlaylistsPage({ searchParams }: PlaylistsPageProps
           {session.spotifyUserId ? (
             <PublicProfileSyncStatus
               spotifyUserId={session.spotifyUserId}
-              shouldStart={publicSyncShouldStart}
+              shouldStart={Boolean(session.spotifyUserId)}
               expectedPlaylistCount={publicPlaylistCount}
-              className=""
             />
           ) : null}
 

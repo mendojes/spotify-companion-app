@@ -42,7 +42,7 @@ export type PublicProfileSyncState = {
   processedPlaylists: number;
   totalPlaylists: number;
   skippedPlaylists: number;
-  skippedPlaylistNames?: string[];
+  skippedPlaylistNames: string[];
   startedAt?: string;
   finishedAt?: string;
   updatedAt?: string;
@@ -72,7 +72,7 @@ const PUBLIC_PROFILE_TTL_MS = 1000 * 60 * 5;
 const PUBLIC_PLAYLIST_PREVIEW_LIMIT = 6;
 const PUBLIC_PLAYLIST_PAGE_SIZE = 50;
 const PUBLIC_PLAYLIST_MAX_PAGES = 20;
-const PUBLIC_PROFILE_CACHE_VERSION = "v6";
+const PUBLIC_PROFILE_CACHE_VERSION = "v7";
 const PUBLIC_PROFILE_FETCH_TIMEOUT_MS = 8_000;
 const PUBLIC_PROFILE_SYNC_COLLECTION = "public_profile_sync_status";
 const PUBLIC_PROFILE_SYNC_STALE_MS = 1000 * 60 * 10;
@@ -109,8 +109,8 @@ async function fetchAllPublicPlaylists(accessToken: string, spotifyUserId: strin
       `/users/${spotifyUserId}/playlists?limit=${PUBLIC_PLAYLIST_PAGE_SIZE}&offset=${offset}`,
       accessToken,
     );
-    total = Math.max(total, response.total ?? 0);
 
+    total = Math.max(total, response.total ?? 0);
     playlists.push(...response.items);
     pageCount += 1;
 
@@ -343,6 +343,7 @@ async function buildStoredPublicProfileFallback(
 
 function getPublicProfileCacheKeys(spotifyUserId: string, profileUrl?: string) {
   const resolved = profileUrl ?? "default";
+
   return [
     `public-profile:${PUBLIC_PROFILE_CACHE_VERSION}:${spotifyUserId}:${resolved}:2`,
     `public-profile:${PUBLIC_PROFILE_CACHE_VERSION}:${spotifyUserId}:${resolved}:${PUBLIC_PLAYLIST_PREVIEW_LIMIT}`,
@@ -441,9 +442,15 @@ export async function getPublicProfileSyncState(
   }
 }
 
-function estimateSyncDurationMs(playlists: SpotifyPlaylist[]) {
-  const totalTracks = playlists.reduce((sum, playlist) => sum + (playlist.tracks?.total ?? 0), 0);
-  return 1500 + playlists.length * 900 + totalTracks * 180;
+function isInsightPending(playlist: PlaylistInsight | undefined) {
+  if (!playlist) {
+    return true;
+  }
+
+  return (
+    playlist.mood.toLowerCase().includes("pending") ||
+    (playlist.topGenresSummary ?? "").toLowerCase().includes("loading")
+  );
 }
 
 async function fetchVisiblePublicPlaylists(
@@ -522,26 +529,14 @@ export async function runPublicProfileInsightsSync(
   });
 
   try {
-    const [profileHtml, accessToken] = await Promise.all([
+    const [profileHtml, accessToken, storedPageData] = await Promise.all([
       fetchProfilePageHtml(resolvedProfileUrl).catch(() => null),
       getSpotifyClientCredentialsToken().catch(() => null),
+      getPlaylistPageDataFromHistory(spotifyUserId, "last_listened_desc").catch(() => null),
     ]);
-
-    await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, {
-      status: "running",
-      phase: accessToken ? "Loading public playlists" : "Spotify app token unavailable",
-      processedPlaylists: 0,
-      totalPlaylists: 0,
-      skippedPlaylists: 0,
-      skippedPlaylistNames: [],
-      startedAt,
-      error: accessToken ? undefined : "Could not fetch a Spotify app token for public playlist analysis.",
-    });
 
     if (!accessToken) {
       const finishedAt = new Date().toISOString();
-      const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
-
       const failedState: PublicProfileSyncState = {
         spotifyUserId,
         profileUrl: resolvedProfileUrl,
@@ -554,13 +549,23 @@ export async function runPublicProfileInsightsSync(
         startedAt,
         finishedAt,
         updatedAt: finishedAt,
-        durationMs,
+        durationMs: new Date(finishedAt).getTime() - new Date(startedAt).getTime(),
         error: "Missing or invalid Spotify client credentials for public playlist analysis.",
       };
 
       await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, failedState);
       return failedState;
     }
+
+    await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, {
+      status: "running",
+      phase: "Loading public playlists",
+      processedPlaylists: 0,
+      totalPlaylists: 0,
+      skippedPlaylists: 0,
+      skippedPlaylistNames: [],
+      startedAt,
+    });
 
     const playlistFetchResult = await fetchVisiblePublicPlaylists(
       accessToken,
@@ -572,35 +577,55 @@ export async function runPublicProfileInsightsSync(
     const publicPlaylists = playlistFetchResult.playlists;
     const totalPlaylists = Math.max(playlistFetchResult.total, publicPlaylists.length);
 
+    const storedInsightById = new Map(
+      (storedPageData?.playlists ?? [])
+        .filter((playlist) => playlist.id)
+        .map((playlist) => [playlist.id as string, playlist]),
+    );
+
     if (publicPlaylists.length > 0) {
-      await seedStoredPublicPlaylistSnapshot(spotifyUserId, publicPlaylists, []).catch(() => undefined);
+      await seedStoredPublicPlaylistSnapshot(
+        spotifyUserId,
+        publicPlaylists,
+        storedPageData?.playlists ?? [],
+      ).catch(() => undefined);
+
       invalidateDashboardSectionRuntimeCache(spotifyUserId);
       await writeStoredPlaylistsSectionCache(spotifyUserId).catch(() => undefined);
       invalidatePublicProfileRuntimeCache(spotifyUserId, profileUrl);
     }
 
+    const pendingPlaylists = publicPlaylists.filter((playlist) =>
+      isInsightPending(storedInsightById.get(playlist.id)),
+    );
+
     await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, {
       status: "running",
-      phase: publicPlaylists.length > 0 ? "Analyzing public playlists" : "No public playlists found",
+      phase:
+        pendingPlaylists.length > 0
+          ? "Analyzing public playlists"
+          : publicPlaylists.length > 0
+            ? "Public playlist cache is already current"
+            : "No public playlists found",
       processedPlaylists: 0,
-      totalPlaylists,
+      totalPlaylists: pendingPlaylists.length,
       skippedPlaylists: 0,
       skippedPlaylistNames: [],
       startedAt,
       error: undefined,
     });
 
-    const playlistInsights: PlaylistInsight[] = [];
+    const freshInsights: PlaylistInsight[] = [];
     const skippedPlaylistNames: string[] = [];
 
-    for (let index = 0; index < publicPlaylists.length; index += 1) {
-      const playlist = publicPlaylists[index];
+    for (let index = 0; index < pendingPlaylists.length; index += 1) {
+      const playlist = pendingPlaylists[index];
 
       await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, {
         status: "running",
-        phase: `Analyzing playlist ${index + 1} of ${publicPlaylists.length}: ${playlist.name}`,
+        phase: `Analyzing playlist ${index + 1} of ${pendingPlaylists.length}: ${playlist.name}`,
         processedPlaylists: index,
-        totalPlaylists,
+        totalPlaylists: pendingPlaylists.length,
         skippedPlaylists: skippedPlaylistNames.length,
         skippedPlaylistNames,
         startedAt,
@@ -614,7 +639,7 @@ export async function runPublicProfileInsightsSync(
       );
 
       if (nextInsights[0]) {
-        playlistInsights.push(nextInsights[0]);
+        freshInsights.push(nextInsights[0]);
       } else {
         skippedPlaylistNames.push(playlist.name);
       }
@@ -622,10 +647,10 @@ export async function runPublicProfileInsightsSync(
       await writePublicProfileSyncState(spotifyUserId, resolvedProfileUrl, {
         status: "running",
         phase: nextInsights[0]
-          ? `Finished playlist ${index + 1} of ${publicPlaylists.length}: ${playlist.name}`
-          : `Skipped playlist ${index + 1} of ${publicPlaylists.length}: ${playlist.name}`,
+          ? `Finished playlist ${index + 1} of ${pendingPlaylists.length}: ${playlist.name}`
+          : `Skipped playlist ${index + 1} of ${pendingPlaylists.length}: ${playlist.name}`,
         processedPlaylists: index + 1,
-        totalPlaylists,
+        totalPlaylists: pendingPlaylists.length,
         skippedPlaylists: skippedPlaylistNames.length,
         skippedPlaylistNames,
         startedAt,
@@ -633,8 +658,24 @@ export async function runPublicProfileInsightsSync(
       });
     }
 
+    const mergedInsightMap = new Map<string, PlaylistInsight>();
+
+    (storedPageData?.playlists ?? []).forEach((playlist) => {
+      if (playlist.id) {
+        mergedInsightMap.set(playlist.id, playlist);
+      }
+    });
+
+    freshInsights.forEach((playlist) => {
+      if (playlist.id) {
+        mergedInsightMap.set(playlist.id, playlist);
+      }
+    });
+
+    const mergedInsights = [...mergedInsightMap.values()];
+
     if (publicPlaylists.length > 0) {
-      await seedStoredPublicPlaylistSnapshot(spotifyUserId, publicPlaylists, playlistInsights).catch(() => undefined);
+      await seedStoredPublicPlaylistSnapshot(spotifyUserId, publicPlaylists, mergedInsights).catch(() => undefined);
       invalidateDashboardSectionRuntimeCache(spotifyUserId);
       await writeStoredPlaylistsSectionCache(spotifyUserId).catch(() => undefined);
       invalidatePublicProfileRuntimeCache(spotifyUserId, profileUrl);
@@ -647,13 +688,13 @@ export async function runPublicProfileInsightsSync(
       profileUrl: resolvedProfileUrl,
       status: "completed",
       phase:
-        publicPlaylists.length > 0
-          ? skippedPlaylistNames.length > 0
+        pendingPlaylists.length === 0
+          ? "Public playlist cache is already current"
+          : skippedPlaylistNames.length > 0
             ? `Public playlist insights ready with ${skippedPlaylistNames.length} skipped`
-            : "Public playlist insights ready"
-          : "No public playlists found",
-      processedPlaylists: publicPlaylists.length,
-      totalPlaylists,
+            : "Public playlist insights ready",
+      processedPlaylists: pendingPlaylists.length,
+      totalPlaylists: pendingPlaylists.length,
       skippedPlaylists: skippedPlaylistNames.length,
       skippedPlaylistNames,
       startedAt,
@@ -673,10 +714,10 @@ export async function runPublicProfileInsightsSync(
       profileUrl: resolvedProfileUrl,
       status: "failed",
       phase: "Public playlist sync failed",
-      processedPlaylists: existing.processedPlaylists ?? 0,
-      totalPlaylists: existing.totalPlaylists ?? 0,
-      skippedPlaylists: existing.skippedPlaylists ?? 0,
-      skippedPlaylistNames: existing.skippedPlaylistNames ?? [],
+      processedPlaylists: 0,
+      totalPlaylists: 0,
+      skippedPlaylists: 0,
+      skippedPlaylistNames: [],
       startedAt,
       finishedAt,
       updatedAt: finishedAt,
@@ -768,12 +809,17 @@ export async function getPublicSpotifyProfileInsights(
       const publicPlaylists = playlistFetchResult.playlists;
 
       if (publicPlaylists.length > 0) {
-        await seedStoredPublicPlaylistSnapshot(spotifyUserId, publicPlaylists, []).catch(() => undefined);
+        await seedStoredPublicPlaylistSnapshot(
+          spotifyUserId,
+          publicPlaylists,
+          storedFallback?.playlistInsights ?? [],
+        ).catch(() => undefined);
+
         invalidateDashboardSectionRuntimeCache(spotifyUserId);
         await writeStoredPlaylistsSectionCache(spotifyUserId).catch(() => undefined);
       }
 
-      const fallbackAfterSeed =
+      const refreshedStoredFallback =
         publicPlaylists.length > 0
           ? await buildStoredPublicProfileFallback(
               spotifyUserId,
@@ -782,12 +828,12 @@ export async function getPublicSpotifyProfileInsights(
             ).catch(() => storedFallback)
           : storedFallback;
 
-      const playlistInsights = fallbackAfterSeed?.playlistInsights.slice(0, playlistInsightLimit) ?? [];
+      const playlistInsights = refreshedStoredFallback?.playlistInsights.slice(0, playlistInsightLimit) ?? [];
       const moodInsights = deriveGenreBasedMoodInsights(
-        extractGenreSeedsFromPlaylistInsights(fallbackAfterSeed?.playlistInsights ?? playlistInsights),
+        extractGenreSeedsFromPlaylistInsights(refreshedStoredFallback?.playlistInsights ?? playlistInsights),
       );
       const resolvedPlaylists =
-        publicPlaylists.length > 0 ? publicPlaylists : fallbackAfterSeed?.publicPlaylists ?? [];
+        publicPlaylists.length > 0 ? publicPlaylists : refreshedStoredFallback?.publicPlaylists ?? [];
 
       return {
         spotifyUserId,
@@ -795,28 +841,24 @@ export async function getPublicSpotifyProfileInsights(
           user?.display_name ??
           (profileHtml
             ? scrapeDisplayNameFromProfileHtml(profileHtml)
-            : storedFallback?.displayName ?? "Spotify listener"),
-        imageUrl: user?.images?.[0]?.url ?? storedFallback?.imageUrl,
+            : refreshedStoredFallback?.displayName ?? "Spotify listener"),
+        imageUrl: user?.images?.[0]?.url ?? refreshedStoredFallback?.imageUrl,
         profileUrl: user?.external_urls?.spotify ?? resolvedProfileUrl,
         publicPlaylistCount: Math.max(
           playlistFetchResult.total,
           resolvedPlaylists.length,
-          fallbackAfterSeed?.publicPlaylistCount ?? 0,
+          refreshedStoredFallback?.publicPlaylistCount ?? 0,
         ),
         publicPlaylists: resolvedPlaylists,
         playlistInsights,
         moodData: moodInsights.moodData,
-        moodSource: `${moodInsights.moodSource} (public playlist sync continues in the background)`,
+        moodSource: `${moodInsights.moodSource} (cached public playlist analysis)`,
         recentArtists,
         recentArtistsVisible: recentArtists.length > 0,
         fetchedAt: new Date().toISOString(),
       };
     },
   );
-}
-
-export function getEstimatedPublicPlaylistInsightTime(playlists: SpotifyPlaylist[]) {
-  return Math.max(1, Math.round(estimateSyncDurationMs(playlists) / 1000));
 }
 
 export async function getPublicSpotifyPlaylistDetail(playlistId: string) {

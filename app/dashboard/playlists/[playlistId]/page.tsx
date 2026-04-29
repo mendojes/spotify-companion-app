@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyPlaylistDetail, getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
 import { PublicProfileSyncStatus } from "@/components/public-profile-sync-status";
@@ -30,9 +30,11 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
         ? getPlaylistDetailFromHistory(session.spotifyUserId, playlistId).catch(() => null)
         : Promise.resolve(null),
     ]);
-    const publicInsights = session.spotifyUserId && storedPlaylists.length === 0
+
+    const publicInsights = session.spotifyUserId
       ? await getPublicSpotifyProfileInsights(session.spotifyUserId, session.spotifyProfileUrl).catch(() => null)
       : null;
+
     const visiblePlaylistIds = new Set([
       ...(publicInsights?.publicPlaylists ?? []).map((playlist) => playlist.id),
       ...storedPlaylists.map((playlist) => playlist.id),
@@ -42,19 +44,9 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
       notFound();
     }
 
-    const liveDetail = storedDetail
-      ? null
-      : await getPublicSpotifyPlaylistDetail(playlistId).catch(() => null);
+    const liveDetail = await getPublicSpotifyPlaylistDetail(playlistId).catch(() => null);
     const detail = liveDetail ?? storedDetail;
     const usingStoredFallback = !liveDetail && Boolean(storedDetail);
-    const publicSyncShouldStart = Boolean(
-      session.spotifyUserId && (
-        visiblePlaylistIds.size > 0 ||
-        !storedDetail ||
-        storedDetail.mood.toLowerCase().includes("pending") ||
-        storedDetail.topGenres.length === 0
-      )
-    );
 
     if (!detail) {
       notFound();
@@ -77,7 +69,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
                   {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
                   {usingStoredFallback
                     ? "This playlist is being shown from Listening Lore's stored public playlist cache."
-                    : "This playlist is being analyzed from public Spotify playlist data only."}
+                    : "This playlist is being refreshed from live public Spotify playlist data."}
                 </p>
               </div>
             </div>
@@ -109,8 +101,12 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
           {session.spotifyUserId ? (
             <PublicProfileSyncStatus
               spotifyUserId={session.spotifyUserId}
-              shouldStart={publicSyncShouldStart}
-              expectedPlaylistCount={Math.max(visiblePlaylistIds.size, storedPlaylists.length)}
+              shouldStart={Boolean(session.spotifyUserId)}
+              expectedPlaylistCount={Math.max(
+                visiblePlaylistIds.size,
+                storedPlaylists.length,
+                publicInsights?.publicPlaylistCount ?? 0,
+              )}
             />
           ) : null}
 

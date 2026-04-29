@@ -1,20 +1,34 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
-import { getPublicProfileSyncState, runPublicProfileInsightsSync } from "@/lib/spotify-public";
+import { hasSpotifyConnection, requireSession } from "@/lib/auth";
+import { runPublicProfileInsightsSync } from "@/lib/spotify-public";
+
+export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const session = await getSession();
+  const session = await requireSession();
 
-  if (!session?.spotifyUserId) {
-    return NextResponse.json({ error: "Spotify profile is required." }, { status: 400 });
+  if (hasSpotifyConnection(session)) {
+    return NextResponse.json(
+      { error: "Public profile sync is only used for local accounts." },
+      { status: 400 },
+    );
   }
 
-  const current = await getPublicProfileSyncState(session.spotifyUserId, session.spotifyProfileUrl);
-
-  if (current.status === "running") {
-    return NextResponse.json(current, { status: 202 });
+  if (!session.spotifyUserId) {
+    return NextResponse.json(
+      { error: "Missing Spotify profile for local account." },
+      { status: 400 },
+    );
   }
 
-  const result = await runPublicProfileInsightsSync(session.spotifyUserId, session.spotifyProfileUrl);
-  return NextResponse.json(result, { status: result.status === "failed" ? 500 : 200 });
+  const state = await runPublicProfileInsightsSync(
+    session.spotifyUserId,
+    session.spotifyProfileUrl,
+  );
+
+  return NextResponse.json(state, {
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  });
 }
