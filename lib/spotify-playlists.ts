@@ -114,6 +114,121 @@ type StoredArtistMetadata = {
   updatedAt: string;
 };
 
+const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
+
+function normalizeArtistCacheKey(value: string) {
+  return value.trim().toLocaleLowerCase();
+}
+
+async function writeMusicBrainzGenresToPermanentArtistCache(
+  tracks: SpotifyTrack[],
+  artistTags: Map<string, string[]>,
+) {
+  if (!hasMongoConfig() || artistTags.size === 0) {
+    return;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return;
+  }
+
+  const artistIdsByNormalizedName = new Map<string, { artistId: string; name: string }>();
+
+  for (const track of tracks) {
+    for (const artist of track.artists ?? []) {
+      if (!artist?.id || !artist?.name) {
+        continue;
+      }
+
+      const key = normalizeArtistCacheKey(artist.name);
+
+      if (!artistIdsByNormalizedName.has(key)) {
+        artistIdsByNormalizedName.set(key, {
+          artistId: artist.id,
+          name: artist.name,
+        });
+      }
+    }
+  }
+
+  const matchedArtists = [...artistTags.entries()]
+    .map(([artistName, genres]) => {
+      const match = artistIdsByNormalizedName.get(normalizeArtistCacheKey(artistName));
+
+      if (!match || genres.length === 0) {
+        return null;
+      }
+
+      return {
+        artistId: match.artistId,
+        name: match.name,
+        genres: [...new Set(genres.map((genre) => genre.trim()).filter(Boolean))],
+      };
+    })
+    .filter(
+      (
+        value,
+      ): value is {
+        artistId: string;
+        name: string;
+        genres: string[];
+      } => Boolean(value),
+    );
+
+  if (matchedArtists.length === 0) {
+    return;
+  }
+
+  const existingRecords = await db
+    .collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION)
+    .find({
+      artistId: { $in: matchedArtists.map((artist) => artist.artistId) },
+    })
+    .toArray();
+
+  const existingByArtistId = new Map(existingRecords.map((record) => [record.artistId, record]));
+
+  const operations = matchedArtists.flatMap((artist) => {
+    const existing = existingByArtistId.get(artist.artistId);
+    const existingGenres = existing?.genres ?? [];
+
+    if (existing && existingGenres.length > 0) {
+      return [];
+    }
+
+    return [
+      {
+        updateOne: {
+          filter: { artistId: artist.artistId },
+          update: {
+            $set: {
+              artistId: artist.artistId,
+              name: existing?.name ?? artist.name,
+              genres: artist.genres,
+              updatedAt: new Date().toISOString(),
+            },
+            $setOnInsert: {
+              imageUrl: existing?.imageUrl,
+              popularity: existing?.popularity ?? 0,
+            },
+          },
+          upsert: true,
+        },
+      },
+    ];
+  });
+
+  if (operations.length === 0) {
+    return;
+  }
+
+  await db
+    .collection<StoredArtistMetadata>(ARTIST_METADATA_COLLECTION)
+    .bulkWrite(operations, { ordered: false })
+    .catch(() => undefined);
+}
+
 export type PublicPlaylistDetailStageState = {
   spotifyUserId: string;
   playlistId: string;
@@ -1447,7 +1562,7 @@ async function fetchSpotifyArtistGenresBySearch(artistNames: string[]) {
           artists?: {
             items?: Array<{ name?: string; genres?: string[] }>;
           };
-        }>(`/search?q=${encodeURIComponent(artistName)}&type=artist&limit=1`, clientToken, { allowRetry: true });
+        }>(`/search?q=${encodeURIComponent(artistName)}&type=artist&limit=1`, clientToken, { allowRetry: false });
 
         const match = response.artists?.items?.[0];
         const normalizedRequested = normalizeArtistName(artistName);
@@ -1837,16 +1952,16 @@ async function analyzePlaylistFromTrackItems(
     }
   }
 
-  if (topGenres.length === 0 && accessToken) {
-    const artistTags = await fetchMusicBrainzArtistTags(
-      getTopArtistNamesByFrequency(tracks),
-    ).catch(() => new Map<string, string[]>());
+if (topGenres.length === 0) {
+  const artistTags = await fetchMusicBrainzArtistTags(
+    getTopArtistNamesByFrequency(tracks),
+  ).catch(() => new Map<string, string[]>());
 
-    if (artistTags.size > 0) {
-      topGenres = buildGenreSummaryFromArtistTags(tracks, artistTags);
-    }
+  if (artistTags.size > 0) {
+    await writeMusicBrainzGenresToPermanentArtistCache(tracks, artistTags).catch(() => undefined);
+    topGenres = buildGenreSummaryFromArtistTags(tracks, artistTags);
   }
-
+}
   const sampleTracks = buildSampleTracks(tracks);
   const topTracks = buildTopTracks(tracks, allTimeTrackAffinity, topTrackMode);
 

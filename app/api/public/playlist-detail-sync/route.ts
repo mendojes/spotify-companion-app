@@ -54,7 +54,7 @@ function buildPendingInsightFromStoredLibrary(args: {
     createdAt: undefined,
     lastListenedAt: undefined,
     mood: "Analysis pending",
-    topGenresSummary: "Background refresh will retry after rate limit",
+    topGenresSummary: "Using cached artist metadata and retrying background enrichment",
     diversity: "Pending genre analysis",
     listeningCadence: "Pending cadence analysis",
     overlap: "Pending overlap analysis",
@@ -101,17 +101,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing playlistId." }, { status: 400 });
   }
 
-  console.log(
-    `[public-detail-sync] START user=${session.spotifyUserId} playlist=${playlistId}`,
-  );
+  console.log(`[public-detail-sync] START user=${session.spotifyUserId} playlist=${playlistId}`);
 
   try {
     const [storedLibrary, storedPageData, storedDetail] = await Promise.all([
       getStoredPlaylistLibrary(session.spotifyUserId).catch(() => []),
-      getPlaylistPageDataFromHistory(
-        session.spotifyUserId,
-        "last_listened_desc",
-      ).catch(() => null),
+      getPlaylistPageDataFromHistory(session.spotifyUserId, "last_listened_desc").catch(() => null),
       getPlaylistDetailFromHistory(session.spotifyUserId, playlistId).catch(() => null),
     ]);
 
@@ -127,20 +122,13 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json(
         { ok: true, cached: true, playlistId },
-        {
-          headers: {
-            "Cache-Control": "no-store",
-          },
-        },
+        { headers: { "Cache-Control": "no-store" } },
       );
     }
 
     const detail = await withTimeout(
       getPublicSpotifyPlaylistDetail(playlistId).catch((error) => {
-        console.error(
-          `[public-detail-sync] detail fetch failed playlist=${playlistId}`,
-          error,
-        );
+        console.error(`[public-detail-sync] detail fetch failed playlist=${playlistId}`, error);
         return null;
       }),
       12_000,
@@ -149,10 +137,7 @@ export async function POST(request: NextRequest) {
 
     const nextInsight =
       detailToPlaylistInsight(detail) ??
-      buildPendingInsightFromStoredLibrary({
-        playlistId,
-        storedLibrary,
-      });
+      buildPendingInsightFromStoredLibrary({ playlistId, storedLibrary });
 
     if (!nextInsight) {
       console.warn(
@@ -161,12 +146,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json(
         { ok: false, playlistId, reason: "detail_unavailable" },
-        {
-          status: 202,
-          headers: {
-            "Cache-Control": "no-store",
-          },
-        },
+        { status: 202, headers: { "Cache-Control": "no-store" } },
       );
     }
 
@@ -197,38 +177,19 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json(
-      {
-        ok: true,
-        partial: !detail,
-        playlistId,
-      },
-      {
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      },
+      { ok: true, partial: !detail, playlistId },
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    console.error(
-      `[public-detail-sync] ERROR user=${session.spotifyUserId} playlist=${playlistId}`,
-      error,
-    );
+    console.error(`[public-detail-sync] ERROR user=${session.spotifyUserId} playlist=${playlistId}`, error);
 
     return NextResponse.json(
       {
         ok: false,
         playlistId,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to refresh public playlist detail.",
+        error: error instanceof Error ? error.message : "Failed to refresh public playlist detail.",
       },
-      {
-        status: 500,
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
 }

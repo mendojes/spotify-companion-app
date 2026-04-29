@@ -3,9 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { PublicProfileSyncStatus } from "@/components/public-profile-sync-status";
 import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
-import { PlaylistDetail } from "@/lib/types";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { PlaylistDetailSync } from "./playlist-detail-sync";
 import { PublicPlaylistDetailRefresh } from "./public-playlist-detail-refresh";
@@ -19,36 +17,6 @@ function formatDateLabel(value?: string) {
   return formatPstDateTime(value);
 }
 
-function buildPendingPublicDetail(args: {
-  playlistId: string;
-  name: string;
-  imageUrl?: string;
-  ownerName?: string;
-  trackCount: number;
-}): PlaylistDetail {
-  return {
-    id: args.playlistId,
-    name: args.name,
-    imageUrl: args.imageUrl,
-    ownerName: args.ownerName,
-    trackCount: args.trackCount,
-    uniqueArtistCount: 0,
-    uniqueAlbumCount: 0,
-    mood: "Analysis pending",
-    diversity: "Pending genre analysis",
-    overlap: "Pending overlap analysis",
-    listeningCadence: "Pending cadence analysis",
-    createdAt: undefined,
-    lastListenedAt: undefined,
-    topGenres: [],
-    topArtists: [],
-    repeatedTracks: [],
-    sampleTracks: [],
-    topTracks: [],
-    listenTimeline: [],
-  };
-}
-
 export default async function PlaylistDetailPage({ params }: PlaylistDetailPageProps) {
   const { playlistId } = await params;
   const session = await requireSession();
@@ -56,9 +24,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
   if (!hasSpotifyConnection(session)) {
     const [storedPlaylists, storedDetail] = await Promise.all([
       session.spotifyUserId
-        ? getStoredPlaylistLibrary(session.spotifyUserId).catch(
-            () => [] as Awaited<ReturnType<typeof getStoredPlaylistLibrary>>,
-          )
+        ? getStoredPlaylistLibrary(session.spotifyUserId).catch(() => [] as Awaited<ReturnType<typeof getStoredPlaylistLibrary>>)
         : Promise.resolve([] as Awaited<ReturnType<typeof getStoredPlaylistLibrary>>),
       session.spotifyUserId
         ? getPlaylistDetailFromHistory(session.spotifyUserId, playlistId).catch(() => null)
@@ -86,27 +52,38 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
       notFound();
     }
 
-    const detail =
-      storedDetail ??
-      (libraryPlaylist
-        ? buildPendingPublicDetail({
-            playlistId: libraryPlaylist.id,
-            name: libraryPlaylist.name,
-            imageUrl: libraryPlaylist.images?.[0]?.url,
-            ownerName: libraryPlaylist.owner?.display_name ?? libraryPlaylist.owner?.id,
-            trackCount: libraryPlaylist.tracks?.total ?? 0,
-          })
-        : null);
+    const detail = storedDetail;
 
-    if (!detail) {
+    if (!detail && !libraryPlaylist) {
       notFound();
     }
 
-    const usingStoredFallback = Boolean(storedDetail);
+    const fallbackDetail = detail ?? {
+      id: libraryPlaylist!.id,
+      name: libraryPlaylist!.name,
+      imageUrl: libraryPlaylist!.images?.[0]?.url,
+      ownerName: libraryPlaylist!.owner?.display_name ?? libraryPlaylist!.owner?.id,
+      trackCount: libraryPlaylist!.tracks?.total ?? 0,
+      uniqueArtistCount: 0,
+      uniqueAlbumCount: 0,
+      mood: "Analysis pending",
+      diversity: "Pending genre analysis",
+      overlap: "Pending overlap analysis",
+      listeningCadence: "Pending cadence analysis",
+      createdAt: undefined,
+      lastListenedAt: undefined,
+      topGenres: [],
+      topArtists: [],
+      repeatedTracks: [],
+      sampleTracks: [],
+      topTracks: [],
+      listenTimeline: [],
+    };
+
     const shouldRefreshDetail =
-      !storedDetail ||
-      detail.mood.toLowerCase().includes("pending") ||
-      detail.topGenres.length === 0;
+      !detail ||
+      fallbackDetail.mood.toLowerCase().includes("pending") ||
+      fallbackDetail.topGenres.length === 0;
 
     return (
       <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
@@ -118,11 +95,11 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-6">
-              {detail.imageUrl ? (
+              {fallbackDetail.imageUrl ? (
                 <div className="relative h-36 w-36 overflow-hidden rounded-[32px] border border-white/10 bg-white/5">
                   <Image
-                    src={detail.imageUrl}
-                    alt={detail.name}
+                    src={fallbackDetail.imageUrl}
+                    alt={fallbackDetail.name}
                     fill
                     sizes="144px"
                     className="object-contain bg-white/[0.2]"
@@ -130,31 +107,23 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
                 </div>
               ) : null}
               <div>
-                <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">
-                  Public Playlist Lab
-                </p>
+                <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Public Playlist Lab</p>
                 <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">
-                  {detail.name}
+                  {fallbackDetail.name}
                 </h1>
                 <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
-                  {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
-                  {usingStoredFallback
+                  {fallbackDetail.ownerName ? `Curated by ${fallbackDetail.ownerName}. ` : ""}
+                  {detail
                     ? "This playlist is being shown from Listening Lore's stored public playlist cache."
-                    : "This playlist is being shown from the stored public playlist library while detailed analysis refreshes in the background."}
+                    : "This playlist is being shown from the stored public playlist library while richer analysis continues in the background."}
                 </p>
               </div>
             </div>
             <div className="flex gap-3">
-              <Link
-                href="/dashboard/playlists"
-                className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]"
-              >
+              <Link href="/dashboard/playlists" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
                 All playlists
               </Link>
-              <Link
-                href="/dashboard"
-                className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]"
-              >
+              <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
                 Dashboard
               </Link>
             </div>
@@ -163,44 +132,25 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
           <div className="grid gap-4 md:grid-cols-3">
             <div className="glass-panel rounded-[28px] p-5">
               <p className="text-sm text-[var(--theme-muted)]">Tracks analyzed</p>
-              <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">
-                {detail.trackCount}
-              </p>
+              <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{fallbackDetail.trackCount}</p>
             </div>
             <div className="glass-panel rounded-[28px] p-5">
               <p className="text-sm text-[var(--theme-muted)]">Unique artists</p>
-              <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">
-                {detail.uniqueArtistCount}
-              </p>
+              <p className="mt-4 font-display text-3xl text-[var(--theme-title)]">{fallbackDetail.uniqueArtistCount}</p>
             </div>
             <div className="glass-panel rounded-[28px] p-5">
               <p className="text-sm text-[var(--theme-muted)]">Mood center</p>
-              <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">
-                {detail.mood}
-              </p>
+              <p className="mt-4 font-display text-2xl text-[var(--theme-title)]">{fallbackDetail.mood}</p>
             </div>
           </div>
 
-          {session.spotifyUserId ? (
-            <PublicProfileSyncStatus
-              spotifyUserId={session.spotifyUserId}
-              shouldStart={Boolean(session.spotifyUserId)}
-              expectedPlaylistCount={Math.max(
-                visiblePlaylistIds.size,
-                storedPlaylists.length,
-                publicInsights?.publicPlaylistCount ?? 0,
-              )}
-            />
-          ) : null}
-
-          {!storedDetail ? (
+          {!detail ? (
             <div className="rounded-[24px] border border-cyan/20 bg-cyan/10 px-5 py-4 text-sm text-[var(--theme-body)]">
-              Detailed public playlist analysis is refreshing in the background.
-              This page is using the stored public playlist library snapshot for now.
+              Public playlist analysis is running in the background. Tracks and top songs may appear first, then artist genres and mood modeling will fill in once cached artist metadata is available.
             </div>
           ) : null}
 
-          <PlaylistDetailView detail={detail} mode="public" />
+          <PlaylistDetailView detail={fallbackDetail} mode="public" />
         </div>
       </main>
     );
@@ -226,20 +176,12 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
           <div className="flex items-center gap-6">
             {detail.imageUrl ? (
               <div className="relative h-36 w-36 overflow-hidden rounded-[32px] border border-white/10 bg-white/5">
-                <Image
-                  src={detail.imageUrl}
-                  alt={detail.name}
-                  fill
-                  sizes="144px"
-                  className="object-contain bg-white/[0.2]"
-                />
+                <Image src={detail.imageUrl} alt={detail.name} fill sizes="144px" className="object-contain bg-white/[0.2]" />
               </div>
             ) : null}
             <div>
               <p className="text-sm uppercase tracking-[0.32em] text-cyan/70">Playlist Lab</p>
-              <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">
-                {detail.name}
-              </h1>
+              <h1 className="mt-3 font-display text-4xl text-[var(--theme-title)] md:text-5xl">{detail.name}</h1>
               <p className="mt-3 max-w-2xl text-base leading-7 text-[var(--theme-body)]">
                 {detail.ownerName ? `Curated by ${detail.ownerName}. ` : ""}
                 This view breaks down the playlist&apos;s mood center, genre composition, repeat patterns, top tracks, and listening timeline.
@@ -251,16 +193,10 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             </div>
           </div>
           <div className="flex gap-3">
-            <Link
-              href="/dashboard/playlists"
-              className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]"
-            >
+            <Link href="/dashboard/playlists" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               All playlists
             </Link>
-            <Link
-              href="/dashboard"
-              className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]"
-            >
+            <Link href="/dashboard" className="rounded-full border border-[rgba(57,18,98,0.16)] bg-white/[0.18] px-4 py-2 text-sm text-[var(--theme-text)]">
               Dashboard
             </Link>
           </div>
