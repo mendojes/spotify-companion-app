@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "backfill:cached-toplists": "node scripts/backfill-cached-toplists.mjs",
+    "cleanup:lastfm-import": "node --env-file=.env.local scripts/cleanup-lastfm-import.mjs",
     "db:ensure-indexes": "node --env-file=.env.local scripts/ensure-db-indexes.mjs",
     "debug:spotify-recent": "node --env-file=.env.local scripts/debug-spotify-recent.mjs",
     "debug:spotify-playlists": "node --env-file=.env.local scripts/debug-spotify-playlists.mjs"

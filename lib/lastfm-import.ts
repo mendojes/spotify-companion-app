@@ -3,17 +3,42 @@ import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCa
 import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
 import { invalidateDashboardSnapshotCaches } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache } from "@/lib/spotify-playlists";
+import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
-import { StoredRecentPlay } from "@/lib/types";
+import { SpotifyDashboardSnapshot, SpotifyRecentlyPlayedItem, SpotifyTrack, StoredRecentPlay } from "@/lib/types";
 
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
+const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const IMPORT_BATCH_SIZE = 500;
+const LASTFM_IMPORT_SOURCE_TYPE = "lastfm_import";
+const DEFAULT_DUPLICATE_WINDOW_MS = 1000 * 60 * 7;
+const MIN_DUPLICATE_WINDOW_MS = 1000 * 60 * 3;
+const MAX_DUPLICATE_WINDOW_MS = 1000 * 60 * 15;
+const SNAPSHOT_CACHE_SCAN_LIMIT = 60;
+
+type TrackMetadataCandidate = {
+  trackId?: string;
+  trackName: string;
+  artistName: string;
+  artistNames?: string[];
+  artistIds?: string[];
+  albumName?: string;
+  durationMs?: number;
+  imageUrl?: string;
+};
+
+type SpotifySearchTracksResponse = {
+  tracks?: {
+    items: SpotifyTrack[];
+  };
+};
 
 type ParsedCsvRow = Record<string, string>;
 
 type ParsedLastFmPlay = StoredRecentPlay & {
   duplicateKey: string;
   nameKey: string;
+  trackArtistKey: string;
 };
 
 export type LastFmImportResult = {
@@ -93,8 +118,232 @@ function normalizeText(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function buildTrackArtistKey(trackName: string, artistName: string) {
+  return `${normalizeText(trackName)}::${normalizeText(artistName)}`;
+}
+
 function buildNameKey(trackName: string, artistName: string, albumName: string) {
   return `${normalizeText(trackName)}::${normalizeText(artistName)}::${normalizeText(albumName)}`;
+}
+
+function getDuplicateWindowMs(play: Pick<StoredRecentPlay, "durationMs">) {
+  const durationWithBufferMs = (play.durationMs ?? 0) + 1000 * 90;
+  return Math.min(
+    MAX_DUPLICATE_WINDOW_MS,
+    Math.max(MIN_DUPLICATE_WINDOW_MS, durationWithBufferMs || DEFAULT_DUPLICATE_WINDOW_MS),
+  );
+}
+
+function addWindowToIso(playedAt: string, deltaMs: number) {
+  return new Date(new Date(playedAt).getTime() + deltaMs).toISOString();
+}
+
+function toMetadataCandidateFromStoredPlay(play: StoredRecentPlay): TrackMetadataCandidate {
+  return {
+    trackId: play.trackId,
+    trackName: play.trackName,
+    artistName: play.artistName,
+    artistNames: play.artistNames,
+    artistIds: play.artistIds,
+    albumName: play.albumName,
+    durationMs: play.durationMs,
+    imageUrl: play.imageUrl,
+  };
+}
+
+function toMetadataCandidateFromSpotifyTrack(track: SpotifyTrack): TrackMetadataCandidate {
+  return {
+    trackId: track.id,
+    trackName: track.name,
+    artistName: track.artists.map((artist) => artist.name).join(", "),
+    artistNames: track.artists.map((artist) => artist.name),
+    artistIds: track.artists.map((artist) => artist.id).filter((id): id is string => Boolean(id)),
+    albumName: track.album.name,
+    durationMs: track.duration_ms,
+    imageUrl: track.album.images?.[0]?.url,
+  };
+}
+
+function collectSnapshotTrackCandidates(snapshot: SpotifyDashboardSnapshot) {
+  return [
+    ...snapshot.recent.map((item) => item.track),
+    ...snapshot.topTracks,
+    ...(snapshot.mediumTermTopTracks ?? []),
+    ...(snapshot.longTermTopTracks ?? []),
+  ];
+}
+
+function getMetadataQualityScore(candidate: TrackMetadataCandidate) {
+  return [
+    candidate.trackId ? 8 : 0,
+    candidate.imageUrl ? 4 : 0,
+    candidate.durationMs ? 3 : 0,
+    candidate.albumName ? 2 : 0,
+    candidate.artistIds?.length ? 2 : 0,
+  ].reduce((sum, value) => sum + value, 0);
+}
+
+function chooseBetterMetadataCandidate(current: TrackMetadataCandidate | undefined, candidate: TrackMetadataCandidate) {
+  if (!current) {
+    return candidate;
+  }
+
+  return getMetadataQualityScore(candidate) > getMetadataQualityScore(current) ? candidate : current;
+}
+
+function buildMetadataMaps(candidates: TrackMetadataCandidate[]) {
+  const byTrackId = new Map<string, TrackMetadataCandidate>();
+  const byNameKey = new Map<string, TrackMetadataCandidate>();
+  const byTrackArtistKey = new Map<string, TrackMetadataCandidate>();
+
+  candidates.forEach((candidate) => {
+    if (candidate.trackId) {
+      byTrackId.set(candidate.trackId, chooseBetterMetadataCandidate(byTrackId.get(candidate.trackId), candidate));
+    }
+
+    const nameKey = buildNameKey(candidate.trackName, candidate.artistName, candidate.albumName ?? "");
+    const trackArtistKey = buildTrackArtistKey(candidate.trackName, candidate.artistName);
+
+    byNameKey.set(nameKey, chooseBetterMetadataCandidate(byNameKey.get(nameKey), candidate));
+    byTrackArtistKey.set(trackArtistKey, chooseBetterMetadataCandidate(byTrackArtistKey.get(trackArtistKey), candidate));
+  });
+
+  return { byTrackId, byNameKey, byTrackArtistKey };
+}
+
+async function getCachedMetadataCandidates(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  spotifyUserId: string,
+  plays: ParsedLastFmPlay[],
+) {
+  if (!db || plays.length === 0) {
+    return [] as TrackMetadataCandidate[];
+  }
+
+  const uniqueTrackArtistPairs = [...new Map(
+    plays.map((play) => [
+      `${play.trackName}::${play.artistName}`,
+      { trackName: play.trackName, artistName: play.artistName },
+    ]),
+  ).values()];
+  const uniqueTrackIds = [...new Set(plays.map((play) => play.trackId).filter((trackId) => !trackId.startsWith("lastfm:")))];
+
+  const [recentPlayCandidates, snapshots] = await Promise.all([
+    db
+      .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+      .find({
+        spotifyUserId,
+        $or: [
+          ...uniqueTrackIds.map((trackId) => ({ trackId })),
+          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ trackName, artistName })),
+        ],
+      })
+      .sort({ playedAt: -1 })
+      .limit(1000)
+      .toArray(),
+    db
+      .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
+      .find({ spotifyUserId })
+      .sort({ fetchedAt: -1 })
+      .limit(SNAPSHOT_CACHE_SCAN_LIMIT)
+      .toArray(),
+  ]);
+
+  const snapshotCandidates = snapshots.flatMap((snapshot) => collectSnapshotTrackCandidates(snapshot).map(toMetadataCandidateFromSpotifyTrack));
+  return [
+    ...recentPlayCandidates.map(toMetadataCandidateFromStoredPlay),
+    ...snapshotCandidates,
+  ];
+}
+
+function applyMetadataCandidate(play: ParsedLastFmPlay, candidate?: TrackMetadataCandidate) {
+  if (!candidate) {
+    return play;
+  }
+
+  const resolvedArtistName = candidate.artistName || play.artistName;
+  const resolvedAlbumName = candidate.albumName || play.albumName;
+
+  return {
+    ...play,
+    trackId: candidate.trackId ?? play.trackId,
+    trackName: candidate.trackName || play.trackName,
+    artistName: resolvedArtistName,
+    artistNames: candidate.artistNames?.length ? candidate.artistNames : play.artistNames,
+    artistIds: candidate.artistIds?.length ? candidate.artistIds : play.artistIds,
+    albumName: resolvedAlbumName,
+    durationMs: candidate.durationMs ?? play.durationMs,
+    imageUrl: candidate.imageUrl ?? play.imageUrl,
+    nameKey: buildNameKey(play.trackName, resolvedArtistName, resolvedAlbumName),
+    trackArtistKey: buildTrackArtistKey(play.trackName, resolvedArtistName),
+  };
+}
+
+async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastFmPlay) {
+  const query = `track:${play.trackName} artist:${play.artistName}`;
+  const response = await spotifyFetch<SpotifySearchTracksResponse>(
+    `/search?type=track&limit=5&q=${encodeURIComponent(query)}`,
+    accessToken,
+  ).catch(() => null);
+  const items = response?.tracks?.items ?? [];
+
+  if (items.length === 0) {
+    return undefined;
+  }
+
+  const exactTrackName = normalizeText(play.trackName);
+  const exactArtistName = normalizeText(play.artistName);
+  const preferred =
+    items.find((track) =>
+      normalizeText(track.name) === exactTrackName &&
+      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
+    ) ??
+    items.find((track) =>
+      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
+    ) ??
+    items[0];
+
+  return preferred ? toMetadataCandidateFromSpotifyTrack(preferred) : undefined;
+}
+
+async function hydrateImportedPlayMetadata(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  spotifyUserId: string,
+  plays: ParsedLastFmPlay[],
+  accessToken?: string,
+) {
+  if (plays.length === 0) {
+    return plays;
+  }
+
+  const cachedCandidates = await getCachedMetadataCandidates(db, spotifyUserId, plays);
+  const metadataMaps = buildMetadataMaps(cachedCandidates);
+  const spotifyToken = accessToken ?? await getSpotifyClientCredentialsToken().catch(() => "");
+  const spotifySearchCache = new Map<string, TrackMetadataCandidate | null>();
+
+  return Promise.all(
+    plays.map(async (play) => {
+      const cachedCandidate =
+        (play.trackId && !play.trackId.startsWith("lastfm:") ? metadataMaps.byTrackId.get(play.trackId) : undefined) ??
+        metadataMaps.byNameKey.get(play.nameKey) ??
+        metadataMaps.byTrackArtistKey.get(play.trackArtistKey);
+
+      if (cachedCandidate) {
+        return applyMetadataCandidate(play, cachedCandidate);
+      }
+
+      if (!spotifyToken) {
+        return play;
+      }
+
+      const spotifyLookupKey = `${play.trackName}::${play.artistName}`;
+      if (!spotifySearchCache.has(spotifyLookupKey)) {
+        spotifySearchCache.set(spotifyLookupKey, (await searchSpotifyTrackMetadata(spotifyToken, play)) ?? null);
+      }
+
+      return applyMetadataCandidate(play, spotifySearchCache.get(spotifyLookupKey) ?? undefined);
+    }),
+  );
 }
 
 function parseDurationMs(rawValue?: string) {
@@ -297,6 +546,7 @@ function parseLastFmCsv(csvText: string, spotifyUserId: string) {
 
     const parsedTrackId = parseSpotifyTrackId(trackIdHeader ? row[trackIdHeader] : undefined);
     const nameKey = buildNameKey(trackName, artistName, albumName);
+    const trackArtistKey = buildTrackArtistKey(trackName, artistName);
     const trackId = parsedTrackId ?? `lastfm:${nameKey}`;
     const duplicateKey = `${playedAt}::${trackId}`;
     const play: ParsedLastFmPlay = {
@@ -308,9 +558,10 @@ function parseLastFmCsv(csvText: string, spotifyUserId: string) {
       artistNames: artistName.split(/,\s*/).filter(Boolean),
       albumName: albumName || "Unknown album",
       durationMs: parseDurationMs(durationHeader ? row[durationHeader] : undefined),
-      sourceType: "lastfm_import",
+      sourceType: LASTFM_IMPORT_SOURCE_TYPE,
       duplicateKey,
       nameKey,
+      trackArtistKey,
     };
 
     dedupedPlays.set(duplicateKey, play);
@@ -324,14 +575,60 @@ function parseLastFmCsv(csvText: string, spotifyUserId: string) {
 }
 
 function isDuplicatePlay(existing: StoredRecentPlay, candidate: ParsedLastFmPlay) {
-  if (existing.trackId === candidate.trackId) {
+  if (existing.playedAt === candidate.playedAt && existing.trackId === candidate.trackId) {
     return true;
   }
 
-  return buildNameKey(existing.trackName, existing.artistName, existing.albumName) === candidate.nameKey;
+  const existingTrackArtistKey = buildTrackArtistKey(existing.trackName, existing.artistName);
+
+  if (existingTrackArtistKey !== candidate.trackArtistKey) {
+    return false;
+  }
+
+  const playedAtDeltaMs = Math.abs(new Date(existing.playedAt).getTime() - new Date(candidate.playedAt).getTime());
+  return playedAtDeltaMs <= getDuplicateWindowMs(candidate);
 }
 
-export async function importLastFmScrobbles(csvText: string, spotifyUserId: string): Promise<LastFmImportResult> {
+function buildExistingPlayConsumptionKey(play: StoredRecentPlay) {
+  return [
+    play.playedAt,
+    play.trackId,
+    play.trackName,
+    play.artistName,
+    play.albumName,
+    play.sourceType ?? "",
+  ].join("::");
+}
+
+async function getExistingNearbyPlays(db: Awaited<ReturnType<typeof getDatabase>>, spotifyUserId: string, batch: ParsedLastFmPlay[]) {
+  if (!db || batch.length === 0) {
+    return [] as StoredRecentPlay[];
+  }
+
+  const earliestPlayedAt = batch[0]?.playedAt;
+  const latestPlayedAt = batch[batch.length - 1]?.playedAt;
+
+  if (!earliestPlayedAt || !latestPlayedAt) {
+    return [] as StoredRecentPlay[];
+  }
+
+  const lowerBound = addWindowToIso(earliestPlayedAt, -MAX_DUPLICATE_WINDOW_MS);
+  const upperBound = addWindowToIso(latestPlayedAt, MAX_DUPLICATE_WINDOW_MS);
+
+  return db
+    .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      spotifyUserId,
+      playedAt: {
+        $gte: lowerBound,
+        $lte: upperBound,
+      },
+    })
+    .sort({ playedAt: 1 })
+    .toArray();
+}
+
+export async function importLastFmScrobbles(csvText: string, spotifyUserId: string, accessToken?: string): Promise<LastFmImportResult> {
   const { plays, totalRows, skippedRows } = parseLastFmCsv(csvText, spotifyUserId);
 
   if (!hasMongoConfig()) {
@@ -368,40 +665,51 @@ export async function importLastFmScrobbles(csvText: string, spotifyUserId: stri
     }
 
     batchCount += 1;
-
-    const playedAtValues = [...new Set(batch.map((play) => play.playedAt))];
-    const existing = await db
-      .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
-      .find({
-        spotifyUserId,
-        playedAt: { $in: playedAtValues },
-      })
-      .toArray();
-
-    const existingByPlayedAt = new Map<string, StoredRecentPlay[]>();
-    existing.forEach((play) => {
-      const list = existingByPlayedAt.get(play.playedAt) ?? [];
-      list.push(play);
-      existingByPlayedAt.set(play.playedAt, list);
-    });
+    const existingNearbyPlays = await getExistingNearbyPlays(db, spotifyUserId, batch);
+    const unconsumedExistingPlayKeys = new Set(
+      existingNearbyPlays
+        .filter((play) => play.sourceType !== LASTFM_IMPORT_SOURCE_TYPE)
+        .map((play) => buildExistingPlayConsumptionKey(play)),
+    );
+    const exactExistingLastFmKeys = new Set(
+      existingNearbyPlays
+        .filter((play) => play.sourceType === LASTFM_IMPORT_SOURCE_TYPE)
+        .map((play) => `${play.playedAt}::${buildNameKey(play.trackName, play.artistName, play.albumName)}`),
+    );
 
     const newPlays = batch.filter((play) => {
-      const matches = existingByPlayedAt.get(play.playedAt) ?? [];
-      const duplicate = matches.some((existingPlay) => isDuplicatePlay(existingPlay, play));
-
-      if (duplicate) {
+      const exactExistingLastFmKey = `${play.playedAt}::${play.nameKey}`;
+      if (exactExistingLastFmKeys.has(exactExistingLastFmKey)) {
         duplicateCount += 1;
+        return false;
       }
 
-      return !duplicate;
+      const matchingExistingPlay = existingNearbyPlays.find((existingPlay) => {
+        if (existingPlay.sourceType === LASTFM_IMPORT_SOURCE_TYPE) {
+          return false;
+        }
+
+        const consumptionKey = buildExistingPlayConsumptionKey(existingPlay);
+        return unconsumedExistingPlayKeys.has(consumptionKey) && isDuplicatePlay(existingPlay, play);
+      });
+
+      if (matchingExistingPlay) {
+        unconsumedExistingPlayKeys.delete(buildExistingPlayConsumptionKey(matchingExistingPlay));
+        duplicateCount += 1;
+        return false;
+      }
+
+      return true;
     });
 
     if (newPlays.length === 0) {
       continue;
     }
 
+    const enrichedNewPlays = await hydrateImportedPlayMetadata(db, spotifyUserId, newPlays, accessToken);
+
     await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).bulkWrite(
-      newPlays.map((play) => ({
+      enrichedNewPlays.map((play) => ({
         updateOne: {
           filter: {
             spotifyUserId: play.spotifyUserId,
@@ -427,7 +735,7 @@ export async function importLastFmScrobbles(csvText: string, spotifyUserId: stri
       { ordered: false },
     );
 
-    importedCount += newPlays.length;
+    importedCount += enrichedNewPlays.length;
   }
 
   return {
@@ -442,6 +750,26 @@ export async function importLastFmScrobbles(csvText: string, spotifyUserId: stri
 
 export async function importLastFmScrobbleChunk(payload: LastFmImportPayload) {
   return importLastFmScrobbles(payload.csvText, payload.spotifyUserId);
+}
+
+export async function deleteImportedLastFmScrobbles(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return { deletedCount: 0 };
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return { deletedCount: 0 };
+  }
+
+  const result = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).deleteMany({
+    spotifyUserId,
+    sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+  });
+
+  return {
+    deletedCount: result.deletedCount ?? 0,
+  };
 }
 
 export async function refreshLastFmImportCaches(spotifyUserId: string, accessToken?: string) {

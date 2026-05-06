@@ -52,6 +52,7 @@ export function LastFmImportCard() {
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -135,6 +136,41 @@ export function LastFmImportCard() {
     }
   }
 
+  async function handleRemoveImportedHistory() {
+    setError(null);
+    setSummary(null);
+    setProgressLabel("Removing imported Last.fm plays...");
+    setIsRemoving(true);
+
+    try {
+      const response = await fetch("/api/settings/lastfm-import", {
+        method: "DELETE",
+      });
+      const rawText = await response.text();
+      const payload = parseJsonSafely(rawText);
+
+      if (!response.ok) {
+        setError(
+          typeof payload?.error === "string"
+            ? payload.error
+            : `Could not remove imported Last.fm history. Request failed with status ${response.status}.`,
+        );
+        setProgressLabel(null);
+        return;
+      }
+
+      setProgressLabel(null);
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch {
+      setError("Could not remove the imported Last.fm history right now. Please try again.");
+      setProgressLabel(null);
+    } finally {
+      setIsRemoving(false);
+    }
+  }
+
   return (
     <section className="desktop-card space-y-4 p-5">
       <div className="space-y-2">
@@ -165,10 +201,20 @@ export function LastFmImportCard() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            disabled={isSubmitting || isPending || !selectedFile}
+            disabled={isSubmitting || isRemoving || isPending || !selectedFile}
             className="rounded-full border-[3px] border-[rgba(44,12,70,0.85)] bg-[rgba(255,236,245,0.9)] px-5 py-3 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-text)] transition enabled:hover:bg-[rgba(255,225,239,0.96)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting || isPending ? "Importing..." : "Import history"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void handleRemoveImportedHistory();
+            }}
+            disabled={isSubmitting || isRemoving || isPending}
+            className="rounded-full border-[2px] border-[rgba(140,26,26,0.35)] bg-[rgba(255,120,120,0.12)] px-5 py-3 font-mono text-sm uppercase tracking-[0.16em] text-[var(--theme-text)] transition enabled:hover:bg-[rgba(255,120,120,0.18)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isRemoving ? "Removing..." : "Remove imported plays"}
           </button>
           {selectedFile ? (
             <p className="text-sm text-[var(--theme-body)]">{selectedFile.name}</p>
