@@ -11,6 +11,7 @@ import {
   PlaylistInsight,
   PlaylistSortOption,
   PlaylistTrackSummary,
+  PlaylistUnavailableTrackSummary,
   PlaylistListenTimelinePoint,
   SpotifyArtist,
   SpotifyAudioFeature,
@@ -85,7 +86,14 @@ type StoredPlaylistTrackCacheItem = {
   position: number;
   addedAt?: string;
   addedById?: string;
-  track: SpotifyTrack;
+  track?: SpotifyTrack;
+  trackId?: string;
+  title?: string;
+  artistNames?: string[];
+  albumName?: string;
+  imageUrl?: string;
+  classification?: "analyzable" | "local" | "unavailable" | "partial" | "unknown";
+  reason?: string;
   updatedAt: string;
 };
 
@@ -103,6 +111,25 @@ type StoredPlaylistTrackSyncState = {
 type TrackAffinity = {
   playCount: number;
   lastPlayedAt?: string;
+};
+
+type NormalizedStoredPlaylistTrackCacheRecord = Omit<
+  StoredPlaylistTrackCacheItem,
+  "spotifyUserId" | "playlistId" | "position" | "updatedAt"
+>;
+
+export type PlaylistTrackDiagnostics = {
+  totalItems: number;
+  fetchedItems: number;
+  analyzableTracks: number;
+  rejectedItems: number;
+  localItems: number;
+  unavailableItems: number;
+  partialItems: number;
+  unknownItems: number;
+  completed: boolean;
+  lastError?: string;
+  unavailableTracks: PlaylistUnavailableTrackSummary[];
 };
 
 type StoredArtistMetadata = {
@@ -271,6 +298,89 @@ function isUsablePlaylistTrack(track: unknown): track is SpotifyTrack {
     Array.isArray(candidate.artists) &&
     candidate.artists.length > 0,
   );
+}
+
+function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTrackItem): NormalizedStoredPlaylistTrackCacheRecord {
+  const rawTrack = item.track ?? item.item;
+
+  if (isUsablePlaylistTrack(rawTrack)) {
+    return {
+      addedAt: item.added_at,
+      addedById: item.added_by?.id,
+      track: rawTrack,
+      trackId: rawTrack.id,
+      title: rawTrack.name,
+      artistNames: rawTrack.artists.map((artist) => artist.name).filter(Boolean),
+      albumName: rawTrack.album?.name,
+      imageUrl: rawTrack.album?.images?.[0]?.url,
+      classification: "analyzable",
+      reason: rawTrack.is_playable === false ? "Spotify marked this track as unavailable to play." : undefined,
+    };
+  }
+
+  if (!rawTrack || typeof rawTrack !== "object") {
+    return {
+      addedAt: item.added_at,
+      addedById: item.added_by?.id,
+      classification: "unavailable",
+      reason: "Spotify no longer returned metadata for this playlist item.",
+      title: "Unavailable track",
+      artistNames: [],
+      albumName: "Unknown release",
+    };
+  }
+
+  const candidate = rawTrack as Partial<SpotifyTrack> & { is_local?: boolean; is_playable?: boolean | null };
+  const artistNames = Array.isArray(candidate.artists)
+    ? candidate.artists.map((artist) => artist?.name).filter((name): name is string => Boolean(name))
+    : [];
+  const title = candidate.name?.trim() || (candidate.is_local ? "Local file" : "Unavailable track");
+  const albumName = candidate.album?.name?.trim() || "Unknown release";
+  const baseRecord = {
+    addedAt: item.added_at,
+    addedById: item.added_by?.id,
+    trackId: candidate.id,
+    title,
+    artistNames,
+    albumName,
+    imageUrl: candidate.album?.images?.[0]?.url,
+  } satisfies Omit<NormalizedStoredPlaylistTrackCacheRecord, "classification" | "reason" | "track">;
+
+  if (candidate.is_local) {
+    return {
+      ...baseRecord,
+      classification: "local",
+      reason: "This playlist item is a local file and does not have full Spotify metadata.",
+    };
+  }
+
+  if (candidate.is_playable === false) {
+    return {
+      ...baseRecord,
+      classification: "unavailable",
+      reason: "Spotify returned this track as unavailable.",
+    };
+  }
+
+  return {
+    ...baseRecord,
+    classification: candidate.id || artistNames.length > 0 ? "partial" : "unknown",
+    reason: "Spotify returned incomplete metadata for this playlist item.",
+  };
+}
+
+function normalizeStoredPlaylistTrackRecordFromTrack(trackItem: PlaylistTrackWithMeta): NormalizedStoredPlaylistTrackCacheRecord {
+  return {
+    addedAt: trackItem.addedAt,
+    addedById: trackItem.addedById,
+    track: trackItem.track,
+    trackId: trackItem.track.id,
+    title: trackItem.track.name,
+    artistNames: trackItem.track.artists.map((artist) => artist.name).filter(Boolean),
+    albumName: trackItem.track.album?.name,
+    imageUrl: trackItem.track.album?.images?.[0]?.url,
+    classification: "analyzable",
+  };
 }
 
 function isPlaylistDetailIncomplete(detail: PlaylistDetail | CachedPlaylistDetail) {
@@ -798,7 +908,7 @@ export async function getStoredPlaylistTrackItems(spotifyUserId: string, playlis
 
     return records
       .map((record): PlaylistTrackWithMeta | null => (
-        isUsablePlaylistTrack(record.track)
+        record.classification === "analyzable" && isUsablePlaylistTrack(record.track)
           ? { addedAt: record.addedAt, addedById: record.addedById, track: record.track }
           : null
       ))
@@ -808,10 +918,110 @@ export async function getStoredPlaylistTrackItems(spotifyUserId: string, playlis
   }
 }
 
+export async function getStoredPlaylistTrackDiagnostics(
+  spotifyUserId: string,
+  playlistId: string,
+  fallbackTotalItems = 0,
+): Promise<PlaylistTrackDiagnostics> {
+  const empty = {
+    totalItems: fallbackTotalItems,
+    fetchedItems: 0,
+    analyzableTracks: 0,
+    rejectedItems: 0,
+    localItems: 0,
+    unavailableItems: 0,
+    partialItems: 0,
+    unknownItems: 0,
+    completed: false,
+    unavailableTracks: [],
+  } satisfies PlaylistTrackDiagnostics;
+
+  if (!hasMongoConfig()) {
+    return empty;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return empty;
+    }
+
+    const [records, syncState] = await Promise.all([
+      db
+        .collection<StoredPlaylistTrackCacheItem>(PLAYLIST_TRACK_CACHE_COLLECTION)
+        .find({ spotifyUserId, playlistId })
+        .sort({ position: 1 })
+        .toArray(),
+      db.collection<StoredPlaylistTrackSyncState>(PLAYLIST_TRACK_SYNC_COLLECTION).findOne({ spotifyUserId, playlistId }),
+    ]);
+
+    let analyzableTracks = 0;
+    let localItems = 0;
+    let unavailableItems = 0;
+    let partialItems = 0;
+    let unknownItems = 0;
+    const unavailableTracks: PlaylistUnavailableTrackSummary[] = [];
+
+    for (const record of records) {
+      const classification = record.classification ?? (isUsablePlaylistTrack(record.track) ? "analyzable" : "unknown");
+
+      if (classification === "analyzable") {
+        analyzableTracks += 1;
+        continue;
+      }
+
+      if (classification === "local") {
+        localItems += 1;
+        continue;
+      }
+
+      if (classification === "unavailable") {
+        unavailableItems += 1;
+        unavailableTracks.push({
+          position: record.position + 1,
+          title: record.title || "Unavailable track",
+          artist: record.artistNames?.join(", ") || "Unknown artist",
+          album: record.albumName || "Unknown release",
+          reason: record.reason || "Spotify no longer returned metadata for this playlist item.",
+          imageUrl: record.imageUrl,
+        });
+        continue;
+      }
+
+      if (classification === "partial") {
+        partialItems += 1;
+        continue;
+      }
+
+      unknownItems += 1;
+    }
+
+    const fetchedItems = Math.max(syncState?.fetchedCount ?? 0, records.length);
+    const totalItems = Math.max(syncState?.totalTracks ?? 0, fallbackTotalItems, records.length);
+    const rejectedItems = Math.max(0, fetchedItems - analyzableTracks);
+
+    return {
+      totalItems,
+      fetchedItems,
+      analyzableTracks,
+      rejectedItems,
+      localItems,
+      unavailableItems,
+      partialItems,
+      unknownItems,
+      completed: syncState?.completed ?? false,
+      lastError: syncState?.lastError,
+      unavailableTracks,
+    };
+  } catch {
+    return empty;
+  }
+}
+
 async function writeStoredPlaylistTrackPage(
   spotifyUserId: string,
   playlistId: string,
-  trackItems: PlaylistTrackWithMeta[],
+  trackItems: NormalizedStoredPlaylistTrackCacheRecord[],
   offset: number,
   totalTracks: number,
   options: { completed: boolean; nextOffset: number; lastError?: string },
@@ -838,9 +1048,7 @@ async function writeStoredPlaylistTrackPage(
                 spotifyUserId,
                 playlistId,
                 position: offset + index,
-                addedAt: item.addedAt,
-                addedById: item.addedById,
-                track: item.track,
+                ...item,
                 updatedAt,
               },
             },
@@ -878,10 +1086,31 @@ async function writeStoredPlaylistTrackSnapshot(
   trackItems: PlaylistTrackWithMeta[],
   totalTracks: number,
 ) {
-  await writeStoredPlaylistTrackPage(spotifyUserId, playlistId, trackItems, 0, totalTracks, {
-    completed: true,
+  await writeStoredPlaylistTrackSnapshotRecords(
+    spotifyUserId,
+    playlistId,
+    trackItems.map(normalizeStoredPlaylistTrackRecordFromTrack),
+    totalTracks,
+  );
+}
+
+async function writeStoredPlaylistTrackSnapshotRecords(
+  spotifyUserId: string,
+  playlistId: string,
+  trackItems: NormalizedStoredPlaylistTrackCacheRecord[],
+  totalTracks: number,
+) {
+  await writeStoredPlaylistTrackPage(
+    spotifyUserId,
+    playlistId,
+    trackItems,
+    0,
+    totalTracks,
+    {
+      completed: true,
     nextOffset: trackItems.length,
-  });
+    },
+  );
 }
 
 async function writeCachedPlaylistDetails(spotifyUserId: string, details: PlaylistDetail[]) {
@@ -1151,9 +1380,16 @@ async function fetchAllPlaylists(accessToken: string) {
 }
 
 async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) {
+  const snapshot = await fetchPlaylistTrackSnapshot(accessToken, playlistId);
+  return snapshot.trackItems;
+}
+
+async function fetchPlaylistTrackSnapshot(accessToken: string, playlistId: string) {
   const tracks: PlaylistTrackWithMeta[] = [];
+  const cacheRecords: NormalizedStoredPlaylistTrackCacheRecord[] = [];
   let offset = 0;
   let shouldUsePublicFallback = false;
+  let fetchedItems = 0;
 
   while (true) {
     let response: SpotifyPlaylistTracksResponse;
@@ -1171,23 +1407,18 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
       break;
     }
 
-    const pageTracks = response.items
-      .map((item: SpotifyPlaylistTrackItem): PlaylistTrackWithMeta | null => {
-        const track = item.track ?? item.item;
-
-        if (!isUsablePlaylistTrack(track)) {
-          return null;
-        }
-
-        return {
-          addedAt: item.added_at,
-          addedById: item.added_by?.id,
-          track,
-        };
-      })
+    const pageRecords = response.items.map(normalizeStoredPlaylistTrackRecordFromTrackItem);
+    const pageTracks = pageRecords
+      .map((record): PlaylistTrackWithMeta | null => (
+        record.classification === "analyzable" && isUsablePlaylistTrack(record.track)
+          ? { addedAt: record.addedAt, addedById: record.addedById, track: record.track }
+          : null
+      ))
       .filter((item): item is PlaylistTrackWithMeta => item !== null);
 
+    cacheRecords.push(...pageRecords);
     tracks.push(...pageTracks);
+    fetchedItems += response.items.length;
 
     if (!response.next || response.items.length === 0) {
       break;
@@ -1197,14 +1428,28 @@ async function fetchPlaylistTrackItems(accessToken: string, playlistId: string) 
   }
 
   if (tracks.length > 0) {
-    return tracks;
+    return {
+      trackItems: tracks,
+      cacheRecords,
+      fetchedItems,
+    };
   }
 
   if (shouldUsePublicFallback) {
-    return fetchPublicPlaylistTrackItems(accessToken, playlistId);
+    const publicTrackItems = await fetchPublicPlaylistTrackItems(accessToken, playlistId);
+    return {
+      trackItems: publicTrackItems,
+      cacheRecords: publicTrackItems.map(normalizeStoredPlaylistTrackRecordFromTrack),
+      fetchedItems: publicTrackItems.length,
+    };
   }
 
-  return fetchPublicPlaylistTrackItems(accessToken, playlistId);
+  const publicTrackItems = await fetchPublicPlaylistTrackItems(accessToken, playlistId);
+  return {
+    trackItems: publicTrackItems,
+    cacheRecords: publicTrackItems.map(normalizeStoredPlaylistTrackRecordFromTrack),
+    fetchedItems: publicTrackItems.length,
+  };
 }
 
 async function syncPlaylistTrackCache(
@@ -1236,21 +1481,7 @@ async function syncPlaylistTrackCache(
         accessToken,
       );
 
-      const trackItems = response.items
-        .map((item: SpotifyPlaylistTrackItem): PlaylistTrackWithMeta | null => {
-          const track = item.track ?? item.item;
-
-          if (!isUsablePlaylistTrack(track)) {
-            return null;
-          }
-
-          return {
-            addedAt: item.added_at,
-            addedById: item.added_by?.id,
-            track,
-          };
-        })
-        .filter((item): item is PlaylistTrackWithMeta => Boolean(item));
+      const trackItems = response.items.map(normalizeStoredPlaylistTrackRecordFromTrackItem);
 
       const nextOffset = offset + response.items.length;
       completed = !response.next || response.items.length === 0 || nextOffset >= totalTracks;
@@ -2648,14 +2879,19 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
         );
       })()
       : await (async () => {
-        const trackItems = await fetchPlaylistTrackItems(accessToken, playlist.id);
-        if (trackItems.length > 0) {
-          await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlist.id, trackItems, playlist.tracks?.total ?? trackItems.length);
+        const snapshot = await fetchPlaylistTrackSnapshot(accessToken, playlist.id);
+        if (snapshot.cacheRecords.length > 0) {
+          await writeStoredPlaylistTrackSnapshotRecords(
+            spotifyUserId,
+            playlist.id,
+            snapshot.cacheRecords,
+            playlist.tracks?.total ?? snapshot.fetchedItems,
+          );
         }
 
         return analyzePlaylistFromTrackItems(
           playlist,
-          trackItems,
+          snapshot.trackItems,
           recentPlays,
           allTimeTrackAffinity,
           allTimeArtistGenres,
@@ -2734,14 +2970,22 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
     `large=${isLargePlaylist} fetchedCount=${syncState.fetchedCount} total=${syncState.totalTracks ?? 0} completed=${syncState.completed}`,
   );
 
+  const playlistSnapshot = isLargePlaylist ? null : await fetchPlaylistTrackSnapshot(accessToken, playlist.id);
   const trackItems = isLargePlaylist
     ? await getStoredPlaylistTrackItems(spotifyUserId, playlist.id)
-    : await fetchPlaylistTrackItems(accessToken, playlist.id);
+    : playlistSnapshot?.trackItems ?? [];
   logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-track-items", startedAt, `count=${trackItems.length}`);
 
-  if (!isLargePlaylist && trackItems.length > 0) {
-    await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlist.id, trackItems, playlist.tracks?.total ?? trackItems.length);
-    logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-wrote-track-snapshot", startedAt, `count=${trackItems.length}`);
+  if (!isLargePlaylist && playlistSnapshot) {
+    if (playlistSnapshot.cacheRecords.length > 0) {
+      await writeStoredPlaylistTrackSnapshotRecords(
+        spotifyUserId,
+        playlist.id,
+        playlistSnapshot.cacheRecords,
+        playlist.tracks?.total ?? playlistSnapshot.fetchedItems,
+      );
+      logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-wrote-track-snapshot", startedAt, `count=${playlistSnapshot.trackItems.length}`);
+    }
   }
 
   const detail = await analyzePlaylistFromTrackItems(
@@ -2808,9 +3052,14 @@ export async function primeIgnoredPlaylistTrackCaches(
         continue;
       }
 
-      const trackItems = await fetchPlaylistTrackItems(accessToken, playlistId);
-      if (trackItems.length > 0) {
-        await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlistId, trackItems, playlist.tracks?.total ?? trackItems.length);
+      const snapshot = await fetchPlaylistTrackSnapshot(accessToken, playlistId);
+      if (snapshot.cacheRecords.length > 0) {
+        await writeStoredPlaylistTrackSnapshotRecords(
+          spotifyUserId,
+          playlistId,
+          snapshot.cacheRecords,
+          playlist.tracks?.total ?? snapshot.fetchedItems,
+        );
       }
     } catch {
       continue;
@@ -2952,22 +3201,27 @@ export async function advancePublicPlaylistDetailAnalysis(spotifyUserId: string,
         error: undefined,
       });
 
-      const trackItems = await fetchPlaylistTrackItems(accessToken, playlistId);
-      if (trackItems.length === 0) {
+      const snapshot = await fetchPlaylistTrackSnapshot(accessToken, playlistId);
+      if (snapshot.trackItems.length === 0) {
         throw new Error("No playlist tracks returned from Spotify.");
       }
 
-      await writeStoredPlaylistTrackSnapshot(spotifyUserId, playlist.id, trackItems, playlist.tracks?.total ?? trackItems.length);
-      storedTrackItems = trackItems;
+      await writeStoredPlaylistTrackSnapshotRecords(
+        spotifyUserId,
+        playlist.id,
+        snapshot.cacheRecords,
+        playlist.tracks?.total ?? snapshot.fetchedItems,
+      );
+      storedTrackItems = snapshot.trackItems;
 
       const state = {
         spotifyUserId,
         playlistId,
         stage: "tracks",
-        phase: `Cached ${trackItems.length} playlist tracks`,
-        trackCount: playlist.tracks?.total ?? trackItems.length,
+        phase: `Cached ${snapshot.trackItems.length} playlist tracks`,
+        trackCount: playlist.tracks?.total ?? snapshot.fetchedItems,
         artistsResolved: 0,
-        artistsTotal: getTopArtistIdsByFrequency(trackItems.map((item) => item.track)).length,
+        artistsTotal: getTopArtistIdsByFrequency(snapshot.trackItems.map((item) => item.track)).length,
         updatedAt: new Date().toISOString(),
         error: undefined,
       } satisfies PublicPlaylistDetailStageState;
@@ -3086,11 +3340,3 @@ export async function getCachedPlaylistInsights(accessToken: string, spotifyUser
     getPlaylistInsights(accessToken, spotifyUserId),
   );
 }
-
-
-
-
-
-
-
-

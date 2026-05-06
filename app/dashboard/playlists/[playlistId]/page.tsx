@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
+import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary, getStoredPlaylistTrackDiagnostics } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { PlaylistDetailSync } from "./playlist-detail-sync";
 import { PublicPlaylistDetailRefresh } from "./public-playlist-detail-refresh";
@@ -54,6 +54,9 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
     const detail = storedDetail;
     const totalPlaylistItems = libraryPlaylist?.tracks?.total ?? detail?.trackCount ?? 0;
+    const diagnostics = session.spotifyUserId
+      ? await getStoredPlaylistTrackDiagnostics(session.spotifyUserId, playlistId, totalPlaylistItems).catch(() => null)
+      : null;
 
     if (!detail && !libraryPlaylist) {
       notFound();
@@ -149,12 +152,15 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
           <div className="rounded-[24px] border border-gold/25 bg-gold/10 px-5 py-4 text-sm text-ink/85">
             <p className="font-medium text-[var(--theme-title)]">Debug counts</p>
-            <p className="mt-2">
-              Spotify playlist items: {totalPlaylistItems} | analyzable Spotify tracks: {fallbackDetail.trackCount}
-            </p>
+            <div className="mt-2 space-y-1">
+              <p>Spotify playlist items: {diagnostics?.totalItems ?? totalPlaylistItems}</p>
+              <p>Cached playlist items fetched: {diagnostics?.fetchedItems ?? fallbackDetail.trackCount}</p>
+              <p>Analyzable Spotify tracks: {diagnostics?.analyzableTracks ?? fallbackDetail.trackCount}</p>
+              <p>Rejected items: {diagnostics?.rejectedItems ?? Math.max(0, totalPlaylistItems - fallbackDetail.trackCount)}</p>
+            </div>
           </div>
 
-          <PlaylistDetailView detail={fallbackDetail} mode="public" />
+          <PlaylistDetailView detail={fallbackDetail} mode="public" unavailableTracks={diagnostics?.unavailableTracks ?? []} />
         </div>
       </main>
     );
@@ -172,6 +178,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
   const storedPlaylist = storedPlaylists.find((playlist) => playlist.id === playlistId);
   const totalPlaylistItems = storedPlaylist?.tracks?.total ?? detail.trackCount;
+  const diagnostics = await getStoredPlaylistTrackDiagnostics(spotifySession.spotifyUserId, playlistId, totalPlaylistItems).catch(() => null);
 
   const isAnalysisPending =
     detail.uniqueArtistCount === 0 ||
@@ -243,12 +250,18 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
         <div className="rounded-[24px] border border-gold/25 bg-gold/10 px-5 py-4 text-sm text-ink/85">
           <p className="font-medium text-[var(--theme-title)]">Debug counts</p>
-          <p className="mt-2">
-            Spotify playlist items: {totalPlaylistItems} | analyzable Spotify tracks: {detail.trackCount}
-          </p>
+          <div className="mt-2 space-y-1">
+            <p>Spotify playlist items: {diagnostics?.totalItems ?? totalPlaylistItems}</p>
+            <p>Cached playlist items fetched: {diagnostics?.fetchedItems ?? detail.trackCount}</p>
+            <p>Analyzable Spotify tracks: {diagnostics?.analyzableTracks ?? detail.trackCount}</p>
+            <p>Rejected items: {diagnostics?.rejectedItems ?? Math.max(0, totalPlaylistItems - detail.trackCount)}</p>
+            <p>Local items: {diagnostics?.localItems ?? 0}</p>
+            <p>Unavailable/taken down items: {diagnostics?.unavailableItems ?? 0}</p>
+            <p>Partial/unknown items: {(diagnostics?.partialItems ?? 0) + (diagnostics?.unknownItems ?? 0)}</p>
+          </div>
         </div>
 
-        <PlaylistDetailView detail={detail} />
+        <PlaylistDetailView detail={detail} unavailableTracks={diagnostics?.unavailableTracks ?? []} />
       </div>
     </main>
   );

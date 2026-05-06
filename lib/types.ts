@@ -78,6 +78,15 @@ export type PlaylistTrackSummary = {
   imageUrl?: string;
 };
 
+export type PlaylistUnavailableTrackSummary = {
+  position: number;
+  title: string;
+  artist: string;
+  album: string;
+  reason: string;
+  imageUrl?: string;
+};
+
 export type PlaylistListenTimelinePoint = {
   label: string;
   playedAt: string;
@@ -103,6 +112,7 @@ export type PlaylistDetail = {
   repeatedTracks: PlaylistTrackSummary[];
   sampleTracks: PlaylistTrackSummary[];
   topTracks: PlaylistTrackSummary[];
+  unavailableTracks?: PlaylistUnavailableTrackSummary[];
   listenTimeline: PlaylistListenTimelinePoint[];
 };
 
@@ -253,6 +263,8 @@ export type SpotifyTrack = {
   name: string;
   popularity: number;
   duration_ms: number;
+  is_local?: boolean;
+  is_playable?: boolean | null;
   album: {
     id?: string;
     name: string;
@@ -401,4 +413,3 @@ export type SpotifyDashboardSnapshot = {
   recent: SpotifyRecentlyPlayedItem[];
   fetchedAt: string;
 };
-
