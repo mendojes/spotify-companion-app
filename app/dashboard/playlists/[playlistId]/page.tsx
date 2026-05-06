@@ -53,6 +53,7 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     }
 
     const detail = storedDetail;
+    const totalPlaylistItems = libraryPlaylist?.tracks?.total ?? detail?.trackCount ?? 0;
 
     if (!detail && !libraryPlaylist) {
       notFound();
@@ -146,6 +147,13 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             </div>
           ) : null}
 
+          <div className="rounded-[24px] border border-gold/25 bg-gold/10 px-5 py-4 text-sm text-ink/85">
+            <p className="font-medium text-[var(--theme-title)]">Debug counts</p>
+            <p className="mt-2">
+              Spotify playlist items: {totalPlaylistItems} | analyzable Spotify tracks: {fallbackDetail.trackCount}
+            </p>
+          </div>
+
           <PlaylistDetailView detail={fallbackDetail} mode="public" />
         </div>
       </main>
@@ -153,11 +161,17 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
   }
 
   const spotifySession = await requireSpotifySession("/dashboard/playlists");
-  const detail = await getPlaylistDetailFromHistory(spotifySession.spotifyUserId, playlistId);
+  const [detail, storedPlaylists] = await Promise.all([
+    getPlaylistDetailFromHistory(spotifySession.spotifyUserId, playlistId),
+    getStoredPlaylistLibrary(spotifySession.spotifyUserId).catch(() => [] as Awaited<ReturnType<typeof getStoredPlaylistLibrary>>),
+  ]);
 
   if (!detail) {
     notFound();
   }
+
+  const storedPlaylist = storedPlaylists.find((playlist) => playlist.id === playlistId);
+  const totalPlaylistItems = storedPlaylist?.tracks?.total ?? detail.trackCount;
 
   const isAnalysisPending =
     detail.uniqueArtistCount === 0 ||
@@ -226,6 +240,13 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             This playlist page is using refreshed playlist analysis with stored fallback so it can stay populated even if Spotify is slow.
           </div>
         )}
+
+        <div className="rounded-[24px] border border-gold/25 bg-gold/10 px-5 py-4 text-sm text-ink/85">
+          <p className="font-medium text-[var(--theme-title)]">Debug counts</p>
+          <p className="mt-2">
+            Spotify playlist items: {totalPlaylistItems} | analyzable Spotify tracks: {detail.trackCount}
+          </p>
+        </div>
 
         <PlaylistDetailView detail={detail} />
       </div>
