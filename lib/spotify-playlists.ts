@@ -2819,7 +2819,13 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
   ]);
 
   const cached = cachedDetails[0];
-  if (cached && !isPlaylistDetailIncomplete(cached)) {
+  const shouldRebuildFromStoredTracks = Boolean(
+    cached &&
+    storedTrackItems.length > 0 &&
+    storedTrackItems.length !== cached.trackCount,
+  );
+
+  if (cached && !isPlaylistDetailIncomplete(cached) && !shouldRebuildFromStoredTracks) {
     logPlaylistTiming(spotifyUserId, playlistId, "history-complete-cached-detail", startedAt, `tracks=${cached.trackCount}`);
     return cached;
   }
@@ -2842,7 +2848,7 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
           playlistId,
           "history-recovered-from-stored-tracks",
           startedAt,
-          `storedTracks=${storedTrackItems.length} uniqueArtists=${recoveredDetail.uniqueArtistCount}`,
+          `storedTracks=${storedTrackItems.length} cachedTracks=${cached?.trackCount ?? 0} uniqueArtists=${recoveredDetail.uniqueArtistCount}`,
         );
         return recoveredDetail;
       }
