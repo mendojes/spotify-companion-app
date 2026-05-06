@@ -8,19 +8,38 @@ import { deleteStoredRecentPlaysForIgnoredPlaylists } from "@/lib/spotify-activi
 import { invalidateDashboardSnapshotCaches } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache } from "@/lib/spotify-playlists";
 import { invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
+import { type IgnoredPlaylistRule } from "@/lib/connected-users";
 
 function isChecked(formData: FormData, key: string) {
   return formData.get(key) === "on";
 }
 
+function parseIgnoredPlaylistRules(formData: FormData): IgnoredPlaylistRule[] {
+  const rules = new Map<string, IgnoredPlaylistRule>();
+
+  formData.getAll("ignoredPlaylistRule").forEach((value) => {
+    const [rawPlaylistId, rawMode] = String(value).split(":");
+    const playlistId = rawPlaylistId?.trim();
+
+    if (!playlistId) {
+      return;
+    }
+
+    const mode = rawMode === "others_only" ? "others_only" : rawMode === "all" ? "all" : null;
+    if (!mode) {
+      return;
+    }
+
+    rules.set(playlistId, { playlistId, mode });
+  });
+
+  return [...rules.values()];
+}
+
 export async function POST(request: Request) {
   const session = await requireSpotifySession("/settings");
   const formData = await request.formData();
-  const ignoredPlaylistIds = formData
-    .getAll("ignoredPlaylistIds")
-    .map((value) => String(value).trim())
-    .filter(Boolean);
-  const ignoredPlaylistRules = ignoredPlaylistIds.map((playlistId) => ({ playlistId, mode: "all" as const }));
+  const ignoredPlaylistRules = parseIgnoredPlaylistRules(formData);
 
   await Promise.all([
     updateConnectedUserPrivacySettings(session.spotifyUserId, {
