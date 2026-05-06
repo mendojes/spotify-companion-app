@@ -12,11 +12,45 @@ type ImportSummary = {
   batchCount: number;
 };
 
+const CLIENT_IMPORT_CHUNK_SIZE = 1000;
+
+function parseJsonSafely(rawText: string) {
+  if (!rawText) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawText) as Partial<ImportSummary> & { error?: string };
+  } catch {
+    return null;
+  }
+}
+
+function splitFileIntoCsvChunks(csvText: string) {
+  const lines = csvText.split(/\r?\n/);
+  const header = lines[0] ?? "";
+  const dataLines = lines.slice(1).filter((line) => line.trim().length > 0);
+
+  if (!header.trim()) {
+    return [] as string[];
+  }
+
+  const chunks: string[] = [];
+
+  for (let start = 0; start < dataLines.length; start += CLIENT_IMPORT_CHUNK_SIZE) {
+    const chunkLines = dataLines.slice(start, start + CLIENT_IMPORT_CHUNK_SIZE);
+    chunks.push([header, ...chunkLines].join("\n"));
+  }
+
+  return chunks;
+}
+
 export function LastFmImportCard() {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -30,31 +64,72 @@ export function LastFmImportCard() {
 
     setError(null);
     setSummary(null);
+    setProgressLabel("Preparing import...");
     setIsSubmitting(true);
 
-    const formData = new FormData();
-    formData.set("lastfmCsv", selectedFile);
-
     try {
-      const response = await fetch("/api/settings/lastfm-import", {
-        method: "POST",
-        body: formData,
-      });
-      const payload = await response.json();
+      const csvText = await selectedFile.text();
+      const chunks = splitFileIntoCsvChunks(csvText);
 
-      if (!response.ok) {
-        setError(typeof payload?.error === "string" ? payload.error : "Could not import your Last.fm history.");
-        setIsSubmitting(false);
+      if (chunks.length === 0) {
+        setError("The uploaded CSV file was empty.");
+        setProgressLabel(null);
         return;
       }
 
-      setSummary(payload as ImportSummary);
+      const totals: ImportSummary = {
+        totalRows: 0,
+        parsedRows: 0,
+        importedCount: 0,
+        duplicateCount: 0,
+        skippedRows: 0,
+        batchCount: 0,
+      };
+
+      for (let index = 0; index < chunks.length; index += 1) {
+        setProgressLabel(`Importing batch ${index + 1} of ${chunks.length}...`);
+
+        const response = await fetch("/api/settings/lastfm-import", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            csvChunk: chunks[index],
+            finalize: index === chunks.length - 1,
+          }),
+        });
+
+        const rawText = await response.text();
+        const payload = parseJsonSafely(rawText);
+
+        if (!response.ok) {
+          setError(
+            typeof payload?.error === "string"
+              ? payload.error
+              : `Could not import your Last.fm history. Request failed with status ${response.status}.`,
+          );
+          setProgressLabel(null);
+          return;
+        }
+
+        totals.totalRows += Number(payload?.totalRows ?? 0);
+        totals.parsedRows += Number(payload?.parsedRows ?? 0);
+        totals.importedCount += Number(payload?.importedCount ?? 0);
+        totals.duplicateCount += Number(payload?.duplicateCount ?? 0);
+        totals.skippedRows += Number(payload?.skippedRows ?? 0);
+        totals.batchCount += Number(payload?.batchCount ?? 0);
+      }
+
+      setSummary(totals);
       setSelectedFile(null);
+      setProgressLabel(null);
       startTransition(() => {
         router.refresh();
       });
     } catch {
       setError("Could not upload the CSV right now. Please try again.");
+      setProgressLabel(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -104,6 +179,12 @@ export function LastFmImportCard() {
       {error ? (
         <div className="rounded-[24px] border-[2px] border-[rgba(140,26,26,0.3)] bg-[rgba(255,120,120,0.12)] px-4 py-4 text-sm leading-7 text-[var(--theme-text)]">
           {error}
+        </div>
+      ) : null}
+
+      {progressLabel ? (
+        <div className="rounded-[24px] border-[2px] border-[rgba(44,12,70,0.18)] bg-white/[0.36] px-4 py-4 text-sm leading-7 text-[var(--theme-body)]">
+          {progressLabel}
         </div>
       ) : null}
 

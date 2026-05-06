@@ -8,23 +8,30 @@ import {
 } from "@/lib/connected-users";
 import { importLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
 
-export async function POST(request: Request) {
-  const session = await requireSpotifySession("/settings");
+async function getCsvTextFromRequest(request: Request) {
+  const contentType = request.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    const payload = await request.json() as { csvChunk?: string };
+    return payload.csvChunk?.trim() ? payload.csvChunk : "";
+  }
+
   const formData = await request.formData();
   const uploadedFile = formData.get("lastfmCsv");
 
   if (!(uploadedFile instanceof File)) {
-    return NextResponse.json({ error: "Please choose a CSV export from Last.fm." }, { status: 400 });
+    throw new Error("Please choose a CSV export from Last.fm.");
   }
 
   if (!uploadedFile.name.toLowerCase().endsWith(".csv")) {
-    return NextResponse.json({ error: "The uploaded file must be a CSV export." }, { status: 400 });
+    throw new Error("The uploaded file must be a CSV export.");
   }
 
-  const csvText = await uploadedFile.text();
-  if (!csvText.trim()) {
-    return NextResponse.json({ error: "The uploaded CSV file was empty." }, { status: 400 });
-  }
+  return uploadedFile.text();
+}
+
+export async function POST(request: Request) {
+  const session = await requireSpotifySession("/settings");
 
   let authorizedSession;
 
@@ -39,6 +46,19 @@ export async function POST(request: Request) {
   }
 
   try {
+    const contentType = request.headers.get("content-type") ?? "";
+    const isChunkedJsonRequest = contentType.includes("application/json");
+    const requestPayload = isChunkedJsonRequest
+      ? await request.clone().json() as { finalize?: boolean; csvChunk?: string }
+      : null;
+    const csvText = isChunkedJsonRequest
+      ? requestPayload?.csvChunk ?? ""
+      : await getCsvTextFromRequest(request);
+
+    if (!csvText.trim()) {
+      return NextResponse.json({ error: "The uploaded CSV file was empty." }, { status: 400 });
+    }
+
     await touchConnectedUser(authorizedSession.spotifyUserId).catch(() => undefined);
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
       range: "all",
@@ -49,16 +69,17 @@ export async function POST(request: Request) {
 
     await markConnectedUserRecentSync(authorizedSession.spotifyUserId).catch(() => undefined);
 
-    if (result.importedCount > 0) {
-      await refreshLastFmImportCaches(authorizedSession.spotifyUserId, authorizedSession.accessToken);
-    }
+    const shouldFinalize = !isChunkedJsonRequest || Boolean(requestPayload?.finalize);
 
-    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
-      range: "all",
-    }).catch(() => undefined);
-    await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "success", {
-      backfilledCount: result.importedCount,
-    }).catch(() => undefined);
+    if (shouldFinalize) {
+      await refreshLastFmImportCaches(authorizedSession.spotifyUserId, authorizedSession.accessToken);
+      await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
+        range: "all",
+      }).catch(() => undefined);
+      await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "success", {
+        backfilledCount: result.importedCount,
+      }).catch(() => undefined);
+    }
 
     return NextResponse.json(result);
   } catch (error) {

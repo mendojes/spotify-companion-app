@@ -25,6 +25,11 @@ export type LastFmImportResult = {
   batchCount: number;
 };
 
+export type LastFmImportPayload = {
+  csvText: string;
+  spotifyUserId: string;
+};
+
 const HEADER_ALIASES = {
   trackName: [
     "track",
@@ -433,6 +438,10 @@ export async function importLastFmScrobbles(csvText: string, spotifyUserId: stri
     skippedRows,
     batchCount,
   };
+}
+
+export async function importLastFmScrobbleChunk(payload: LastFmImportPayload) {
+  return importLastFmScrobbles(payload.csvText, payload.spotifyUserId);
 }
 
 export async function refreshLastFmImportCaches(spotifyUserId: string, accessToken?: string) {
