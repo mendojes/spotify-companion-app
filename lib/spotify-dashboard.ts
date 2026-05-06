@@ -1543,7 +1543,31 @@ type TrendBucket = {
   label: string;
 };
 
-function buildTrendBuckets(range: DashboardRange): TrendBucket[] {
+function buildAllTimeTrendBuckets(recent: Array<{ played_at: string }> = []): TrendBucket[] {
+  if (recent.length === 0) {
+    const currentYear = getPacificDateParts(new Date()).year;
+    return Array.from({ length: 6 }, (_, index) => {
+      const year = currentYear - (5 - index);
+      return {
+        key: `year:${year}`,
+        label: String(year),
+      };
+    });
+  }
+
+  const years = [...new Set(
+    recent
+      .map((item) => getPacificDateParts(item.played_at).year)
+      .filter((year) => Number.isFinite(year)),
+  )].sort((a, b) => a - b);
+
+  return years.map((year) => ({
+    key: `year:${year}`,
+    label: String(year),
+  }));
+}
+
+function buildTrendBuckets(range: DashboardRange, recent: Array<{ played_at: string }> = []): TrendBucket[] {
   const now = new Date();
   const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: PACIFIC_TIME_ZONE });
   const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: PACIFIC_TIME_ZONE });
@@ -1576,18 +1600,10 @@ function buildTrendBuckets(range: DashboardRange): TrendBucket[] {
     });
   }
 
-  const currentMonthSerial = getPacificMonthSerial(now);
-  return Array.from({ length: 6 }, (_, index) => {
-    const monthSerial = currentMonthSerial - (5 - index);
-    const labelDate = pacificMonthSerialToDate(monthSerial);
-    return {
-      key: `month:${monthSerial}`,
-      label: monthFormatter.format(labelDate),
-    };
-  });
+  return buildAllTimeTrendBuckets(recent);
 }
 
-function getTrendBucketKeyForPlay(playedAt: string, range: DashboardRange) {
+function getTrendBucketKeyForPlay(playedAt: string, range: DashboardRange, recent: Array<{ played_at: string }> = []) {
   if (range === "week") {
     const todaySerial = getPacificDaySerial(new Date());
     const playSerial = getPacificDaySerial(playedAt);
@@ -1607,19 +1623,19 @@ function getTrendBucketKeyForPlay(playedAt: string, range: DashboardRange) {
     return `window:${index}`;
   }
 
-  const currentMonthSerial = getPacificMonthSerial(new Date());
-  const playMonthSerial = getPacificMonthSerial(playedAt);
-  return playMonthSerial >= currentMonthSerial - 5 && playMonthSerial <= currentMonthSerial ? `month:${playMonthSerial}` : null;
+  const year = getPacificDateParts(playedAt).year;
+  const allTimeYears = new Set(buildAllTimeTrendBuckets(recent).map((bucket) => Number(bucket.key.replace("year:", ""))));
+  return allTimeYears.has(year) ? `year:${year}` : null;
 }
 
 function deriveTrendData(recent: SpotifyRecentlyPlayedItem[], range: DashboardRange): TrendPoint[] {
-  const buckets = buildTrendBuckets(range);
+  const buckets = buildTrendBuckets(range, recent);
   const bucketMap = new Map<string, { minutes: number; artists: Set<string> }>(
     buckets.map((bucket) => [bucket.key, { minutes: 0, artists: new Set<string>() }]),
   );
 
   recent.forEach((item) => {
-    const bucketKey = getTrendBucketKeyForPlay(item.played_at, range);
+    const bucketKey = getTrendBucketKeyForPlay(item.played_at, range, recent);
     if (!bucketKey || !bucketMap.has(bucketKey)) {
       return;
     }
@@ -1876,7 +1892,7 @@ function buildAnalysisFilterLabel(range: DashboardRange, from?: string, to?: str
     return "Last 30 days";
   }
 
-  return "Last 6 months";
+  return "All time";
 }
 
 function formatPacificLabel(dateKey: string) {
@@ -2250,7 +2266,7 @@ function getTrendBadge(range: DashboardRange, snapshotCount: number) {
   }
 
   if (range === "all") {
-    return `6 month view / ${snapshotCount} snapshots`;
+    return `All-time history / ${snapshotCount} snapshots`;
   }
 
   return `7 day view / ${snapshotCount} snapshots`;
@@ -2593,10 +2609,10 @@ export async function getDashboardAnalysisDetail(
   const filterLabel = buildAnalysisFilterLabel(range, from, to);
 
   if (options.section === "trend") {
-    const buckets = buildTrendBuckets(range);
+    const buckets = buildTrendBuckets(range, recent);
     const targetBucket = options.label ? buckets.find((bucket) => bucket.label === options.label) : undefined;
     const scopedMeta = targetBucket
-      ? recentMoodMeta.filter((meta) => getTrendBucketKeyForPlay(meta.item.played_at, range) === targetBucket.key)
+      ? recentMoodMeta.filter((meta) => getTrendBucketKeyForPlay(meta.item.played_at, range, recent) === targetBucket.key)
       : recentMoodMeta;
     const playCountByTrackId = new Map<string, number>();
     scopedMeta.forEach((meta) => {
@@ -2733,10 +2749,10 @@ export async function getDashboardAnalysisDetailFromHistory(
     const filterLabel = buildAnalysisFilterLabel(range, from, to);
 
     if (options.section === "trend") {
-      const buckets = buildTrendBuckets(range);
+      const buckets = buildTrendBuckets(range, recent);
       const targetBucket = options.label ? buckets.find((bucket) => bucket.label === options.label) : undefined;
       const scopedRecent = targetBucket
-        ? recent.filter((item) => getTrendBucketKeyForPlay(item.played_at, range) === targetBucket.key)
+        ? recent.filter((item) => getTrendBucketKeyForPlay(item.played_at, range, recent) === targetBucket.key)
         : recent;
       const playCountByTrackId = new Map<string, number>();
       scopedRecent.forEach((item) => {

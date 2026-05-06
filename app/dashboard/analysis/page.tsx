@@ -180,7 +180,31 @@ function pacificSerialToDate(daySerial: number) {
   return new Date(daySerial * 1000 * 60 * 60 * 24 + 1000 * 60 * 60 * 12);
 }
 
-function buildTrendBuckets(range: DashboardRange) {
+function buildAllTimeTrendBuckets(entries: Array<{ playedAt: string }> = []) {
+  if (entries.length === 0) {
+    const currentYear = getPacificDateParts(new Date()).year;
+    return Array.from({ length: 6 }, (_, index) => {
+      const year = currentYear - (5 - index);
+      return {
+        key: `year:${year}`,
+        label: String(year),
+      };
+    });
+  }
+
+  const years = [...new Set(
+    entries
+      .map((entry) => getPacificDateParts(entry.playedAt).year)
+      .filter((year) => Number.isFinite(year)),
+  )].sort((a, b) => a - b);
+
+  return years.map((year) => ({
+    key: `year:${year}`,
+    label: String(year),
+  }));
+}
+
+function buildTrendBuckets(range: DashboardRange, entries: Array<{ playedAt: string }> = []) {
   const now = new Date();
   const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/Los_Angeles" });
   const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "America/Los_Angeles" });
@@ -211,21 +235,10 @@ function buildTrendBuckets(range: DashboardRange) {
     });
   }
 
-  const monthFormatterLong = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "America/Los_Angeles" });
-  const { year, month } = getPacificDateParts(now);
-  const currentMonthSerial = year * 12 + (month - 1);
-
-  return Array.from({ length: 6 }, (_, index) => {
-    const monthSerial = currentMonthSerial - (5 - index);
-    const bucketDate = new Date(Date.UTC(Math.floor(monthSerial / 12), monthSerial % 12, 1, 12));
-    return {
-      key: `month:${monthSerial}`,
-      label: monthFormatterLong.format(bucketDate),
-    };
-  });
+  return buildAllTimeTrendBuckets(entries);
 }
 
-function getTrendBucketKeyForPlay(playedAt: string, range: DashboardRange) {
+function getTrendBucketKeyForPlay(playedAt: string, range: DashboardRange, entries: Array<{ playedAt: string }> = []) {
   if (range === "week") {
     const todaySerial = getPacificDaySerial(new Date());
     const playSerial = getPacificDaySerial(playedAt);
@@ -245,11 +258,9 @@ function getTrendBucketKeyForPlay(playedAt: string, range: DashboardRange) {
     return `window:${index}`;
   }
 
-  const { year: currentYear, month: currentMonth } = getPacificDateParts(new Date());
-  const currentMonthSerial = currentYear * 12 + (currentMonth - 1);
-  const { year, month } = getPacificDateParts(playedAt);
-  const playMonthSerial = year * 12 + (month - 1);
-  return playMonthSerial >= currentMonthSerial - 5 && playMonthSerial <= currentMonthSerial ? `month:${playMonthSerial}` : null;
+  const year = getPacificDateParts(playedAt).year;
+  const allTimeYears = new Set(buildAllTimeTrendBuckets(entries).map((bucket) => Number(bucket.key.replace("year:", ""))));
+  return allTimeYears.has(year) ? `year:${year}` : null;
 }
 
 export default async function DashboardAnalysisPage({ searchParams }: AnalysisPageProps) {
@@ -297,8 +308,8 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
 
   const scopedEntries = detail.entries.filter((entry) => {
     if (selectedSection === "trend" && label) {
-      const targetBucket = buildTrendBuckets(selectedRange).find((bucket) => bucket.label === label);
-      if (targetBucket && getTrendBucketKeyForPlay(entry.playedAt, selectedRange) !== targetBucket.key) {
+      const targetBucket = buildTrendBuckets(selectedRange, detail.entries).find((bucket) => bucket.label === label);
+      if (targetBucket && getTrendBucketKeyForPlay(entry.playedAt, selectedRange, detail.entries) !== targetBucket.key) {
         return false;
       }
     }
@@ -466,7 +477,7 @@ export default async function DashboardAnalysisPage({ searchParams }: AnalysisPa
           </div>
 
           <div className="mt-4 rounded-[24px] border border-cyan/20 bg-cyan/10 px-4 py-3 text-sm text-[var(--theme-body)]">
-            This drilldown is using stored snapshot history. Heatmap drilldowns show cached time-of-day sessions without live audio-feature refresh.
+            This drilldown is using your stored listening history. Heatmap drilldowns still use cached time-of-day sessions instead of a live audio-feature refresh.
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">

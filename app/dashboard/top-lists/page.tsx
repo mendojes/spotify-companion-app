@@ -238,6 +238,15 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
 
   try {
     data = await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo);
+    if (!data) {
+      data = await getSpotifyTopListsFromHistory(
+        session.spotifyUserId,
+        selectedRange,
+        FULL_TOP_LIST_LIMIT,
+        selectedFrom,
+        selectedTo,
+      );
+    }
     console.log(`[dashboard-page] user=${session.spotifyUserId} page=top-lists step=load elapsedMs=${Date.now() - loadStartedAt}`);
   } catch (error) {
     if (isSessionRefreshFailure(error)) {
@@ -264,7 +273,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
 
   if (!rankingsNotice) {
     rankingsNotice = selectedRange === "custom" || selectedFrom || selectedTo
-      ? "Custom top-list windows are not precomputed yet. Refresh snapshot support is currently focused on the cached tab ranges."
+      ? "Custom top-list windows are computed directly from your stored listening history instead of the prebuilt tab cache."
       : "This page is using stored Listening Lore rankings so it can load without waiting on live Spotify requests.";
   }
 
