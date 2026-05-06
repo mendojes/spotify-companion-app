@@ -235,9 +235,12 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   let data;
   let rankingsNotice: string | null = null;
   const loadStartedAt = Date.now();
+  const shouldPreferHistoryData = selectedRange === "custom" || Boolean(selectedFrom || selectedTo);
 
   try {
-    data = await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo);
+    data = shouldPreferHistoryData
+      ? null
+      : await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo);
     if (!data) {
       data = await getSpotifyTopListsFromHistory(
         session.spotifyUserId,
@@ -272,7 +275,7 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
   }
 
   if (!rankingsNotice) {
-    rankingsNotice = selectedRange === "custom" || selectedFrom || selectedTo
+    rankingsNotice = shouldPreferHistoryData
       ? "Custom top-list windows are computed directly from your stored listening history instead of the prebuilt tab cache."
       : "This page is using stored Listening Lore rankings so it can load without waiting on live Spotify requests.";
   }

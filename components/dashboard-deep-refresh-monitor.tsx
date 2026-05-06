@@ -56,11 +56,18 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         setArtistBackfillError(data.artistBackfillError ?? null);
         setArtistBackfillCount(typeof data.artistBackfillCount === "number" ? data.artistBackfillCount : null);
 
-        const shouldKickoffEnrich = shouldStart && !enrichStartedRef.current && (nextStatus === "pending" || nextStatus === "idle");
+        const shouldKickoffEnrich =
+          !enrichStartedRef.current &&
+          (
+            nextStatus === "pending" ||
+            (shouldStart && nextStatus === "idle")
+          );
         const shouldKickoffArtistBackfill =
-          shouldStart &&
           !artistBackfillStartedRef.current &&
-          ((data.artistBackfillStatus ?? "idle") === "pending" || (data.artistBackfillStatus ?? "idle") === "idle");
+          (
+            (data.artistBackfillStatus ?? "idle") === "pending" ||
+            (shouldStart && (data.artistBackfillStatus ?? "idle") === "idle")
+          );
 
         if (shouldKickoffEnrich) {
           enrichStartedRef.current = true;
@@ -140,10 +147,12 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
     >
       {status === "error"
         ? `Deep dashboard refresh failed, so the page is still using the latest stored cache. ${error ?? ""}`.trim()
-        : artistBackfillStatus === "error"
+          : artistBackfillStatus === "error"
           ? `Artist metadata backfill finished with an error, so some artist images or genres may still be missing. ${artistBackfillError ?? ""}`.trim()
-          : artistBackfillRunning || artistBackfillStatus === "pending" || artistBackfillStatus === "running"
+          : artistBackfillRunning || artistBackfillStatus === "running"
             ? "Deep dashboard refresh finished its cache rebuild and is now filling missing artist metadata. The page will update automatically when that finishes."
+            : artistBackfillStatus === "pending"
+              ? "Deep dashboard refresh finished its cache rebuild. Missing artist metadata is queued and should start shortly when the follow-up job begins."
             : artistBackfillStatus === "success"
               ? `Artist metadata backfill finished${artistBackfillCount !== null ? ` for ${artistBackfillCount} artists` : ""}. If images are still blank, the current cached sources did not contain recoverable artist artwork.`
           : "Deep dashboard refresh is running in the background. The page will update automatically when the richer cache is ready."}

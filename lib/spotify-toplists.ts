@@ -26,12 +26,12 @@ const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const MIN_RECENT_PLAYS_FOR_TOPS = 5;
 const TOP_LIST_HISTORY_TTL_MS = 1000 * 30;
+const MAX_RECENT_PLAYS_FOR_TOPS_SCOPED = 5000;
+const MAX_RECENT_PLAYS_FOR_TOPS_EXTENDED = 250000;
 
 function getTopListSourceLimit(limit: number) {
   return Math.min(FULL_TOP_LIST_LIMIT, Math.max(limit, 20, limit * 4));
 }
-const MAX_RECENT_PLAYS_FOR_TOPS = 5000;
-
 type SnapshotListPair = {
   artists: SpotifyArtist[];
   tracks: SpotifyTopTracksResponse["items"];
@@ -746,6 +746,14 @@ async function getHistoricalSnapshots(spotifyUserId: string, range: TopListRange
   }
 }
 
+function getRecentPlayFetchLimit(range: TopListRange, from?: string, to?: string) {
+  if (range === "all" || range === "custom" || from || to) {
+    return MAX_RECENT_PLAYS_FOR_TOPS_EXTENDED;
+  }
+
+  return MAX_RECENT_PLAYS_FOR_TOPS_SCOPED;
+}
+
 async function getRecentPlaysForTopLists(spotifyUserId: string, range: TopListRange, from?: string, to?: string) {
   if (!hasMongoConfig()) {
     return [] as StoredRecentPlay[];
@@ -781,11 +789,12 @@ async function getRecentPlaysForTopLists(spotifyUserId: string, range: TopListRa
       }
       : baseQuery;
 
+    const fetchLimit = getRecentPlayFetchLimit(range, from, to);
     const recentPlays = await db
       .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
       .find(query)
       .sort({ playedAt: -1 })
-      .limit(MAX_RECENT_PLAYS_FOR_TOPS)
+      .limit(fetchLimit)
       .toArray();
 
     return filterData
@@ -852,7 +861,7 @@ async function getRecentPlayTopLists(
   to?: string,
   snapshots: SpotifyDashboardSnapshot[] = [],
 ): Promise<{ topLists: RecentPlayTopLists | null; recentPlays: StoredRecentPlay[] }> {
-  const recentPlays = await getRecentPlaysForTopLists(spotifyUserId, "all");
+  const recentPlays = await getRecentPlaysForTopLists(spotifyUserId, range, from, to);
   return {
     topLists: buildRecentPlayTopLists(recentPlays, range, limit, from, to, snapshots),
     recentPlays,

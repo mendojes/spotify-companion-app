@@ -5,7 +5,7 @@ import {
   markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
 } from "@/lib/connected-users";
-import { invalidateDashboardSectionRuntimeCache, writeStoredPlaylistsSectionCache } from "@/lib/dashboard-section-cache";
+import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache, writeStoredPlaylistsSectionCache } from "@/lib/dashboard-section-cache";
 import { writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
 import { getMissingArtistMetadataIdsForUser as getMissingArtistMetadataIdsForOverviewUser } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
@@ -60,6 +60,9 @@ export async function POST(request: NextRequest) {
       allowLiveEnrichment: false,
     });
     logEnrichmentTiming(authorizedSession.spotifyUserId, "overview-cache", overviewStartedAt);
+    const sectionCacheStartedAt = Date.now();
+    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined);
+    logEnrichmentTiming(authorizedSession.spotifyUserId, "section-cache", sectionCacheStartedAt);
     const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
     if (missingArtistIds.length > 0) {
       await markConnectedUserArtistMetadataBackfillStatus(
