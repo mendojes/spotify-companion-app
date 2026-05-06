@@ -45,6 +45,7 @@ const PLAYLIST_AUDIO_FEATURE_SAMPLE_LIMIT = 200;
 const PLAYLIST_LARGE_SYNC_THRESHOLD = 1000;
 const PLAYLIST_SYNC_PAGE_SIZE = 100;
 const PLAYLIST_LARGE_SYNC_PAGES_PER_REQUEST = 8;
+const PLAYLIST_SYNC_PAGE_RETRY_LIMIT = 2;
 const PUBLIC_SPOTIFY_WEB_TIMEOUT_MS = 10_000;
 const DASHBOARD_PLAYLIST_PREVIEW_TTL_MS = 1000 * 30;
 
@@ -128,6 +129,7 @@ export type PlaylistTrackDiagnostics = {
   partialItems: number;
   unknownItems: number;
   completed: boolean;
+  nextOffset: number;
   lastError?: string;
   unavailableTracks: PlaylistUnavailableTrackSummary[];
 };
@@ -143,6 +145,14 @@ type StoredArtistMetadata = {
 
 function normalizeArtistCacheKey(value: string) {
   return value.trim().toLocaleLowerCase();
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getPlaylistSyncRetryDelayMs(attempt: number) {
+  return Math.min(1500 * (attempt + 1), 5000);
 }
 
 async function writeMusicBrainzGenresToPermanentArtistCache(
@@ -933,6 +943,7 @@ export async function getStoredPlaylistTrackDiagnostics(
     partialItems: 0,
     unknownItems: 0,
     completed: false,
+    nextOffset: 0,
     unavailableTracks: [],
   } satisfies PlaylistTrackDiagnostics;
 
@@ -1010,6 +1021,7 @@ export async function getStoredPlaylistTrackDiagnostics(
       partialItems,
       unknownItems,
       completed: syncState?.completed ?? false,
+      nextOffset: syncState?.nextOffset ?? 0,
       lastError: syncState?.lastError,
       unavailableTracks,
     };
@@ -1452,6 +1464,30 @@ async function fetchPlaylistTrackSnapshot(accessToken: string, playlistId: strin
   };
 }
 
+async function fetchPlaylistItemsPageWithRecovery(accessToken: string, playlistId: string, offset: number) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= PLAYLIST_SYNC_PAGE_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await spotifyFetch<SpotifyPlaylistTracksResponse>(
+        `/playlists/${playlistId}/items?limit=${PLAYLIST_SYNC_PAGE_SIZE}&offset=${offset}`,
+        accessToken,
+        { allowRetry: true },
+      );
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === PLAYLIST_SYNC_PAGE_RETRY_LIMIT) {
+        break;
+      }
+
+      await wait(getPlaylistSyncRetryDelayMs(attempt));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 async function syncPlaylistTrackCache(
   accessToken: string,
   spotifyUserId: string,
@@ -1476,10 +1512,7 @@ async function syncPlaylistTrackCache(
 
   while (pagesFetched < maxPages && offset < totalTracks) {
     try {
-      const response = await spotifyFetch<SpotifyPlaylistTracksResponse>(
-        `/playlists/${playlist.id}/items?limit=${PLAYLIST_SYNC_PAGE_SIZE}&offset=${offset}`,
-        accessToken,
-      );
+      const response = await fetchPlaylistItemsPageWithRecovery(accessToken, playlist.id, offset);
 
       const trackItems = response.items.map(normalizeStoredPlaylistTrackRecordFromTrackItem);
 

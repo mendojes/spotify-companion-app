@@ -157,6 +157,8 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
               <p>Cached playlist items fetched: {diagnostics?.fetchedItems ?? fallbackDetail.trackCount}</p>
               <p>Analyzable Spotify tracks: {diagnostics?.analyzableTracks ?? fallbackDetail.trackCount}</p>
               <p>Rejected items: {diagnostics?.rejectedItems ?? Math.max(0, totalPlaylistItems - fallbackDetail.trackCount)}</p>
+              <p>Next sync offset: {diagnostics?.nextOffset ?? 0}</p>
+              {diagnostics?.lastError ? <p>Last sync error: {diagnostics.lastError}</p> : null}
             </div>
           </div>
 
@@ -258,6 +260,8 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             <p>Local items: {diagnostics?.localItems ?? 0}</p>
             <p>Unavailable/taken down items: {diagnostics?.unavailableItems ?? 0}</p>
             <p>Partial/unknown items: {(diagnostics?.partialItems ?? 0) + (diagnostics?.unknownItems ?? 0)}</p>
+            <p>Next sync offset: {diagnostics?.nextOffset ?? 0}</p>
+            {diagnostics?.lastError ? <p>Last sync error: {diagnostics.lastError}</p> : null}
           </div>
         </div>
 
