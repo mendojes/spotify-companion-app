@@ -4,6 +4,7 @@ import { getConnectedUser, getDefaultPrivacySettings, listAllConnectedUsers } fr
 import { listLocalAccounts } from "@/lib/local-accounts";
 import { getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
 import { IgnoredPlaylistPicker } from "./ignored-playlist-picker";
+import { LastFmImportCard } from "./lastfm-import-card";
 
 type SettingsPageProps = {
   searchParams: Promise<{ saved?: string }>;
@@ -254,6 +255,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </Link>
           </div>
         </form>
+
+        <LastFmImportCard />
       </div>
     </main>
   );

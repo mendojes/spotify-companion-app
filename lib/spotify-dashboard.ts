@@ -295,6 +295,39 @@ function filterSnapshotRecentHistory(
   }));
 }
 
+async function buildSyntheticSnapshotFromStoredRecent(spotifyUserId: string, range: DashboardRange = "all") {
+  const storedRecent = await getStoredRecentPlaysForRange(spotifyUserId, range, 5000).catch(() => []);
+
+  if (storedRecent.length === 0) {
+    return null;
+  }
+
+  const fetchedAt = storedRecent[0]?.playedAt ?? new Date().toISOString();
+
+  return {
+    spotifyUserId,
+    schemaVersion: SNAPSHOT_TOP_LISTS_SCHEMA_VERSION,
+    cachedTopLists: buildCachedTopListsForSnapshot({
+      topArtists: [],
+      topTracks: [],
+      mediumTermTopArtists: [],
+      mediumTermTopTracks: [],
+      longTermTopArtists: [],
+      longTermTopTracks: [],
+      fetchedAt,
+    }),
+    topArtists: [],
+    topTracks: [],
+    mediumTermTopArtists: [],
+    mediumTermTopTracks: [],
+    longTermTopArtists: [],
+    longTermTopTracks: [],
+    savedTracks: [],
+    recent: toRecentPlayedItemsFromStoredPlays(storedRecent),
+    fetchedAt,
+  } satisfies SpotifyDashboardSnapshot;
+}
+
 function pushArtistsWithWeight(map: Map<string, SpotifyArtist & { score: number }>, artists: SpotifyArtist[] | undefined, weight: number) {
   (artists ?? []).forEach((artist, index) => {
     const existing = map.get(artist.id) ?? { ...artist, genres: getArtistGenres(artist), score: 0 };
@@ -2643,6 +2676,7 @@ export async function getDashboardAnalysisDetailFromHistory(
   options: { section: "trend" | "heatmap"; label?: string; mood?: string; period?: string; day?: string; from?: string; to?: string },
 ): Promise<DashboardAnalysisDetail | null> {
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId);
+  const storedRecent = await getStoredRecentPlaysForRange(spotifyUserId, range, 5000).catch(() => []);
   const selectedDay = normalizeDateInput(options.day);
   const rawFrom = normalizeDateInput(options.from);
   const rawTo = normalizeDateInput(options.to);
@@ -2653,7 +2687,7 @@ export async function getDashboardAnalysisDetailFromHistory(
   const relevantSnapshots = scopedSnapshots.length > 0 ? scopedSnapshots : snapshots.slice(0, 1);
   const sortedSnapshots = [...relevantSnapshots].sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
 
-  if (sortedSnapshots.length === 0) {
+  if (sortedSnapshots.length === 0 && storedRecent.length === 0) {
     return null;
   }
 
@@ -2670,10 +2704,17 @@ export async function getDashboardAnalysisDetailFromHistory(
     to ?? "",
     sortedSnapshots[0]?.fetchedAt ?? "",
     sortedSnapshots.length,
+    storedRecent[0]?.playedAt ?? "",
+    storedRecent.length,
   ].join(":");
 
   return getCachedValue(analysisCacheKey, ANALYSIS_DETAIL_TTL_MS, async () => {
-    const recent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent)).filter((item) => {
+    const snapshotRecent = dedupeRecent(sortedSnapshots.flatMap((snapshot) => snapshot.recent));
+    const recent = (
+      storedRecent.length > 0
+        ? mergeRecentSources(toRecentPlayedItemsFromStoredPlays(storedRecent), snapshotRecent)
+        : snapshotRecent
+    ).filter((item) => {
       if (!from && !to) {
         return true;
       }
@@ -2786,6 +2827,17 @@ export async function getSharedDashboardCacheSnapshots(spotifyUserId: string, ra
         }
       } catch (error) {
         throw dashboardCacheError("fallbackLatestSnapshot", error);
+      }
+    }
+
+    if (snapshots.length === 0) {
+      try {
+        const fallbackRecentSnapshot = await buildSyntheticSnapshotFromStoredRecent(spotifyUserId, range);
+        if (fallbackRecentSnapshot) {
+          snapshots = [fallbackRecentSnapshot];
+        }
+      } catch (error) {
+        throw dashboardCacheError("fallbackRecentSnapshot", error);
       }
     }
 
