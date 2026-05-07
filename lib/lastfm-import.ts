@@ -16,6 +16,7 @@ const DEFAULT_DUPLICATE_WINDOW_MS = 1000 * 60 * 7;
 const MIN_DUPLICATE_WINDOW_MS = 1000 * 60 * 3;
 const MAX_DUPLICATE_WINDOW_MS = 1000 * 60 * 15;
 const SNAPSHOT_CACHE_SCAN_LIMIT = 60;
+const NORMALIZATION_TIMEOUT = Symbol("lastfm-normalization-timeout");
 
 type TrackMetadataCandidate = {
   trackId?: string;
@@ -53,10 +54,13 @@ export type LastFmImportResult = {
 
 export type LastFmNormalizationResult = {
   scannedTrackGroups: number;
+  processedTrackGroups: number;
   matchedTrackGroups: number;
   unresolvedTrackGroups: number;
   updatedPlayCount: number;
   deletedDuplicatePlayCount: number;
+  timedOutTrackGroups: number;
+  stoppedEarly: boolean;
 };
 
 export type LastFmImportPayload = {
@@ -826,15 +830,20 @@ export async function normalizeImportedLastFmScrobbles(
   options?: {
     limitDistinctTracks?: number;
     onProgress?: (detail: string) => void | Promise<void>;
+    perTrackTimeoutMs?: number;
+    maxRuntimeMs?: number;
   },
 ): Promise<LastFmNormalizationResult> {
   if (!hasMongoConfig()) {
     return {
       scannedTrackGroups: 0,
+      processedTrackGroups: 0,
       matchedTrackGroups: 0,
       unresolvedTrackGroups: 0,
       updatedPlayCount: 0,
       deletedDuplicatePlayCount: 0,
+      timedOutTrackGroups: 0,
+      stoppedEarly: false,
     };
   }
 
@@ -842,10 +851,13 @@ export async function normalizeImportedLastFmScrobbles(
   if (!db) {
     return {
       scannedTrackGroups: 0,
+      processedTrackGroups: 0,
       matchedTrackGroups: 0,
       unresolvedTrackGroups: 0,
       updatedPlayCount: 0,
       deletedDuplicatePlayCount: 0,
+      timedOutTrackGroups: 0,
+      stoppedEarly: false,
     };
   }
 
@@ -853,10 +865,13 @@ export async function normalizeImportedLastFmScrobbles(
   if (!spotifyToken) {
     return {
       scannedTrackGroups: 0,
+      processedTrackGroups: 0,
       matchedTrackGroups: 0,
       unresolvedTrackGroups: 0,
       updatedPlayCount: 0,
       deletedDuplicatePlayCount: 0,
+      timedOutTrackGroups: 0,
+      stoppedEarly: false,
     };
   }
 
@@ -881,18 +896,44 @@ export async function normalizeImportedLastFmScrobbles(
     ]),
   ).values()].slice(0, options?.limitDistinctTracks ?? 250);
 
+  const perTrackTimeoutMs = Math.max(1000, options?.perTrackTimeoutMs ?? 6000);
+  const maxRuntimeMs = Math.max(5000, options?.maxRuntimeMs ?? 45000);
+  const startedAt = Date.now();
+  let processedTrackGroups = 0;
   let matchedTrackGroups = 0;
   let unresolvedTrackGroups = 0;
   let updatedPlayCount = 0;
   let deletedDuplicatePlayCount = 0;
+  let timedOutTrackGroups = 0;
+  let stoppedEarly = false;
 
   for (let index = 0; index < groupedCandidates.length; index += 1) {
     const candidate = groupedCandidates[index];
+    if (Date.now() - startedAt >= maxRuntimeMs) {
+      stoppedEarly = true;
+      await options?.onProgress?.(
+        `Paused imported-track normalization after ${processedTrackGroups}/${groupedCandidates.length} groups so refresh can finish. The next refresh will continue with remaining unresolved tracks.`,
+      );
+      break;
+    }
+
     await options?.onProgress?.(
       `Resolving imported Last.fm tracks to Spotify metadata (${index + 1}/${groupedCandidates.length})`,
     );
 
-    const metadata = await searchSpotifyTrackMetadataForStoredPlay(spotifyToken, candidate);
+    const metadata = await Promise.race<TrackMetadataCandidate | typeof NORMALIZATION_TIMEOUT | undefined>([
+      searchSpotifyTrackMetadataForStoredPlay(spotifyToken, candidate),
+      new Promise<typeof NORMALIZATION_TIMEOUT>((resolve) => setTimeout(() => resolve(NORMALIZATION_TIMEOUT), perTrackTimeoutMs)),
+    ]);
+    processedTrackGroups += 1;
+    if (metadata === NORMALIZATION_TIMEOUT) {
+      timedOutTrackGroups += 1;
+      unresolvedTrackGroups += 1;
+      await options?.onProgress?.(
+        `Skipping slow or unresolved imported track ${processedTrackGroups}/${groupedCandidates.length}. Progress is saved and the next refresh can continue.`,
+      );
+      continue;
+    }
     if (!metadata?.trackId) {
       unresolvedTrackGroups += 1;
       continue;
@@ -975,10 +1016,13 @@ export async function normalizeImportedLastFmScrobbles(
 
   return {
     scannedTrackGroups: groupedCandidates.length,
+    processedTrackGroups,
     matchedTrackGroups,
     unresolvedTrackGroups,
     updatedPlayCount,
     deletedDuplicatePlayCount,
+    timedOutTrackGroups,
+    stoppedEarly,
   };
 }
 
