@@ -346,7 +346,15 @@ export async function writeStoredDashboardSectionCache(
   const topListsEntries = await Promise.all(
     TOP_LIST_RANGE_VALUES.map(async (range) => [
       range,
-      await getSpotifyTopListsFromHistory(spotifyUserId, range, FULL_TOP_LIST_LIMIT, undefined, undefined, options?.accessToken),
+      await getSpotifyTopListsFromHistory(
+        spotifyUserId,
+        range,
+        FULL_TOP_LIST_LIMIT,
+        undefined,
+        undefined,
+        options?.accessToken,
+        { allowCatalogLookup: false },
+      ),
     ] as const),
   );
   logSectionTiming(spotifyUserId, "section-cache", "build-top-lists", topListsStartedAt);
@@ -463,6 +471,7 @@ export async function hydrateStoredTopListsSectionMetadata(spotifyUserId: string
         topListHistory.recentPlays,
         topListHistory.snapshots,
         accessToken,
+        { allowCatalogLookup: false },
       ).catch(() => artistHydratedData);
       const changed = JSON.stringify(hydratedData) !== JSON.stringify(doc.data);
       if (!changed) {

@@ -226,7 +226,15 @@ export async function writeStoredDashboardOverviewCache(
   const topListsByRangeEntries = await Promise.all(
     topRangesToBuild.map(async (range) => [
       range,
-      await getSpotifyTopListsFromHistoryData(topListHistory, range, undefined, undefined, undefined, accessToken),
+      await getSpotifyTopListsFromHistoryData(
+        topListHistory,
+        range,
+        undefined,
+        undefined,
+        undefined,
+        accessToken,
+        { allowCatalogLookup: false },
+      ),
     ] as const),
   );
   logOverviewWriteTiming(spotifyUserId, "top-lists", topListsStart);
@@ -321,6 +329,7 @@ export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserI
           topListHistory.recentPlays,
           topListHistory.snapshots,
           accessToken,
+          { allowCatalogLookup: false },
         ).catch(() => artistHydrated);
         if (hydrated !== topLists) {
           changed = true;
@@ -340,6 +349,7 @@ export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserI
           topListHistory.recentPlays,
           topListHistory.snapshots,
           accessToken,
+          { allowCatalogLookup: false },
         ).catch(() => artistHydrated);
         if (hydrated !== topLists) {
           changed = true;

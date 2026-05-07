@@ -48,6 +48,10 @@ export type TopListHistoryData = {
   recentPlays: StoredRecentPlay[];
 };
 
+type TopListHistoryOptions = {
+  allowCatalogLookup?: boolean;
+};
+
 type TrackMetadataCandidate = StoredTrackMetadata;
 type SpotifyTracksByIdsResponse = {
   tracks?: Array<SpotifyTrack | null>;
@@ -502,6 +506,7 @@ async function hydrateTopListsTrackMetadata(
   recentPlays: StoredRecentPlay[],
   snapshots: SpotifyDashboardSnapshot[],
   accessToken?: string,
+  options?: TopListHistoryOptions,
 ) {
   const trackIds = topLists.tracks.map((track) => track.id).filter(Boolean);
   if (trackIds.length === 0) {
@@ -542,7 +547,9 @@ async function hydrateTopListsTrackMetadata(
       return !cachedCandidate?.imageUrl;
     });
 
-    const spotifyCatalogToken = accessToken || await getSpotifyClientCredentialsToken().catch(() => "");
+    const spotifyCatalogToken = options?.allowCatalogLookup === false
+      ? ""
+      : (accessToken || await getSpotifyClientCredentialsToken().catch(() => ""));
 
     if (spotifyCatalogToken && stillMissingTrackIds.length > 0) {
       const spotifyResolvableTrackIds = stillMissingTrackIds.filter((trackId) => !trackId.startsWith("lastfm:"));
@@ -616,8 +623,9 @@ export async function hydrateTopListsDataMetadata(
   recentPlays: StoredRecentPlay[],
   snapshots: SpotifyDashboardSnapshot[],
   accessToken?: string,
+  options?: TopListHistoryOptions,
 ) {
-  return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata(topLists, recentPlays, snapshots, accessToken));
+  return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata(topLists, recentPlays, snapshots, accessToken, options));
 }
 
 function getSnapshotCachedTopLists(snapshot: SpotifyDashboardSnapshot, range: TopListRange, limit: number, from?: string, to?: string) {
@@ -1417,6 +1425,7 @@ export async function getSpotifyTopListsFromHistoryData(
   from?: string,
   to?: string,
   accessToken?: string,
+  options?: TopListHistoryOptions,
 ) {
   const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
   const snapshots = filterSnapshotsForTopRange(history.snapshots, range, from, to);
@@ -1435,7 +1444,7 @@ export async function getSpotifyTopListsFromHistoryData(
     return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata({
       ...enrichedArtists,
       sourceLabel: "Shared Listening Lore listening history",
-    } satisfies TopListsData, filterRecentPlaysForTopRange(history.recentPlays, range, from, to), relevantSnapshots));
+    } satisfies TopListsData, filterRecentPlaysForTopRange(history.recentPlays, range, from, to), relevantSnapshots, accessToken, options));
   }
 
   return getSpotifyTopListsFromSnapshots(relevantSnapshots, range, boundedLimit, from, to);
@@ -1448,9 +1457,10 @@ export async function getSpotifyTopListsFromHistory(
   from?: string,
   to?: string,
   accessToken?: string,
+  options?: TopListHistoryOptions,
 ) {
   const history = await getTopListHistoryData(spotifyUserId);
-  return getSpotifyTopListsFromHistoryData(history, range, limit, from, to, accessToken);
+  return getSpotifyTopListsFromHistoryData(history, range, limit, from, to, accessToken, options);
 }
 
 
