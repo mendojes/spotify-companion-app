@@ -51,7 +51,10 @@ export async function POST() {
           "running",
           { detail: `Updating stored top-list section cache metadata (${backfilledCount} artists)` },
         ).catch(() => undefined);
-        await hydrateStoredTopListsSectionMetadata(authorizedSession.spotifyUserId).catch(() => undefined);
+        await hydrateStoredTopListsSectionMetadata(
+          authorizedSession.spotifyUserId,
+          authorizedSession.accessToken,
+        ).catch(() => undefined);
       })(),
       (async () => {
         await markConnectedUserArtistMetadataBackfillStatus(
@@ -59,7 +62,10 @@ export async function POST() {
           "running",
           { detail: `Updating stored overview top-list metadata (${backfilledCount} artists)` },
         ).catch(() => undefined);
-        await hydrateStoredDashboardOverviewTopListMetadata(authorizedSession.spotifyUserId).catch(() => undefined);
+        await hydrateStoredDashboardOverviewTopListMetadata(
+          authorizedSession.spotifyUserId,
+          authorizedSession.accessToken,
+        ).catch(() => undefined);
       })(),
     ]);
 

@@ -281,7 +281,7 @@ export async function writeStoredDashboardOverviewCache(
   }
 }
 
-export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserId: string) {
+export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserId: string, accessToken?: string) {
   if (!hasMongoConfig()) {
     return;
   }
@@ -316,7 +316,12 @@ export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserI
         }
 
         const artistHydrated = hydrateTopListsDataArtistsWithStoredMetadata(normalizeTopListsDataRanking(topLists), metadataByArtistId);
-        const hydrated = await hydrateTopListsDataMetadata(artistHydrated, topListHistory.recentPlays, topListHistory.snapshots).catch(() => artistHydrated);
+        const hydrated = await hydrateTopListsDataMetadata(
+          artistHydrated,
+          topListHistory.recentPlays,
+          topListHistory.snapshots,
+          accessToken,
+        ).catch(() => artistHydrated);
         if (hydrated !== topLists) {
           changed = true;
         }
@@ -330,7 +335,12 @@ export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserI
         }
 
         const artistHydrated = hydrateTopListsDataArtistsWithStoredMetadata(normalizeTopListsDataRanking(topLists), metadataByArtistId);
-        const hydrated = await hydrateTopListsDataMetadata(artistHydrated, topListHistory.recentPlays, topListHistory.snapshots).catch(() => artistHydrated);
+        const hydrated = await hydrateTopListsDataMetadata(
+          artistHydrated,
+          topListHistory.recentPlays,
+          topListHistory.snapshots,
+          accessToken,
+        ).catch(() => artistHydrated);
         if (hydrated !== topLists) {
           changed = true;
         }

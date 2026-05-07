@@ -7,6 +7,7 @@ import {
   SpotifyArtist,
   SpotifyDashboardSnapshot,
   SpotifyTimeRange,
+  SpotifyTrack,
   SpotifyTopArtistsResponse,
   SpotifyTopTracksResponse,
   StoredRecentPlay,
@@ -48,6 +49,9 @@ export type TopListHistoryData = {
 };
 
 type TrackMetadataCandidate = StoredTrackMetadata;
+type SpotifyTracksByIdsResponse = {
+  tracks?: Array<SpotifyTrack | null>;
+};
 
 function getArtistGenres(artist: Pick<SpotifyArtist, "genres">) {
   return Array.isArray(artist.genres) ? artist.genres : [];
@@ -382,6 +386,7 @@ async function hydrateTopListsTrackMetadata(
   topLists: TopListsData,
   recentPlays: StoredRecentPlay[],
   snapshots: SpotifyDashboardSnapshot[],
+  accessToken?: string,
 ) {
   const trackIds = topLists.tracks.map((track) => track.id).filter(Boolean);
   if (trackIds.length === 0) {
@@ -395,13 +400,13 @@ async function hydrateTopListsTrackMetadata(
   if (missingTrackIds.length > 0) {
     const fromRecentPlays = buildTrackMetadataFromRecentPlays(recentPlays);
     const fromSnapshots = buildTrackMetadataFromSnapshots(snapshots);
-    const backfilledTracks = missingTrackIds
+    const cachedBackfilledTracks = missingTrackIds
       .map((trackId) => fromRecentPlays.get(trackId) ?? fromSnapshots.get(trackId))
       .filter((track): track is TrackMetadataCandidate => Boolean(track));
 
-    if (backfilledTracks.length > 0) {
+    if (cachedBackfilledTracks.length > 0) {
       await upsertStoredTrackMetadataFromSpotifyTracks(
-        backfilledTracks.map((track) => ({
+        cachedBackfilledTracks.map((track) => ({
           id: track.trackId,
           name: track.trackName,
           popularity: 0,
@@ -415,9 +420,33 @@ async function hydrateTopListsTrackMetadata(
             .map((name, index) => ({ name, id: track.artistIds?.[index] })),
         })),
       ).catch(() => undefined);
-
-      metadataByTrackId = await getStoredTrackMetadataMap(trackIds);
     }
+
+    const stillMissingTrackIds = missingTrackIds.filter((trackId) => {
+      const cachedCandidate = fromRecentPlays.get(trackId) ?? fromSnapshots.get(trackId);
+      return !cachedCandidate?.imageUrl;
+    });
+
+    if (accessToken && stillMissingTrackIds.length > 0) {
+      const spotifyResponses = await Promise.all(
+        Array.from({ length: Math.ceil(stillMissingTrackIds.length / 50) }, (_, index) =>
+          spotifyFetch<SpotifyTracksByIdsResponse>(
+            `/tracks?ids=${stillMissingTrackIds.slice(index * 50, index * 50 + 50).join(",")}`,
+            accessToken,
+          ).catch(() => ({ tracks: [] })),
+        ),
+      );
+
+      const spotifyTracks = spotifyResponses
+        .flatMap((response) => response.tracks ?? [])
+        .filter((track): track is SpotifyTrack => Boolean(track?.id));
+
+      if (spotifyTracks.length > 0) {
+        await upsertStoredTrackMetadataFromSpotifyTracks(spotifyTracks).catch(() => undefined);
+      }
+    }
+
+    metadataByTrackId = await getStoredTrackMetadataMap(trackIds);
   }
 
   return hydrateTopListsWithTrackMetadata(topLists, metadataByTrackId);
@@ -427,8 +456,9 @@ export async function hydrateTopListsDataMetadata(
   topLists: TopListsData,
   recentPlays: StoredRecentPlay[],
   snapshots: SpotifyDashboardSnapshot[],
+  accessToken?: string,
 ) {
-  return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata(topLists, recentPlays, snapshots));
+  return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata(topLists, recentPlays, snapshots, accessToken));
 }
 
 function getSnapshotCachedTopLists(snapshot: SpotifyDashboardSnapshot, range: TopListRange, limit: number, from?: string, to?: string) {

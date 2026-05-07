@@ -430,7 +430,7 @@ export async function writeStoredPlaylistsSectionCache(spotifyUserId: string) {
   }
 }
 
-export async function hydrateStoredTopListsSectionMetadata(spotifyUserId: string) {
+export async function hydrateStoredTopListsSectionMetadata(spotifyUserId: string, accessToken?: string) {
   if (!hasMongoConfig()) {
     return;
   }
@@ -458,7 +458,12 @@ export async function hydrateStoredTopListsSectionMetadata(spotifyUserId: string
     }>>>(async (accPromise, doc) => {
       const acc = await accPromise;
       const artistHydratedData = hydrateTopListsDataArtistsWithStoredMetadata(normalizeTopListsDataRanking(doc.data), metadataByArtistId);
-      const hydratedData = await hydrateTopListsDataMetadata(artistHydratedData, topListHistory.recentPlays, topListHistory.snapshots).catch(() => artistHydratedData);
+      const hydratedData = await hydrateTopListsDataMetadata(
+        artistHydratedData,
+        topListHistory.recentPlays,
+        topListHistory.snapshots,
+        accessToken,
+      ).catch(() => artistHydratedData);
       const changed = JSON.stringify(hydratedData) !== JSON.stringify(doc.data);
       if (!changed) {
         return acc;
