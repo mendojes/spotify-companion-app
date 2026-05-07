@@ -45,22 +45,41 @@ export async function POST(request: NextRequest) {
     }
 
     const startedAt = Date.now();
-    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", { range }).catch(() => undefined);
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
+      range,
+      detail: "Starting dashboard enrichment",
+    }).catch(() => undefined);
     const playlistSyncStartedAt = Date.now();
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
+      range,
+      detail: "Syncing playlist library",
+    }).catch(() => undefined);
     await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "playlist-library-sync", playlistSyncStartedAt);
     invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
     const playlistSectionStartedAt = Date.now();
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
+      range,
+      detail: "Rebuilding playlist section cache",
+    }).catch(() => undefined);
     await writeStoredPlaylistsSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "playlist-section-cache", playlistSectionStartedAt);
     const overviewStartedAt = Date.now();
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
+      range,
+      detail: "Rebuilding overview cache",
+    }).catch(() => undefined);
     await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, range, {
       allowLiveEnrichment: false,
     });
     logEnrichmentTiming(authorizedSession.spotifyUserId, "overview-cache", overviewStartedAt);
     const sectionCacheStartedAt = Date.now();
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
+      range,
+      detail: "Rebuilding section caches including top lists",
+    }).catch(() => undefined);
     await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "section-cache", sectionCacheStartedAt);
     const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
@@ -68,15 +87,21 @@ export async function POST(request: NextRequest) {
       await markConnectedUserArtistMetadataBackfillStatus(
         authorizedSession.spotifyUserId,
         "pending",
+        { detail: `Queued ${missingArtistIds.length} artist ids for metadata backfill` },
       ).catch(() => undefined);
     } else {
       await markConnectedUserArtistMetadataBackfillStatus(
         authorizedSession.spotifyUserId,
         "idle",
-        { backfilledCount: 0 },
+        { backfilledCount: 0, detail: "No missing artist metadata remained after cache rebuild" },
       ).catch(() => undefined);
     }
-    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", { range }).catch(() => undefined);
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
+      range,
+      detail: missingArtistIds.length > 0
+        ? `Dashboard caches rebuilt. Artist metadata backfill queued for ${missingArtistIds.length} artists`
+        : "Dashboard caches rebuilt with no missing artist metadata",
+    }).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "total", startedAt);
 
     return NextResponse.json({ status: "success", needsArtistMetadataBackfill: missingArtistIds.length > 0 });

@@ -24,18 +24,26 @@ export async function POST() {
       return NextResponse.json({ status: "running" }, { status: 202 });
     }
 
+    console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=start`);
     await markConnectedUserArtistMetadataBackfillStatus(
       authorizedSession.spotifyUserId,
       "running",
+      { detail: "Collecting missing artist ids and fetching metadata" },
     ).catch(() => undefined);
     const backfilledCount = await backfillMissingArtistMetadataForUser(
       authorizedSession.spotifyUserId,
       authorizedSession.accessToken,
     );
+    console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=backfilled count=${backfilledCount}`);
 
     invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
 
+    await markConnectedUserArtistMetadataBackfillStatus(
+      authorizedSession.spotifyUserId,
+      "running",
+      { detail: `Rebuilding caches after artist metadata backfill (${backfilledCount} artists)` },
+    ).catch(() => undefined);
     await Promise.all([
       writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined),
       writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, undefined, undefined, {
@@ -46,8 +54,9 @@ export async function POST() {
     await markConnectedUserArtistMetadataBackfillStatus(
       authorizedSession.spotifyUserId,
       "success",
-      { backfilledCount },
+      { backfilledCount, detail: `Artist metadata backfill finished for ${backfilledCount} artists` },
     ).catch(() => undefined);
+    console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=success count=${backfilledCount}`);
 
     return NextResponse.json({ status: "success", backfilledCount });
   } catch (error) {
@@ -59,6 +68,7 @@ export async function POST() {
     if (session?.spotifyUserId) {
       await markConnectedUserArtistMetadataBackfillStatus(session.spotifyUserId, "error", {
         errorMessage: message,
+        detail: "Artist metadata backfill route failed",
       }).catch(() => undefined);
     }
     return NextResponse.json({ error: message }, { status: 500 });

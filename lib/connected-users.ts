@@ -35,11 +35,13 @@ export type ConnectedUser = {
   dashboardEnrichmentStartedAt?: string;
   dashboardEnrichmentFinishedAt?: string;
   dashboardEnrichmentError?: string;
+  dashboardEnrichmentDetail?: string;
   artistMetadataBackfillStatus?: "idle" | "pending" | "running" | "success" | "error";
   artistMetadataBackfillStartedAt?: string;
   artistMetadataBackfillFinishedAt?: string;
   artistMetadataBackfillError?: string;
   artistMetadataBackfillCount?: number;
+  artistMetadataBackfillDetail?: string;
 };
 
 export type CommunityUserProfile = {
@@ -241,6 +243,7 @@ export async function markConnectedUserDashboardEnrichmentStatus(
   options?: {
     range?: "week" | "month" | "all";
     errorMessage?: string;
+    detail?: string;
   },
 ) {
   if (!hasMongoConfig()) {
@@ -260,6 +263,7 @@ export async function markConnectedUserDashboardEnrichmentStatus(
         dashboardEnrichmentStatus: status,
         dashboardEnrichmentRange: options?.range,
         dashboardEnrichmentError: options?.errorMessage,
+        dashboardEnrichmentDetail: options?.detail,
         dashboardEnrichmentStartedAt: status === "running" ? now : undefined,
         dashboardEnrichmentFinishedAt: status === "success" || status === "error" ? now : undefined,
         updatedAt: now,
@@ -274,6 +278,7 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
   options?: {
     errorMessage?: string;
     backfilledCount?: number;
+    detail?: string;
   },
 ) {
   if (!hasMongoConfig()) {
@@ -293,6 +298,7 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
         artistMetadataBackfillStatus: status,
         artistMetadataBackfillError: options?.errorMessage,
         artistMetadataBackfillCount: options?.backfilledCount,
+        artistMetadataBackfillDetail: options?.detail,
         artistMetadataBackfillStartedAt: status === "running" ? now : undefined,
         artistMetadataBackfillFinishedAt: status === "success" || status === "error" ? now : undefined,
         updatedAt: now,

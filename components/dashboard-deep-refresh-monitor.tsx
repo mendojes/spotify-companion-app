@@ -11,14 +11,31 @@ type DashboardDeepRefreshMonitorProps = {
 type EnrichmentStatus = "idle" | "pending" | "running" | "success" | "error";
 type ArtistBackfillStatus = "idle" | "pending" | "running" | "success" | "error";
 
+function formatStatusTimestamp(value?: string | null) {
+  if (!value) {
+    return "not recorded";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  }).format(new Date(value));
+}
+
 export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDeepRefreshMonitorProps) {
   const router = useRouter();
   const [status, setStatus] = useState<EnrichmentStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
+  const [startedAt, setStartedAt] = useState<string | null>(null);
+  const [finishedAt, setFinishedAt] = useState<string | null>(null);
   const [artistBackfillRunning, setArtistBackfillRunning] = useState(false);
   const [artistBackfillStatus, setArtistBackfillStatus] = useState<ArtistBackfillStatus>("idle");
   const [artistBackfillError, setArtistBackfillError] = useState<string | null>(null);
   const [artistBackfillCount, setArtistBackfillCount] = useState<number | null>(null);
+  const [artistBackfillDetail, setArtistBackfillDetail] = useState<string | null>(null);
+  const [artistBackfillStartedAt, setArtistBackfillStartedAt] = useState<string | null>(null);
+  const [artistBackfillFinishedAt, setArtistBackfillFinishedAt] = useState<string | null>(null);
   const enrichStartedRef = useRef(false);
   const artistBackfillStartedRef = useRef(false);
 
@@ -41,9 +58,15 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         const data = await response.json() as {
           status?: EnrichmentStatus;
           error?: string | null;
+          detail?: string | null;
+          startedAt?: string | null;
+          finishedAt?: string | null;
           artistBackfillStatus?: ArtistBackfillStatus;
           artistBackfillError?: string | null;
           artistBackfillCount?: number | null;
+          artistBackfillDetail?: string | null;
+          artistBackfillStartedAt?: string | null;
+          artistBackfillFinishedAt?: string | null;
         };
         if (cancelled) {
           return;
@@ -52,9 +75,15 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         const nextStatus = data.status ?? "idle";
         setStatus(nextStatus);
         setError(data.error ?? null);
+        setDetail(data.detail ?? null);
+        setStartedAt(data.startedAt ?? null);
+        setFinishedAt(data.finishedAt ?? null);
         setArtistBackfillStatus(data.artistBackfillStatus ?? "idle");
         setArtistBackfillError(data.artistBackfillError ?? null);
         setArtistBackfillCount(typeof data.artistBackfillCount === "number" ? data.artistBackfillCount : null);
+        setArtistBackfillDetail(data.artistBackfillDetail ?? null);
+        setArtistBackfillStartedAt(data.artistBackfillStartedAt ?? null);
+        setArtistBackfillFinishedAt(data.artistBackfillFinishedAt ?? null);
 
         const shouldKickoffEnrich =
           !enrichStartedRef.current &&
@@ -145,7 +174,8 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           : "border-[rgba(44,12,70,0.9)] bg-[rgba(229,255,255,0.78)] text-[#3a1a58]"
       }`}
     >
-      {status === "error"
+      <p>
+        {status === "error"
         ? `Deep dashboard refresh failed, so the page is still using the latest stored cache. ${error ?? ""}`.trim()
           : artistBackfillStatus === "error"
           ? `Artist metadata backfill finished with an error, so some artist images or genres may still be missing. ${artistBackfillError ?? ""}`.trim()
@@ -156,6 +186,11 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
             : artistBackfillStatus === "success"
               ? `Artist metadata backfill finished${artistBackfillCount !== null ? ` for ${artistBackfillCount} artists` : ""}. If images are still blank, the current cached sources did not contain recoverable artist artwork.`
           : "Deep dashboard refresh is running in the background. The page will update automatically when the richer cache is ready."}
+      </p>
+      <div className="mt-3 space-y-1 font-mono text-xs uppercase tracking-[0.08em] text-[#5a2f7f]">
+        <p>Dashboard enrich: {status} | detail: {detail ?? "none"} | started: {formatStatusTimestamp(startedAt)} | finished: {formatStatusTimestamp(finishedAt)}</p>
+        <p>Artist backfill: {artistBackfillStatus} | detail: {artistBackfillDetail ?? "none"} | started: {formatStatusTimestamp(artistBackfillStartedAt)} | finished: {formatStatusTimestamp(artistBackfillFinishedAt)}</p>
+      </div>
     </div>
   );
 }

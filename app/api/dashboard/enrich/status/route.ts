@@ -17,10 +17,12 @@ export async function GET() {
     startedAt: connectedUser?.dashboardEnrichmentStartedAt,
     finishedAt: connectedUser?.dashboardEnrichmentFinishedAt,
     error: connectedUser?.dashboardEnrichmentError,
+    detail: connectedUser?.dashboardEnrichmentDetail,
     artistBackfillStatus: connectedUser?.artistMetadataBackfillStatus ?? "idle",
     artistBackfillStartedAt: connectedUser?.artistMetadataBackfillStartedAt,
     artistBackfillFinishedAt: connectedUser?.artistMetadataBackfillFinishedAt,
     artistBackfillError: connectedUser?.artistMetadataBackfillError,
     artistBackfillCount: connectedUser?.artistMetadataBackfillCount,
+    artistBackfillDetail: connectedUser?.artistMetadataBackfillDetail,
   });
 }

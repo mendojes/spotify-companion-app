@@ -70,8 +70,13 @@ export async function GET(request: NextRequest) {
     invalidateTopListHistoryCache(authorizedSession.spotifyUserId);
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
-    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "pending", { range }).catch(() => undefined);
-    await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "pending").catch(() => undefined);
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "pending", {
+      range,
+      detail: "Refresh finished. Waiting for dashboard enrichment follow-up job",
+    }).catch(() => undefined);
+    await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "pending", {
+      detail: "Queued after dashboard enrichment determines whether artist metadata is still missing",
+    }).catch(() => undefined);
     logRefreshTiming(authorizedSession.spotifyUserId, "total", refreshStartedAt);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
   } catch (error) {
