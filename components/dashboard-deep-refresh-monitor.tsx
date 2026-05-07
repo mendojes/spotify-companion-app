@@ -42,6 +42,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+    let pollCount = 0;
 
     async function readStatus() {
       try {
@@ -135,7 +136,12 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           shouldKickoffEnrich ||
           shouldKickoffArtistBackfill
         ) {
-          timer = window.setTimeout(readStatus, 2500);
+          pollCount += 1;
+          const hasRunningWork = nextStatus === "running" || data.artistBackfillStatus === "running";
+          const delayMs = hasRunningWork
+            ? Math.min(15000, 5000 + pollCount * 1000)
+            : 5000;
+          timer = window.setTimeout(readStatus, delayMs);
           return;
         }
 
@@ -143,7 +149,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           router.refresh();
         }
       } catch {
-        timer = window.setTimeout(readStatus, 4000);
+        timer = window.setTimeout(readStatus, 8000);
       }
     }
 

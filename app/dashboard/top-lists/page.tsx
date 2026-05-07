@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { isSessionRefreshFailure, requireSpotifySession } from "@/lib/auth";
+import { getAuthorizedSession, isSessionRefreshFailure, requireSpotifySession } from "@/lib/auth";
 import { getStoredTopListsSection } from "@/lib/dashboard-section-cache";
 import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
 import { TopListAlbum, TopListArtist, TopListRange, TopListTrack } from "@/lib/types";
@@ -75,6 +75,15 @@ function getInitials(value: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+function topListsNeedArtworkRepair(data: {
+  tracks: TopListTrack[];
+  albums: TopListAlbum[];
+}) {
+  const missingTrackArtwork = data.tracks.some((track) => !track.imageUrl);
+  const missingAlbumArtwork = data.albums.some((album) => !album.imageUrl);
+  return missingTrackArtwork || missingAlbumArtwork;
 }
 
 function Artwork({ src, alt }: { src?: string; alt: string }) {
@@ -241,6 +250,17 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
     data = shouldPreferHistoryData
       ? null
       : await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo);
+    if (data && topListsNeedArtworkRepair(data)) {
+      const authorizedSession = await getAuthorizedSession(session);
+      data = await getSpotifyTopListsFromHistory(
+        session.spotifyUserId,
+        selectedRange,
+        FULL_TOP_LIST_LIMIT,
+        selectedFrom,
+        selectedTo,
+        authorizedSession.accessToken,
+      );
+    }
     if (!data) {
       data = await getSpotifyTopListsFromHistory(
         session.spotifyUserId,

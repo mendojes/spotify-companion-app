@@ -1,6 +1,6 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
-import { spotifyFetch } from "@/lib/spotify";
+import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { getIgnoredPlaylistFilterData, shouldIgnoreRecentPlayByRules } from "@/lib/ignored-playlists";
 import { getStoredTrackMetadataMap, StoredTrackMetadata, toTrackMetadataFromSpotifyTrack, upsertStoredTrackMetadataFromSpotifyTracks } from "@/lib/track-metadata-cache";
 import {
@@ -542,7 +542,9 @@ async function hydrateTopListsTrackMetadata(
       return !cachedCandidate?.imageUrl;
     });
 
-    if (accessToken && stillMissingTrackIds.length > 0) {
+    const spotifyCatalogToken = accessToken || await getSpotifyClientCredentialsToken().catch(() => "");
+
+    if (spotifyCatalogToken && stillMissingTrackIds.length > 0) {
       const spotifyResolvableTrackIds = stillMissingTrackIds.filter((trackId) => !trackId.startsWith("lastfm:"));
       const spotifySearchCandidates = topLists.tracks.filter((track) =>
         stillMissingTrackIds.includes(track.id) && track.id.startsWith("lastfm:"),
@@ -553,7 +555,7 @@ async function hydrateTopListsTrackMetadata(
           Array.from({ length: Math.ceil(spotifyResolvableTrackIds.length / 50) }, (_, index) =>
             spotifyFetch<SpotifyTracksByIdsResponse>(
               `/tracks?ids=${spotifyResolvableTrackIds.slice(index * 50, index * 50 + 50).join(",")}`,
-              accessToken,
+              spotifyCatalogToken,
             ).catch(() => ({ tracks: [] })),
           ),
         );
@@ -576,7 +578,7 @@ async function hydrateTopListsTrackMetadata(
               const query = `track:${track.title} artist:${track.artist.split(",")[0]?.trim() ?? track.artist}`;
               const response = await spotifyFetch<SpotifySearchTracksResponse>(
                 `/search?type=track&limit=5&q=${encodeURIComponent(query)}`,
-                accessToken,
+                spotifyCatalogToken,
               ).catch(() => null);
               const items = response?.tracks?.items ?? [];
               const preferred =
