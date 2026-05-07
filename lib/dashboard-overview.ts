@@ -223,6 +223,7 @@ export async function writeStoredDashboardOverviewCache(
   logOverviewWriteTiming(spotifyUserId, "insights", insightsStart);
 
   const topListsStart = Date.now();
+  const topListsAccessToken = options?.allowLiveEnrichment === false ? undefined : accessToken;
   const topListsByRangeEntries = await Promise.all(
     topRangesToBuild.map(async (range) => [
       range,
@@ -232,7 +233,7 @@ export async function writeStoredDashboardOverviewCache(
         undefined,
         undefined,
         undefined,
-        accessToken,
+        topListsAccessToken,
         { allowCatalogLookup: false },
       ),
     ] as const),
