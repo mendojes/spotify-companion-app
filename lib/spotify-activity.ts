@@ -2,6 +2,7 @@ import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { spotifyFetch, spotifyFetchOptional } from "@/lib/spotify";
 import { getCachedValue } from "@/lib/runtime-cache";
 import { getIgnoredPlaylistFilterData, shouldIgnoreRecentPlayByRules } from "@/lib/ignored-playlists";
+import { upsertStoredTrackMetadataFromRecentPlays } from "@/lib/track-metadata-cache";
 import {
   NowPlayingState,
   SpotifyCurrentlyPlayingResponse,
@@ -261,6 +262,7 @@ export async function syncRecentPlays(accessToken: string, spotifyUserId: string
       })),
       { ordered: false },
     );
+    await upsertStoredTrackMetadataFromRecentPlays(recentPlays).catch(() => undefined);
   }
 
   return recentPlays;

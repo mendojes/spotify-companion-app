@@ -5,6 +5,7 @@ import { invalidateDashboardSnapshotCaches } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache } from "@/lib/spotify-playlists";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
+import { upsertStoredTrackMetadataFromRecentPlays } from "@/lib/track-metadata-cache";
 import { SpotifyDashboardSnapshot, SpotifyRecentlyPlayedItem, SpotifyTrack, StoredRecentPlay } from "@/lib/types";
 
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
@@ -724,8 +725,10 @@ export async function importLastFmScrobbles(csvText: string, spotifyUserId: stri
               trackName: play.trackName,
               artistName: play.artistName,
               artistNames: play.artistNames,
+              artistIds: play.artistIds,
               albumName: play.albumName,
               durationMs: play.durationMs,
+              imageUrl: play.imageUrl,
               sourceType: play.sourceType,
             },
           },
@@ -734,6 +737,7 @@ export async function importLastFmScrobbles(csvText: string, spotifyUserId: stri
       })),
       { ordered: false },
     );
+    await upsertStoredTrackMetadataFromRecentPlays(enrichedNewPlays).catch(() => undefined);
 
     importedCount += enrichedNewPlays.length;
   }

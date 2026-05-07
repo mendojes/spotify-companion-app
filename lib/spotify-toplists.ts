@@ -2,6 +2,7 @@ import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import { spotifyFetch } from "@/lib/spotify";
 import { getIgnoredPlaylistFilterData, shouldIgnoreRecentPlayByRules } from "@/lib/ignored-playlists";
+import { getStoredTrackMetadataMap, StoredTrackMetadata, toTrackMetadataFromSpotifyTrack, upsertStoredTrackMetadataFromSpotifyTracks } from "@/lib/track-metadata-cache";
 import {
   SpotifyArtist,
   SpotifyDashboardSnapshot,
@@ -45,6 +46,8 @@ export type TopListHistoryData = {
   snapshots: SpotifyDashboardSnapshot[];
   recentPlays: StoredRecentPlay[];
 };
+
+type TrackMetadataCandidate = StoredTrackMetadata;
 
 function getArtistGenres(artist: Pick<SpotifyArtist, "genres">) {
   return Array.isArray(artist.genres) ? artist.genres : [];
@@ -206,13 +209,38 @@ function getSnapshotListsForRange(snapshot: SpotifyDashboardSnapshot, range: Top
 }
 
 function trimTopListsData(topLists: TopListsData, limit: number, from?: string, to?: string): TopListsData {
-  return {
+  return normalizeTopListsDataRanking({
     ...topLists,
     artists: topLists.artists.slice(0, limit),
     tracks: topLists.tracks.slice(0, limit),
     albums: topLists.albums.slice(0, limit),
     from: from ?? topLists.from,
     to: to ?? topLists.to,
+  });
+}
+
+export function normalizeTopListsDataRanking(topLists: TopListsData): TopListsData {
+  const shouldSortArtists = topLists.artists.some((artist) => typeof artist.listenCount === "number");
+  const shouldSortTracks = topLists.tracks.some((track) => typeof track.listenCount === "number");
+  const shouldSortAlbums = topLists.albums.some((album) => typeof album.listenCount === "number");
+
+  return {
+    ...topLists,
+    artists: shouldSortArtists
+      ? [...topLists.artists]
+        .sort((a, b) => (b.listenCount ?? 0) - (a.listenCount ?? 0) || a.rank - b.rank || a.name.localeCompare(b.name))
+        .map((artist, index) => ({ ...artist, rank: index + 1 }))
+      : topLists.artists,
+    tracks: shouldSortTracks
+      ? [...topLists.tracks]
+        .sort((a, b) => (b.listenCount ?? 0) - (a.listenCount ?? 0) || b.popularity - a.popularity || a.rank - b.rank || a.title.localeCompare(b.title))
+        .map((track, index) => ({ ...track, rank: index + 1 }))
+      : topLists.tracks,
+    albums: shouldSortAlbums
+      ? [...topLists.albums]
+        .sort((a, b) => (b.listenCount ?? 0) - (a.listenCount ?? 0) || b.trackCount - a.trackCount || b.score - a.score || a.rank - b.rank || a.name.localeCompare(b.name))
+        .map((album, index) => ({ ...album, rank: index + 1 }))
+      : topLists.albums,
   };
 }
 
@@ -235,6 +263,172 @@ function hydrateArtistImagesFromSnapshot(snapshot: SpotifyDashboardSnapshot, top
       imageUrl: artistImageById.get(artist.id) ?? artist.imageUrl,
     })),
   };
+}
+
+function collectSnapshotTrackCandidates(snapshot: SpotifyDashboardSnapshot) {
+  return [
+    ...snapshot.recent.map((item) => item.track),
+    ...snapshot.topTracks,
+    ...(snapshot.mediumTermTopTracks ?? []),
+    ...(snapshot.longTermTopTracks ?? []),
+  ];
+}
+
+function buildTrackMetadataFromSnapshots(snapshots: SpotifyDashboardSnapshot[]) {
+  const metadata = new Map<string, TrackMetadataCandidate>();
+
+  snapshots.forEach((snapshot) => {
+    collectSnapshotTrackCandidates(snapshot).forEach((track) => {
+      const candidate = toTrackMetadataFromSpotifyTrack(track);
+      if (!candidate?.trackId) {
+        return;
+      }
+
+      const existing = metadata.get(candidate.trackId);
+      if (!existing || (!existing.imageUrl && candidate.imageUrl)) {
+        metadata.set(candidate.trackId, {
+          ...candidate,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    });
+  });
+
+  return metadata;
+}
+
+function buildTrackMetadataFromRecentPlays(recentPlays: StoredRecentPlay[]) {
+  const metadata = new Map<string, TrackMetadataCandidate>();
+
+  recentPlays.forEach((play) => {
+    if (!play.trackId) {
+      return;
+    }
+
+    const existing = metadata.get(play.trackId);
+    const candidate: TrackMetadataCandidate = {
+      trackId: play.trackId,
+      trackName: play.trackName,
+      artistName: play.artistName,
+      artistNames: play.artistNames,
+      artistIds: play.artistIds,
+      albumName: play.albumName,
+      durationMs: play.durationMs,
+      imageUrl: play.imageUrl,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!existing || (!existing.imageUrl && candidate.imageUrl)) {
+      metadata.set(play.trackId, candidate);
+    }
+  });
+
+  return metadata;
+}
+
+function hydrateTopListsWithTrackMetadata(
+  topLists: TopListsData,
+  metadataByTrackId: Map<string, TrackMetadataCandidate>,
+) {
+  let changed = false;
+  const tracks = topLists.tracks.map((track) => {
+    const metadata = metadataByTrackId.get(track.id);
+    if (!metadata) {
+      return track;
+    }
+
+    const nextImageUrl = track.imageUrl ?? metadata.imageUrl;
+    const nextAlbum = track.album || metadata.albumName;
+    const nextArtist = track.artist || metadata.artistName;
+    if (nextImageUrl === track.imageUrl && nextAlbum === track.album && nextArtist === track.artist) {
+      return track;
+    }
+
+    changed = true;
+    return {
+      ...track,
+      imageUrl: nextImageUrl,
+      album: nextAlbum,
+      artist: nextArtist,
+    };
+  });
+
+  const albumImageByKey = new Map<string, string>();
+  tracks.forEach((track) => {
+    if (!track.imageUrl) {
+      return;
+    }
+
+    albumImageByKey.set(`${track.album}::${track.artist}`.toLowerCase(), track.imageUrl);
+  });
+
+  const albums = topLists.albums.map((album) => {
+    const nextImageUrl = album.imageUrl ?? albumImageByKey.get(`${album.name}::${album.artist}`.toLowerCase());
+    if (nextImageUrl === album.imageUrl) {
+      return album;
+    }
+
+    changed = true;
+    return {
+      ...album,
+      imageUrl: nextImageUrl,
+    };
+  });
+
+  return changed ? { ...topLists, tracks, albums } : topLists;
+}
+
+async function hydrateTopListsTrackMetadata(
+  topLists: TopListsData,
+  recentPlays: StoredRecentPlay[],
+  snapshots: SpotifyDashboardSnapshot[],
+) {
+  const trackIds = topLists.tracks.map((track) => track.id).filter(Boolean);
+  if (trackIds.length === 0) {
+    return topLists;
+  }
+
+  const storedMetadata = await getStoredTrackMetadataMap(trackIds);
+  const missingTrackIds = trackIds.filter((trackId) => !storedMetadata.get(trackId)?.imageUrl);
+  let metadataByTrackId = new Map(storedMetadata);
+
+  if (missingTrackIds.length > 0) {
+    const fromRecentPlays = buildTrackMetadataFromRecentPlays(recentPlays);
+    const fromSnapshots = buildTrackMetadataFromSnapshots(snapshots);
+    const backfilledTracks = missingTrackIds
+      .map((trackId) => fromRecentPlays.get(trackId) ?? fromSnapshots.get(trackId))
+      .filter((track): track is TrackMetadataCandidate => Boolean(track));
+
+    if (backfilledTracks.length > 0) {
+      await upsertStoredTrackMetadataFromSpotifyTracks(
+        backfilledTracks.map((track) => ({
+          id: track.trackId,
+          name: track.trackName,
+          popularity: 0,
+          duration_ms: track.durationMs ?? 0,
+          album: {
+            name: track.albumName,
+            images: track.imageUrl ? [{ url: track.imageUrl }] : undefined,
+          },
+          artists: (track.artistNames?.length ? track.artistNames : track.artistName.split(/,\s*/))
+            .filter(Boolean)
+            .map((name, index) => ({ name, id: track.artistIds?.[index] })),
+        })),
+      ).catch(() => undefined);
+
+      metadataByTrackId = await getStoredTrackMetadataMap(trackIds);
+    }
+  }
+
+  return hydrateTopListsWithTrackMetadata(topLists, metadataByTrackId);
+}
+
+export async function hydrateTopListsDataMetadata(
+  topLists: TopListsData,
+  recentPlays: StoredRecentPlay[],
+  snapshots: SpotifyDashboardSnapshot[],
+) {
+  return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata(topLists, recentPlays, snapshots));
 }
 
 function getSnapshotCachedTopLists(snapshot: SpotifyDashboardSnapshot, range: TopListRange, limit: number, from?: string, to?: string) {
@@ -573,7 +767,7 @@ async function enrichRecentPlayTopListArtists(
 }
 
 function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, artistMetadata: Map<string, { genres: string[]; imageUrl?: string }>): TopListArtist[] {
-  const artistMap = new Map<string, { id: string; name: string; score: number; playCount: number; imageUrl?: string; genres: string[] }>();
+  const artistMap = new Map<string, { id: string; name: string; score: number; playCount: number; lastPlayedAt: string; imageUrl?: string; genres: string[] }>();
 
   recentPlays.forEach((play, index) => {
     const recencyWeight = Math.max(1, recentPlays.length - index);
@@ -587,12 +781,16 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
         name: artistName,
         score: 0,
         playCount: 0,
+        lastPlayedAt: play.playedAt,
         imageUrl: metadata?.imageUrl ?? play.imageUrl,
         genres: metadata?.genres ?? [],
       };
 
       existing.score += 100 + recencyWeight;
       existing.playCount += 1;
+      if (play.playedAt > existing.lastPlayedAt) {
+        existing.lastPlayedAt = play.playedAt;
+      }
       if (!existing.imageUrl && metadata?.imageUrl) {
         existing.imageUrl = metadata.imageUrl;
       } else if (!existing.imageUrl && play.imageUrl) {
@@ -606,7 +804,7 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
   });
 
   return [...artistMap.values()]
-    .sort((a, b) => b.score - a.score || b.playCount - a.playCount || a.name.localeCompare(b.name))
+    .sort((a, b) => b.playCount - a.playCount || b.score - a.score || b.lastPlayedAt.localeCompare(a.lastPlayedAt) || a.name.localeCompare(b.name))
     .slice(0, limit)
     .map((artist, index) => ({
       id: artist.id,
@@ -650,7 +848,7 @@ function deriveRecentTracks(recentPlays: StoredRecentPlay[], limit: number): Top
   });
 
   return [...trackMap.values()]
-    .sort((a, b) => b.score - a.score || b.playCount - a.playCount || b.lastPlayedAt.localeCompare(a.lastPlayedAt))
+    .sort((a, b) => b.playCount - a.playCount || b.score - a.score || b.lastPlayedAt.localeCompare(a.lastPlayedAt))
     .slice(0, limit)
     .map((track, index) => ({
       id: track.id,
@@ -695,7 +893,7 @@ function deriveRecentAlbums(recentPlays: StoredRecentPlay[], limit: number): Top
   });
 
   return [...albumMap.values()]
-    .sort((a, b) => b.score - a.score || b.playCount - a.playCount || b.lastPlayedAt.localeCompare(a.lastPlayedAt))
+    .sort((a, b) => b.playCount - a.playCount || b.score - a.score || b.lastPlayedAt.localeCompare(a.lastPlayedAt))
     .slice(0, limit)
     .map((album, index) => ({
       id: album.id,
@@ -938,7 +1136,7 @@ export async function getSpotifyTopLists(
   const { topLists: recentPlayTopLists, recentPlays } = await getRecentPlayTopLists(spotifyUserId, range, boundedLimit, from, to, snapshots);
 
   if (recentPlayTopLists) {
-    return enrichRecentPlayTopListArtists(
+    const enrichedArtists = await enrichRecentPlayTopListArtists(
       accessToken,
       recentPlayTopLists,
       recentPlays,
@@ -946,12 +1144,13 @@ export async function getSpotifyTopLists(
       boundedLimit,
       buildArtistMetadataFromSnapshots(snapshots),
     );
+    return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata(enrichedArtists, recentPlays, snapshots));
   }
 
   const cachedTopLists = snapshots.length === 1 ? getSnapshotCachedTopLists(snapshots[0], range, boundedLimit, from, to) : null;
 
   if (cachedTopLists) {
-    return cachedTopLists;
+    return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata(cachedTopLists, recentPlays, snapshots));
   }
 
   if (snapshots.length > 0 && (range === "all" || range === "custom")) {
@@ -961,7 +1160,7 @@ export async function getSpotifyTopLists(
     const tracks = expandedTracks.slice(0, boundedLimit);
     const albums = deriveAlbumsFromTracks(expandedTracks, boundedLimit);
 
-    return {
+    return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata({
       range,
       artists,
       tracks,
@@ -970,15 +1169,15 @@ export async function getSpotifyTopLists(
       generatedAt: snapshots[0]?.fetchedAt ?? new Date().toISOString(),
       from,
       to,
-    };
+    }, recentPlays, snapshots));
   }
 
   const fallback = await getFallbackSpotifyTopLists(accessToken, range, boundedLimit);
-  return {
+  return normalizeTopListsDataRanking({
     ...fallback,
     from,
     to,
-  };
+  });
 }
 
 export async function getSpotifyTopListsFromSnapshots(
@@ -1009,7 +1208,7 @@ export async function getSpotifyTopListsFromSnapshots(
   const tracks = expandedTracks.slice(0, boundedLimit);
   const albums = deriveAlbumsFromTracks(expandedTracks, boundedLimit);
 
-  return {
+  return normalizeTopListsDataRanking({
     range,
     artists,
     tracks,
@@ -1018,7 +1217,7 @@ export async function getSpotifyTopListsFromSnapshots(
     generatedAt: historicalSnapshots[0]?.fetchedAt ?? new Date().toISOString(),
     from,
     to,
-  } satisfies TopListsData;
+  } satisfies TopListsData);
 }
 
 export async function getSpotifyTopListsFromHistoryData(
@@ -1035,17 +1234,18 @@ export async function getSpotifyTopListsFromHistoryData(
   const recentPlayTopLists = buildRecentPlayTopLists(history.recentPlays, range, boundedLimit, from, to, relevantSnapshots);
 
   if (recentPlayTopLists) {
-    return {
-      ...(await enrichRecentPlayTopListArtists(
+    const enrichedArtists = await enrichRecentPlayTopListArtists(
         accessToken,
         recentPlayTopLists,
         filterRecentPlaysForTopRange(history.recentPlays, range, from, to),
         range,
         boundedLimit,
         buildArtistMetadataFromSnapshots(relevantSnapshots),
-      )),
+      );
+    return normalizeTopListsDataRanking(await hydrateTopListsTrackMetadata({
+      ...enrichedArtists,
       sourceLabel: "Shared Listening Lore listening history",
-    } satisfies TopListsData;
+    } satisfies TopListsData, filterRecentPlaysForTopRange(history.recentPlays, range, from, to), relevantSnapshots));
   }
 
   return getSpotifyTopListsFromSnapshots(relevantSnapshots, range, boundedLimit, from, to);

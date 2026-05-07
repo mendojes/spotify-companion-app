@@ -2,7 +2,7 @@ import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getDashboardAnalysisDetailFromHistory, getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import { getPlaylistPageDataFromHistory, PlaylistPageData } from "@/lib/spotify-playlists";
-import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
+import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory, getTopListHistoryData, hydrateTopListsDataMetadata, normalizeTopListsDataRanking } from "@/lib/spotify-toplists";
 import { DashboardAnalysisDetail, DashboardInsights, DashboardRange, PlaylistSortOption, TopListRange, TopListsData } from "@/lib/types";
 
 const DASHBOARD_SECTION_RUNTIME_TTL_MS = 1000 * 30;
@@ -442,21 +442,25 @@ export async function hydrateStoredTopListsSectionMetadata(spotifyUserId: string
     }
 
     const docs = await db.collection<StoredTopListsCache>(TOP_LISTS_CACHE_COLLECTION).find({ spotifyUserId }).toArray();
+    const topListHistory = await getTopListHistoryData(spotifyUserId).catch(() => ({ snapshots: [], recentPlays: [] }));
     const artistIds = docs.flatMap((doc) => doc.data.artists.map((artist) => artist.id)).filter(Boolean);
     const metadataByArtistId = await getStoredArtistMetadataMap(artistIds);
 
-    if (metadataByArtistId.size === 0) {
+    if (metadataByArtistId.size === 0 && topListHistory.snapshots.length === 0 && topListHistory.recentPlays.length === 0) {
       return;
     }
 
-    const operations = docs.reduce<Array<{
+    const operations = await docs.reduce<Promise<Array<{
       updateOne: {
         filter: { spotifyUserId: string; range: Exclude<TopListRange, "custom"> };
         update: { $set: { updatedAt: string; data: TopListsData } };
       };
-    }>>((acc, doc) => {
-      const hydratedData = hydrateTopListsDataArtistsWithStoredMetadata(doc.data, metadataByArtistId);
-      if (hydratedData === doc.data) {
+    }>>>(async (accPromise, doc) => {
+      const acc = await accPromise;
+      const artistHydratedData = hydrateTopListsDataArtistsWithStoredMetadata(normalizeTopListsDataRanking(doc.data), metadataByArtistId);
+      const hydratedData = await hydrateTopListsDataMetadata(artistHydratedData, topListHistory.recentPlays, topListHistory.snapshots).catch(() => artistHydratedData);
+      const changed = JSON.stringify(hydratedData) !== JSON.stringify(doc.data);
+      if (!changed) {
         return acc;
       }
 
@@ -472,7 +476,7 @@ export async function hydrateStoredTopListsSectionMetadata(spotifyUserId: string
         },
       });
       return acc;
-    }, []);
+    }, Promise.resolve([]));
 
     if (operations.length > 0) {
       await db.collection<StoredTopListsCache>(TOP_LISTS_CACHE_COLLECTION).bulkWrite(operations, { ordered: false });
@@ -495,7 +499,7 @@ export async function getStoredTopListsSection(spotifyUserId: string, range: Top
     const readStartedAt = Date.now();
     const stored = await readStoredTopListsCache(spotifyUserId, range);
     logSectionTiming(spotifyUserId, "top-lists", "read-stored-cache", readStartedAt);
-    return stored?.data ?? null;
+    return stored?.data ? normalizeTopListsDataRanking(stored.data) : null;
   });
   logSectionTiming(spotifyUserId, "top-lists", result ? "cache-hit" : "cache-miss", startedAt);
   return result;

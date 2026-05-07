@@ -15,6 +15,7 @@ const DASHBOARD_PLAYLISTS_CACHE_COLLECTION = "dashboard_playlists_cache";
 const PLAYLIST_TRACK_CACHE_COLLECTION = "spotify_playlist_track_cache";
 const PLAYLIST_TRACK_SYNC_COLLECTION = "spotify_playlist_track_sync";
 const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
+const TRACK_METADATA_COLLECTION = "spotify_track_metadata";
 const AUDIO_FEATURE_CACHE_COLLECTION = "spotify_audio_feature_cache";
 
 if (!uri) {
@@ -84,6 +85,10 @@ try {
     db
       .collection(ARTIST_METADATA_COLLECTION)
       .createIndex({ artistId: 1 }, { unique: true }),
+
+    db
+      .collection(TRACK_METADATA_COLLECTION)
+      .createIndex({ trackId: 1 }, { unique: true }),
 
     db
       .collection(AUDIO_FEATURE_CACHE_COLLECTION)

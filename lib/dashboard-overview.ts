@@ -3,7 +3,7 @@ import { getStoredTopListsSection, hydrateTopListsDataArtistsWithStoredMetadata 
 import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, getDashboardPlaylistInsightPreview } from "@/lib/spotify-playlists";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
-import { getSpotifyTopListsFromHistory, getSpotifyTopListsFromHistoryData, getTopListHistoryData, invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
+import { getSpotifyTopListsFromHistory, getSpotifyTopListsFromHistoryData, getTopListHistoryData, hydrateTopListsDataMetadata, invalidateTopListHistoryCache, normalizeTopListsDataRanking } from "@/lib/spotify-toplists";
 import { DashboardInsights, DashboardRange, TopListRange, TopListsData } from "@/lib/types";
 
 const DASHBOARD_OVERVIEW_TTL_MS = 1000 * 30;
@@ -120,10 +120,16 @@ function resolveStoredOverview(
 
   const insights = stored.insightsByRange[selectedRange] ?? null;
   const topLists = !selectedTopFrom && !selectedTopTo && selectedTopRange !== "custom"
-    ? stored.topListsByRange[selectedTopRange] ?? null
+    ? (stored.topListsByRange[selectedTopRange] ? normalizeTopListsDataRanking(stored.topListsByRange[selectedTopRange] as TopListsData) : null)
     : null;
   const heroTopLists = selectedHeroRange !== "custom"
-    ? stored.heroTopListsByRange[selectedRange] ?? stored.topListsByRange[selectedHeroRange] ?? null
+    ? (
+      stored.heroTopListsByRange[selectedRange]
+        ? normalizeTopListsDataRanking(stored.heroTopListsByRange[selectedRange] as TopListsData)
+        : stored.topListsByRange[selectedHeroRange]
+          ? normalizeTopListsDataRanking(stored.topListsByRange[selectedHeroRange] as TopListsData)
+          : null
+    )
     : null;
 
   if (!insights) {
@@ -290,6 +296,7 @@ export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserI
     if (!stored) {
       return;
     }
+    const topListHistory = await getTopListHistoryData(spotifyUserId).catch(() => ({ snapshots: [], recentPlays: [] }));
 
     const artistIds = [
       ...Object.values(stored.topListsByRange ?? {}).flatMap((topLists) => topLists?.artists.map((artist) => artist.id) ?? []),
@@ -303,30 +310,32 @@ export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserI
 
     let changed = false;
     const topListsByRange = Object.fromEntries(
-      Object.entries(stored.topListsByRange ?? {}).map(([range, topLists]) => {
+      await Promise.all(Object.entries(stored.topListsByRange ?? {}).map(async ([range, topLists]) => {
         if (!topLists) {
           return [range, topLists];
         }
 
-        const hydrated = hydrateTopListsDataArtistsWithStoredMetadata(topLists, metadataByArtistId);
+        const artistHydrated = hydrateTopListsDataArtistsWithStoredMetadata(normalizeTopListsDataRanking(topLists), metadataByArtistId);
+        const hydrated = await hydrateTopListsDataMetadata(artistHydrated, topListHistory.recentPlays, topListHistory.snapshots).catch(() => artistHydrated);
         if (hydrated !== topLists) {
           changed = true;
         }
         return [range, hydrated];
-      }),
+      })),
     ) as StoredDashboardOverviewCache["topListsByRange"];
     const heroTopListsByRange = Object.fromEntries(
-      Object.entries(stored.heroTopListsByRange ?? {}).map(([range, topLists]) => {
+      await Promise.all(Object.entries(stored.heroTopListsByRange ?? {}).map(async ([range, topLists]) => {
         if (!topLists) {
           return [range, topLists];
         }
 
-        const hydrated = hydrateTopListsDataArtistsWithStoredMetadata(topLists, metadataByArtistId);
+        const artistHydrated = hydrateTopListsDataArtistsWithStoredMetadata(normalizeTopListsDataRanking(topLists), metadataByArtistId);
+        const hydrated = await hydrateTopListsDataMetadata(artistHydrated, topListHistory.recentPlays, topListHistory.snapshots).catch(() => artistHydrated);
         if (hydrated !== topLists) {
           changed = true;
         }
         return [range, hydrated];
-      }),
+      })),
     ) as StoredDashboardOverviewCache["heroTopListsByRange"];
 
     if (!changed) {
