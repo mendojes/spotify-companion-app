@@ -226,7 +226,7 @@ export async function writeStoredDashboardOverviewCache(
   const topListsByRangeEntries = await Promise.all(
     topRangesToBuild.map(async (range) => [
       range,
-      await getSpotifyTopListsFromHistoryData(topListHistory, range),
+      await getSpotifyTopListsFromHistoryData(topListHistory, range, undefined, undefined, undefined, accessToken),
     ] as const),
   );
   logOverviewWriteTiming(spotifyUserId, "top-lists", topListsStart);

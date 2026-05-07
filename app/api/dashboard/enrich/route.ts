@@ -91,24 +91,20 @@ export async function POST(request: NextRequest) {
     }).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "section-cache", sectionCacheStartedAt);
     const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
-    if (missingArtistIds.length > 0) {
-      await markConnectedUserArtistMetadataBackfillStatus(
-        authorizedSession.spotifyUserId,
-        "pending",
-        { detail: `Queued ${missingArtistIds.length} artist ids for metadata backfill` },
-      ).catch(() => undefined);
-    } else {
-      await markConnectedUserArtistMetadataBackfillStatus(
-        authorizedSession.spotifyUserId,
-        "idle",
-        { backfilledCount: 0, detail: "No missing artist metadata remained after cache rebuild" },
-      ).catch(() => undefined);
-    }
+    await markConnectedUserArtistMetadataBackfillStatus(
+      authorizedSession.spotifyUserId,
+      "pending",
+      {
+        detail: missingArtistIds.length > 0
+          ? `Queued ${missingArtistIds.length} artist ids plus imported-track normalization for follow-up metadata backfill`
+          : "Queued imported-track normalization and top-list metadata follow-up after dashboard cache rebuild",
+      },
+    ).catch(() => undefined);
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
       range,
       detail: missingArtistIds.length > 0
         ? `Dashboard caches rebuilt. Artist metadata backfill queued for ${missingArtistIds.length} artists`
-        : "Dashboard caches rebuilt with no missing artist metadata",
+        : "Dashboard caches rebuilt. Follow-up imported-track normalization and metadata hydration queued",
     }).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "total", startedAt);
 

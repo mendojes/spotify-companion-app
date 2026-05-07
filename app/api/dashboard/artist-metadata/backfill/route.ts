@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
-import { hydrateStoredDashboardOverviewTopListMetadata, invalidateDashboardOverviewRuntimeCache } from "@/lib/dashboard-overview";
-import { hydrateStoredTopListsSectionMetadata, invalidateDashboardSectionRuntimeCache } from "@/lib/dashboard-section-cache";
+import { hydrateStoredDashboardOverviewTopListMetadata, invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
+import { hydrateStoredTopListsSectionMetadata, invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
 import { getConnectedUser, markConnectedUserArtistMetadataBackfillStatus } from "@/lib/connected-users";
+import { normalizeImportedLastFmScrobbles } from "@/lib/lastfm-import";
 
 export async function POST() {
   const session = await getSession();
@@ -35,44 +36,94 @@ export async function POST() {
       authorizedSession.accessToken,
     );
     console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=backfilled count=${backfilledCount}`);
+    await markConnectedUserArtistMetadataBackfillStatus(
+      authorizedSession.spotifyUserId,
+      "running",
+      { detail: "Resolving imported Last.fm plays to real Spotify track metadata" },
+    ).catch(() => undefined);
+    const normalizationResult = await normalizeImportedLastFmScrobbles(
+      authorizedSession.spotifyUserId,
+      authorizedSession.accessToken,
+      {
+        onProgress: async (detail) => {
+          await markConnectedUserArtistMetadataBackfillStatus(
+            authorizedSession.spotifyUserId,
+            "running",
+            { detail },
+          ).catch(() => undefined);
+        },
+      },
+    );
+    console.log(
+      `[artist-backfill] user=${authorizedSession.spotifyUserId} step=normalize matched=${normalizationResult.matchedTrackGroups} unresolved=${normalizationResult.unresolvedTrackGroups} updated=${normalizationResult.updatedPlayCount} deletedDuplicates=${normalizationResult.deletedDuplicatePlayCount}`,
+    );
 
     invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
 
-    await markConnectedUserArtistMetadataBackfillStatus(
-      authorizedSession.spotifyUserId,
-      "running",
-      { detail: `Hydrating cached top-list metadata after artist metadata backfill (${backfilledCount} artists)` },
-    ).catch(() => undefined);
-    await Promise.all([
-      (async () => {
-        await markConnectedUserArtistMetadataBackfillStatus(
-          authorizedSession.spotifyUserId,
-          "running",
-          { detail: `Updating stored top-list section cache metadata (${backfilledCount} artists)` },
-        ).catch(() => undefined);
-        await hydrateStoredTopListsSectionMetadata(
-          authorizedSession.spotifyUserId,
-          authorizedSession.accessToken,
-        ).catch(() => undefined);
-      })(),
-      (async () => {
-        await markConnectedUserArtistMetadataBackfillStatus(
-          authorizedSession.spotifyUserId,
-          "running",
-          { detail: `Updating stored overview top-list metadata (${backfilledCount} artists)` },
-        ).catch(() => undefined);
-        await hydrateStoredDashboardOverviewTopListMetadata(
-          authorizedSession.spotifyUserId,
-          authorizedSession.accessToken,
-        ).catch(() => undefined);
-      })(),
-    ]);
+    if (normalizationResult.updatedPlayCount > 0 || normalizationResult.deletedDuplicatePlayCount > 0) {
+      await markConnectedUserArtistMetadataBackfillStatus(
+        authorizedSession.spotifyUserId,
+        "running",
+        {
+          detail: `Rebuilding cached top lists after imported-track normalization (${normalizationResult.updatedPlayCount} updated plays, ${normalizationResult.deletedDuplicatePlayCount} duplicate removals)`,
+        },
+      ).catch(() => undefined);
+      await Promise.all([
+        writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
+          accessToken: authorizedSession.accessToken,
+          includeRediscovery: false,
+          onProgress: async (detail) => {
+            await markConnectedUserArtistMetadataBackfillStatus(
+              authorizedSession.spotifyUserId,
+              "running",
+              { detail },
+            ).catch(() => undefined);
+          },
+        }).catch(() => undefined),
+        writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, undefined, {
+          allowLiveEnrichment: false,
+        }).catch(() => undefined),
+      ]);
+    } else {
+      await markConnectedUserArtistMetadataBackfillStatus(
+        authorizedSession.spotifyUserId,
+        "running",
+        { detail: `Hydrating cached top-list metadata after artist metadata backfill (${backfilledCount} artists)` },
+      ).catch(() => undefined);
+      await Promise.all([
+        (async () => {
+          await markConnectedUserArtistMetadataBackfillStatus(
+            authorizedSession.spotifyUserId,
+            "running",
+            { detail: `Updating stored top-list section cache metadata (${backfilledCount} artists)` },
+          ).catch(() => undefined);
+          await hydrateStoredTopListsSectionMetadata(
+            authorizedSession.spotifyUserId,
+            authorizedSession.accessToken,
+          ).catch(() => undefined);
+        })(),
+        (async () => {
+          await markConnectedUserArtistMetadataBackfillStatus(
+            authorizedSession.spotifyUserId,
+            "running",
+            { detail: `Updating stored overview top-list metadata (${backfilledCount} artists)` },
+          ).catch(() => undefined);
+          await hydrateStoredDashboardOverviewTopListMetadata(
+            authorizedSession.spotifyUserId,
+            authorizedSession.accessToken,
+          ).catch(() => undefined);
+        })(),
+      ]);
+    }
 
     await markConnectedUserArtistMetadataBackfillStatus(
       authorizedSession.spotifyUserId,
       "success",
-      { backfilledCount, detail: `Artist metadata backfill finished for ${backfilledCount} artists` },
+      {
+        backfilledCount,
+        detail: `Artist metadata backfill finished for ${backfilledCount} artists. Imported-track normalization updated ${normalizationResult.updatedPlayCount} plays and removed ${normalizationResult.deletedDuplicatePlayCount} duplicates.`,
+      },
     ).catch(() => undefined);
     console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=success count=${backfilledCount}`);
 
