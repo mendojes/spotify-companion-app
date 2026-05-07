@@ -94,8 +94,11 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         const shouldKickoffArtistBackfill =
           !artistBackfillStartedRef.current &&
           (
-            (data.artistBackfillStatus ?? "idle") === "pending" ||
-            (shouldStart && (data.artistBackfillStatus ?? "idle") === "idle")
+            nextStatus === "success" &&
+            (
+              (data.artistBackfillStatus ?? "idle") === "pending" ||
+              (shouldStart && (data.artistBackfillStatus ?? "idle") === "idle")
+            )
           );
 
         if (shouldKickoffEnrich) {
