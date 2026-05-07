@@ -163,7 +163,7 @@ export async function writeStoredDashboardOverviewCache(
   spotifyUserId: string,
   accessToken?: string,
   prioritizedRange?: DashboardRange,
-  options?: { allowLiveEnrichment?: boolean },
+  options?: { allowLiveEnrichment?: boolean; includeTopLists?: boolean },
 ) {
   if (!hasMongoConfig()) {
     return;
@@ -178,9 +178,12 @@ export async function writeStoredDashboardOverviewCache(
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId, snapshotRange);
   logOverviewWriteTiming(spotifyUserId, "load-snapshots", snapshotsStart);
   const rangesToBuild = prioritizedRange ? [prioritizedRange] : DASHBOARD_RANGE_VALUES;
-  const topRangesToBuild = prioritizedRange
-    ? [...new Set<TopListRange>(["week", heroRangeToTopRange(prioritizedRange)])].filter((range): range is Exclude<TopListRange, "custom"> => range !== "custom")
-    : TOP_LIST_RANGE_VALUES;
+  const shouldBuildTopLists = options?.includeTopLists !== false;
+  const topRangesToBuild = shouldBuildTopLists
+    ? (prioritizedRange
+      ? [...new Set<TopListRange>(["week", heroRangeToTopRange(prioritizedRange)])].filter((range): range is Exclude<TopListRange, "custom"> => range !== "custom")
+      : TOP_LIST_RANGE_VALUES)
+    : [];
   const historyPreviewStart = Date.now();
   const [topListHistory, playlistPreview] = await Promise.all([
     getTopListHistoryData(spotifyUserId),
@@ -224,21 +227,23 @@ export async function writeStoredDashboardOverviewCache(
 
   const topListsStart = Date.now();
   const topListsAccessToken = options?.allowLiveEnrichment === false ? undefined : accessToken;
-  const topListsByRangeEntries = await Promise.all(
-    topRangesToBuild.map(async (range) => [
-      range,
-      await getSpotifyTopListsFromHistoryData(
-        topListHistory,
+  const topListsByRangeEntries = shouldBuildTopLists
+    ? await Promise.all(
+      topRangesToBuild.map(async (range) => [
         range,
-        undefined,
-        undefined,
-        undefined,
-        topListsAccessToken,
-        { allowCatalogLookup: false },
-      ),
-    ] as const),
-  );
-  logOverviewWriteTiming(spotifyUserId, "top-lists", topListsStart);
+        await getSpotifyTopListsFromHistoryData(
+          topListHistory,
+          range,
+          undefined,
+          undefined,
+          undefined,
+          topListsAccessToken,
+          { allowCatalogLookup: false },
+        ),
+      ] as const),
+    )
+    : [];
+  logOverviewWriteTiming(spotifyUserId, shouldBuildTopLists ? "top-lists" : "skip-top-lists", topListsStart);
 
   const nextInsightsByRange = Object.fromEntries(
     insightsByRangeEntries.filter((entry): entry is readonly [DashboardRange, DashboardInsights] => Boolean(entry[1])),

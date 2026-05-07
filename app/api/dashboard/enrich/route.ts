@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
     }).catch(() => undefined);
     await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, range, {
       allowLiveEnrichment: false,
+      includeTopLists: false,
     });
     logEnrichmentTiming(authorizedSession.spotifyUserId, "overview-cache", overviewStartedAt);
     const sectionCacheStartedAt = Date.now();
