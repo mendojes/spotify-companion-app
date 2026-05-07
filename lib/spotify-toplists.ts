@@ -347,6 +347,26 @@ function buildTrackMetadataFromRecentPlays(recentPlays: StoredRecentPlay[]) {
   return metadata;
 }
 
+function buildTrackMetadataAliasMaps(metadataByTrackId: Map<string, TrackMetadataCandidate>) {
+  const byTrackNameKey = new Map<string, TrackMetadataCandidate>();
+  const byTrackArtistKey = new Map<string, TrackMetadataCandidate>();
+
+  metadataByTrackId.forEach((metadata) => {
+    const trackNameKey = buildTrackNameKey(metadata.trackName, metadata.artistName, metadata.albumName);
+    const trackArtistKey = buildTrackArtistKey(metadata.trackName, metadata.artistName);
+
+    if (!byTrackNameKey.has(trackNameKey)) {
+      byTrackNameKey.set(trackNameKey, metadata);
+    }
+
+    if (!byTrackArtistKey.has(trackArtistKey)) {
+      byTrackArtistKey.set(trackArtistKey, metadata);
+    }
+  });
+
+  return { byTrackNameKey, byTrackArtistKey };
+}
+
 type CanonicalTrackPlay = StoredRecentPlay & {
   canonicalTrackId: string;
 };
@@ -422,8 +442,12 @@ function hydrateTopListsWithTrackMetadata(
   metadataByTrackId: Map<string, TrackMetadataCandidate>,
 ) {
   let changed = false;
+  const aliasMaps = buildTrackMetadataAliasMaps(metadataByTrackId);
   const tracks = topLists.tracks.map((track) => {
-    const metadata = metadataByTrackId.get(track.id);
+    const metadata =
+      metadataByTrackId.get(track.id) ??
+      aliasMaps.byTrackNameKey.get(buildTrackNameKey(track.title, track.artist, track.album)) ??
+      aliasMaps.byTrackArtistKey.get(buildTrackArtistKey(track.title, track.artist));
     if (!metadata) {
       return track;
     }
@@ -431,13 +455,17 @@ function hydrateTopListsWithTrackMetadata(
     const nextImageUrl = track.imageUrl ?? metadata.imageUrl;
     const nextAlbum = track.album || metadata.albumName;
     const nextArtist = track.artist || metadata.artistName;
-    if (nextImageUrl === track.imageUrl && nextAlbum === track.album && nextArtist === track.artist) {
+    const nextId = track.id.startsWith("lastfm:") && metadata.trackId && !metadata.trackId.startsWith("lastfm:")
+      ? metadata.trackId
+      : track.id;
+    if (nextImageUrl === track.imageUrl && nextAlbum === track.album && nextArtist === track.artist && nextId === track.id) {
       return track;
     }
 
     changed = true;
     return {
       ...track,
+      id: nextId,
       imageUrl: nextImageUrl,
       album: nextAlbum,
       artist: nextArtist,
