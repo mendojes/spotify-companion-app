@@ -80,7 +80,14 @@ export async function POST(request: NextRequest) {
       range,
       detail: "Rebuilding section caches including top lists",
     }).catch(() => undefined);
-    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
+    await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
+      onProgress: async (detail) => {
+        await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
+          range,
+          detail,
+        }).catch(() => undefined);
+      },
+    }).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "section-cache", sectionCacheStartedAt);
     const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
     if (missingArtistIds.length > 0) {

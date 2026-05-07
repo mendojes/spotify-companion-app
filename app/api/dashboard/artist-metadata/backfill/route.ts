@@ -45,7 +45,16 @@ export async function POST() {
       { detail: `Rebuilding caches after artist metadata backfill (${backfilledCount} artists)` },
     ).catch(() => undefined);
     await Promise.all([
-      writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, authorizedSession.accessToken).catch(() => undefined),
+      writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
+        accessToken: authorizedSession.accessToken,
+        onProgress: async (detail) => {
+          await markConnectedUserArtistMetadataBackfillStatus(
+            authorizedSession.spotifyUserId,
+            "running",
+            { detail: `${detail} after artist metadata backfill (${backfilledCount} artists)` },
+          ).catch(() => undefined);
+        },
+      }).catch(() => undefined),
       writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, undefined, undefined, {
         allowLiveEnrichment: false,
       }).catch(() => undefined),

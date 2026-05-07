@@ -2055,6 +2055,7 @@ async function buildAnalysisHighlights(
   snapshots: SpotifyDashboardSnapshot[],
   filterLabel: string,
   moodEntries: Array<(typeof moodOrder)[number] | undefined>,
+  options?: { includePublicTagFallback?: boolean },
 ): Promise<Omit<DashboardAnalysisDetail, "section" | "title" | "subtitle" | "range" | "entries" | "from" | "to">> {
   const totalMinutes = recent.reduce((sum, item) => sum + minutesFromMs(item.track.duration_ms), 0);
   const uniqueTracks = new Set(recent.map((item) => item.track.id)).size;
@@ -2162,7 +2163,7 @@ async function buildAnalysisHighlights(
       detail: `${value.artist} • ${value.plays} play${value.plays === 1 ? "" : "s"}`,
     }));
 
-  if (genreTotals.size === 0) {
+  if (genreTotals.size === 0 && options?.includePublicTagFallback !== false) {
     const fallbackArtistNames = [...new Set(recent.flatMap((item) => item.track.artists.map((artist) => artist.name)).filter(Boolean))];
     fallbackArtistTags = await fetchMusicBrainzArtistTags(fallbackArtistNames);
 
@@ -2770,7 +2771,9 @@ export async function getDashboardAnalysisDetailFromHistory(
           period: getDayPeriod(item.played_at),
           playCount: playCountByTrackId.get(item.track.id) ?? 1,
         }));
-      const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);
+      const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, [], {
+        includePublicTagFallback: false,
+      });
 
       return {
         section: "trend",
@@ -2808,7 +2811,9 @@ export async function getDashboardAnalysisDetailFromHistory(
       period: getDayPeriod(item.played_at),
         playCount: playCountByTrackId.get(item.track.id) ?? 1,
       }));
-    const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, []);
+    const highlights = await buildAnalysisHighlights(scopedRecent, sortedSnapshots, filterLabel, [], {
+      includePublicTagFallback: false,
+    });
 
     return {
       section: "heatmap",
