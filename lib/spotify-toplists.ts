@@ -52,9 +52,26 @@ type TrackMetadataCandidate = StoredTrackMetadata;
 type SpotifyTracksByIdsResponse = {
   tracks?: Array<SpotifyTrack | null>;
 };
+type SpotifySearchTracksResponse = {
+  tracks?: {
+    items: SpotifyTrack[];
+  };
+};
 
 function getArtistGenres(artist: Pick<SpotifyArtist, "genres">) {
   return Array.isArray(artist.genres) ? artist.genres : [];
+}
+
+function normalizeText(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function buildTrackArtistKey(trackName: string, artistName: string) {
+  return `${normalizeText(trackName)}::${normalizeText(artistName)}`;
+}
+
+function buildTrackNameKey(trackName: string, artistName: string, albumName: string) {
+  return `${normalizeText(trackName)}::${normalizeText(artistName)}::${normalizeText(albumName)}`;
 }
 function getPacificDateParts(value: string | Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -330,6 +347,76 @@ function buildTrackMetadataFromRecentPlays(recentPlays: StoredRecentPlay[]) {
   return metadata;
 }
 
+type CanonicalTrackPlay = StoredRecentPlay & {
+  canonicalTrackId: string;
+};
+
+function buildCanonicalTrackIdMaps(
+  recentPlays: StoredRecentPlay[],
+  snapshots: SpotifyDashboardSnapshot[],
+  storedMetadata: Map<string, TrackMetadataCandidate>,
+) {
+  const byTrackNameKey = new Map<string, string>();
+  const byTrackArtistKey = new Map<string, string>();
+
+  const remember = (trackId: string | undefined, trackName: string, artistName: string, albumName: string) => {
+    if (!trackId || trackId.startsWith("lastfm:")) {
+      return;
+    }
+
+    const trackNameKey = buildTrackNameKey(trackName, artistName, albumName);
+    const trackArtistKey = buildTrackArtistKey(trackName, artistName);
+
+    if (!byTrackNameKey.has(trackNameKey)) {
+      byTrackNameKey.set(trackNameKey, trackId);
+    }
+
+    if (!byTrackArtistKey.has(trackArtistKey)) {
+      byTrackArtistKey.set(trackArtistKey, trackId);
+    }
+  };
+
+  recentPlays.forEach((play) => remember(play.trackId, play.trackName, play.artistName, play.albumName));
+  snapshots.forEach((snapshot) => {
+    collectSnapshotTrackCandidates(snapshot).forEach((track) => {
+      remember(
+        track.id,
+        track.name,
+        track.artists.map((artist) => artist.name).join(", "),
+        track.album.name,
+      );
+    });
+  });
+  [...storedMetadata.values()].forEach((track) => {
+    remember(track.trackId, track.trackName, track.artistName, track.albumName);
+  });
+
+  return { byTrackNameKey, byTrackArtistKey };
+}
+
+function canonicalizeRecentPlays(
+  recentPlays: StoredRecentPlay[],
+  snapshots: SpotifyDashboardSnapshot[],
+  storedMetadata: Map<string, TrackMetadataCandidate>,
+) {
+  const { byTrackNameKey, byTrackArtistKey } = buildCanonicalTrackIdMaps(recentPlays, snapshots, storedMetadata);
+
+  return recentPlays.map((play) => {
+    const metadataTrackId = storedMetadata.get(play.trackId)?.trackId;
+    const canonicalTrackId =
+      (play.trackId && !play.trackId.startsWith("lastfm:") ? play.trackId : undefined) ??
+      (metadataTrackId && !metadataTrackId.startsWith("lastfm:") ? metadataTrackId : undefined) ??
+      byTrackNameKey.get(buildTrackNameKey(play.trackName, play.artistName, play.albumName)) ??
+      byTrackArtistKey.get(buildTrackArtistKey(play.trackName, play.artistName)) ??
+      play.trackId;
+
+    return {
+      ...play,
+      canonicalTrackId,
+    } satisfies CanonicalTrackPlay;
+  });
+}
+
 function hydrateTopListsWithTrackMetadata(
   topLists: TopListsData,
   metadataByTrackId: Map<string, TrackMetadataCandidate>,
@@ -428,21 +515,63 @@ async function hydrateTopListsTrackMetadata(
     });
 
     if (accessToken && stillMissingTrackIds.length > 0) {
-      const spotifyResponses = await Promise.all(
-        Array.from({ length: Math.ceil(stillMissingTrackIds.length / 50) }, (_, index) =>
-          spotifyFetch<SpotifyTracksByIdsResponse>(
-            `/tracks?ids=${stillMissingTrackIds.slice(index * 50, index * 50 + 50).join(",")}`,
-            accessToken,
-          ).catch(() => ({ tracks: [] })),
-        ),
+      const spotifyResolvableTrackIds = stillMissingTrackIds.filter((trackId) => !trackId.startsWith("lastfm:"));
+      const spotifySearchCandidates = topLists.tracks.filter((track) =>
+        stillMissingTrackIds.includes(track.id) && track.id.startsWith("lastfm:"),
       );
 
-      const spotifyTracks = spotifyResponses
-        .flatMap((response) => response.tracks ?? [])
-        .filter((track): track is SpotifyTrack => Boolean(track?.id));
+      if (spotifyResolvableTrackIds.length > 0) {
+        const spotifyResponses = await Promise.all(
+          Array.from({ length: Math.ceil(spotifyResolvableTrackIds.length / 50) }, (_, index) =>
+            spotifyFetch<SpotifyTracksByIdsResponse>(
+              `/tracks?ids=${spotifyResolvableTrackIds.slice(index * 50, index * 50 + 50).join(",")}`,
+              accessToken,
+            ).catch(() => ({ tracks: [] })),
+          ),
+        );
 
-      if (spotifyTracks.length > 0) {
-        await upsertStoredTrackMetadataFromSpotifyTracks(spotifyTracks).catch(() => undefined);
+        const spotifyTracks = spotifyResponses
+          .flatMap((response) => response.tracks ?? [])
+          .filter((track): track is SpotifyTrack => Boolean(track?.id));
+
+        if (spotifyTracks.length > 0) {
+          await upsertStoredTrackMetadataFromSpotifyTracks(spotifyTracks).catch(() => undefined);
+        }
+      }
+
+      if (spotifySearchCandidates.length > 0) {
+        const spotifySearchCache = new Map<string, SpotifyTrack | null>();
+        const spotifySearchResults = await Promise.all(
+          spotifySearchCandidates.map(async (track) => {
+            const lookupKey = `${track.title}::${track.artist}`;
+            if (!spotifySearchCache.has(lookupKey)) {
+              const query = `track:${track.title} artist:${track.artist.split(",")[0]?.trim() ?? track.artist}`;
+              const response = await spotifyFetch<SpotifySearchTracksResponse>(
+                `/search?type=track&limit=5&q=${encodeURIComponent(query)}`,
+                accessToken,
+              ).catch(() => null);
+              const items = response?.tracks?.items ?? [];
+              const preferred =
+                items.find((item) =>
+                  normalizeText(item.name) === normalizeText(track.title) &&
+                  item.artists.some((artist) => normalizeText(track.artist).includes(normalizeText(artist.name))),
+                ) ??
+                items.find((item) =>
+                  item.artists.some((artist) => normalizeText(track.artist).includes(normalizeText(artist.name))),
+                ) ??
+                items[0] ??
+                null;
+              spotifySearchCache.set(lookupKey, preferred);
+            }
+
+            return spotifySearchCache.get(lookupKey);
+          }),
+        );
+
+        const spotifyTracks = spotifySearchResults.filter((track): track is SpotifyTrack => Boolean(track?.id));
+        if (spotifyTracks.length > 0) {
+          await upsertStoredTrackMetadataFromSpotifyTracks(spotifyTracks).catch(() => undefined);
+        }
       }
     }
 
@@ -846,13 +975,13 @@ function deriveRecentArtists(recentPlays: StoredRecentPlay[], limit: number, art
     }));
 }
 
-function deriveRecentTracks(recentPlays: StoredRecentPlay[], limit: number): TopListTrack[] {
+function deriveRecentTracks(recentPlays: CanonicalTrackPlay[], limit: number): TopListTrack[] {
   const trackMap = new Map<string, TopListTrack & { score: number; playCount: number; lastPlayedAt: string }>();
 
   recentPlays.forEach((play, index) => {
     const recencyWeight = Math.max(1, recentPlays.length - index);
-    const existing = trackMap.get(play.trackId) ?? {
-      id: play.trackId,
+    const existing = trackMap.get(play.canonicalTrackId) ?? {
+      id: play.canonicalTrackId,
       rank: 0,
       title: play.trackName,
       artist: play.artistName,
@@ -874,7 +1003,7 @@ function deriveRecentTracks(recentPlays: StoredRecentPlay[], limit: number): Top
       existing.imageUrl = play.imageUrl;
     }
 
-    trackMap.set(play.trackId, existing);
+    trackMap.set(play.canonicalTrackId, existing);
   });
 
   return [...trackMap.values()]
@@ -892,7 +1021,7 @@ function deriveRecentTracks(recentPlays: StoredRecentPlay[], limit: number): Top
     }));
 }
 
-function deriveRecentAlbums(recentPlays: StoredRecentPlay[], limit: number): TopListAlbum[] {
+function deriveRecentAlbums(recentPlays: CanonicalTrackPlay[], limit: number): TopListAlbum[] {
   const albumMap = new Map<string, Omit<TopListAlbum, "rank"> & { playCount: number; lastPlayedAt: string }>();
 
   recentPlays.forEach((play, index) => {
@@ -1063,10 +1192,11 @@ function buildRecentPlayTopLists(
     return null;
   }
 
+  const canonicalRecentPlays = canonicalizeRecentPlays(scopedRecentPlays, snapshots, buildTrackMetadataFromRecentPlays(scopedRecentPlays));
   const sourceLimit = getTopListSourceLimit(limit);
-  const artists = deriveRecentArtists(scopedRecentPlays, limit, buildArtistMetadataFromSnapshots(snapshots));
-  const tracks = deriveRecentTracks(scopedRecentPlays, limit);
-  const albums = deriveRecentAlbums(scopedRecentPlays, sourceLimit).slice(0, limit);
+  const artists = deriveRecentArtists(canonicalRecentPlays, limit, buildArtistMetadataFromSnapshots(snapshots));
+  const tracks = deriveRecentTracks(canonicalRecentPlays, limit);
+  const albums = deriveRecentAlbums(canonicalRecentPlays, sourceLimit).slice(0, limit);
 
   return {
     range,
