@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
-import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
-import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
+import { hydrateStoredDashboardOverviewTopListMetadata, invalidateDashboardOverviewRuntimeCache } from "@/lib/dashboard-overview";
+import { hydrateStoredTopListsSectionMetadata, invalidateDashboardSectionRuntimeCache } from "@/lib/dashboard-section-cache";
 import { getConnectedUser, markConnectedUserArtistMetadataBackfillStatus } from "@/lib/connected-users";
 
 export async function POST() {
@@ -42,23 +42,25 @@ export async function POST() {
     await markConnectedUserArtistMetadataBackfillStatus(
       authorizedSession.spotifyUserId,
       "running",
-      { detail: `Rebuilding caches after artist metadata backfill (${backfilledCount} artists)` },
+      { detail: `Hydrating cached top-list metadata after artist metadata backfill (${backfilledCount} artists)` },
     ).catch(() => undefined);
     await Promise.all([
-      writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
-        accessToken: authorizedSession.accessToken,
-        includeRediscovery: false,
-        onProgress: async (detail) => {
-          await markConnectedUserArtistMetadataBackfillStatus(
-            authorizedSession.spotifyUserId,
-            "running",
-            { detail: `${detail} after artist metadata backfill (${backfilledCount} artists)` },
-          ).catch(() => undefined);
-        },
-      }).catch(() => undefined),
-      writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, undefined, undefined, {
-        allowLiveEnrichment: false,
-      }).catch(() => undefined),
+      (async () => {
+        await markConnectedUserArtistMetadataBackfillStatus(
+          authorizedSession.spotifyUserId,
+          "running",
+          { detail: `Updating stored top-list section cache metadata (${backfilledCount} artists)` },
+        ).catch(() => undefined);
+        await hydrateStoredTopListsSectionMetadata(authorizedSession.spotifyUserId).catch(() => undefined);
+      })(),
+      (async () => {
+        await markConnectedUserArtistMetadataBackfillStatus(
+          authorizedSession.spotifyUserId,
+          "running",
+          { detail: `Updating stored overview top-list metadata (${backfilledCount} artists)` },
+        ).catch(() => undefined);
+        await hydrateStoredDashboardOverviewTopListMetadata(authorizedSession.spotifyUserId).catch(() => undefined);
+      })(),
     ]);
 
     await markConnectedUserArtistMetadataBackfillStatus(

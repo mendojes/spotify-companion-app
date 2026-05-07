@@ -46,6 +46,12 @@ type StoredPlaylistsCache = {
   data: PlaylistPageData;
 };
 
+type StoredArtistMetadataRecord = {
+  artistId: string;
+  genres: string[];
+  imageUrl?: string;
+};
+
 type DashboardSectionCacheOptions = {
   accessToken?: string;
   onProgress?: (detail: string) => void | Promise<void>;
@@ -126,6 +132,64 @@ async function readStoredPlaylistsCache(spotifyUserId: string, sort: PlaylistSor
   } catch {
     return null;
   }
+}
+
+function hydrateTopListsDataArtistsWithStoredMetadata(
+  topLists: TopListsData,
+  metadataByArtistId: Map<string, StoredArtistMetadataRecord>,
+) {
+  let changed = false;
+
+  const artists = topLists.artists.map((artist) => {
+    const metadata = artist.id ? metadataByArtistId.get(artist.id) : undefined;
+    if (!metadata) {
+      return artist;
+    }
+
+    const nextImageUrl = artist.imageUrl ?? metadata.imageUrl;
+    const nextGenres = artist.genres.length > 0 ? artist.genres : metadata.genres;
+    const artistChanged =
+      nextImageUrl !== artist.imageUrl ||
+      nextGenres.length !== artist.genres.length ||
+      nextGenres.some((genre, index) => genre !== artist.genres[index]);
+
+    if (!artistChanged) {
+      return artist;
+    }
+
+    changed = true;
+    return {
+      ...artist,
+      imageUrl: nextImageUrl,
+      genres: nextGenres,
+    };
+  });
+
+  return changed
+    ? {
+      ...topLists,
+      artists,
+    }
+    : topLists;
+}
+
+async function getStoredArtistMetadataMap(artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))];
+  if (uniqueArtistIds.length === 0) {
+    return new Map<string, StoredArtistMetadataRecord>();
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return new Map<string, StoredArtistMetadataRecord>();
+  }
+
+  const records = await db
+    .collection<StoredArtistMetadataRecord>("spotify_artist_metadata")
+    .find({ artistId: { $in: uniqueArtistIds } })
+    .toArray();
+
+  return new Map(records.map((record) => [record.artistId, record]));
 }
 
 async function writeStoredPlaylistsCacheEntries(spotifyUserId: string, updatedAt: string) {
@@ -365,6 +429,60 @@ export async function writeStoredPlaylistsSectionCache(spotifyUserId: string) {
     return;
   }
 }
+
+export async function hydrateStoredTopListsSectionMetadata(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    const docs = await db.collection<StoredTopListsCache>(TOP_LISTS_CACHE_COLLECTION).find({ spotifyUserId }).toArray();
+    const artistIds = docs.flatMap((doc) => doc.data.artists.map((artist) => artist.id)).filter(Boolean);
+    const metadataByArtistId = await getStoredArtistMetadataMap(artistIds);
+
+    if (metadataByArtistId.size === 0) {
+      return;
+    }
+
+    const operations = docs.reduce<Array<{
+      updateOne: {
+        filter: { spotifyUserId: string; range: Exclude<TopListRange, "custom"> };
+        update: { $set: { updatedAt: string; data: TopListsData } };
+      };
+    }>>((acc, doc) => {
+      const hydratedData = hydrateTopListsDataArtistsWithStoredMetadata(doc.data, metadataByArtistId);
+      if (hydratedData === doc.data) {
+        return acc;
+      }
+
+      acc.push({
+        updateOne: {
+          filter: { spotifyUserId, range: doc.range },
+          update: {
+            $set: {
+              updatedAt: new Date().toISOString(),
+              data: hydratedData,
+            },
+          },
+        },
+      });
+      return acc;
+    }, []);
+
+    if (operations.length > 0) {
+      await db.collection<StoredTopListsCache>(TOP_LISTS_CACHE_COLLECTION).bulkWrite(operations, { ordered: false });
+    }
+  } catch {
+    return;
+  }
+}
+
+export { hydrateTopListsDataArtistsWithStoredMetadata };
 
 export async function getStoredTopListsSection(spotifyUserId: string, range: TopListRange, from?: string, to?: string) {
   if (range === "custom" || from || to) {

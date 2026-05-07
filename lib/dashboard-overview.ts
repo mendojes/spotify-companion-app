@@ -1,5 +1,5 @@
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
-import { getStoredTopListsSection } from "@/lib/dashboard-section-cache";
+import { getStoredTopListsSection, hydrateTopListsDataArtistsWithStoredMetadata } from "@/lib/dashboard-section-cache";
 import { getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, getDashboardPlaylistInsightPreview } from "@/lib/spotify-playlists";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
@@ -23,6 +23,12 @@ type StoredDashboardOverviewCache = {
   insightsByRange: Partial<Record<DashboardRange, DashboardInsights>>;
   topListsByRange: Partial<Record<Exclude<TopListRange, "custom">, TopListsData>>;
   heroTopListsByRange: Partial<Record<DashboardRange, TopListsData>>;
+};
+
+type StoredArtistMetadataRecord = {
+  artistId: string;
+  genres: string[];
+  imageUrl?: string;
 };
 
 function logOverviewTiming(spotifyUserId: string, step: string, startedAt: number) {
@@ -79,6 +85,25 @@ async function readStoredDashboardOverviewCache(spotifyUserId: string): Promise<
   } catch {
     return null;
   }
+}
+
+async function getStoredArtistMetadataMapForOverview(artistIds: string[]) {
+  const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))];
+  if (!hasMongoConfig() || uniqueArtistIds.length === 0) {
+    return new Map<string, StoredArtistMetadataRecord>();
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return new Map<string, StoredArtistMetadataRecord>();
+  }
+
+  const records = await db
+    .collection<StoredArtistMetadataRecord>("spotify_artist_metadata")
+    .find({ artistId: { $in: uniqueArtistIds } })
+    .toArray();
+
+  return new Map(records.map((record) => [record.artistId, record]));
 }
 
 function resolveStoredOverview(
@@ -245,6 +270,79 @@ export async function writeStoredDashboardOverviewCache(
     );
     logOverviewWriteTiming(spotifyUserId, "write-cache", writeStart);
     logOverviewWriteTiming(spotifyUserId, "total", totalStart);
+  } catch {
+    return;
+  }
+}
+
+export async function hydrateStoredDashboardOverviewTopListMetadata(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return;
+    }
+
+    const stored = await readStoredDashboardOverviewCache(spotifyUserId);
+    if (!stored) {
+      return;
+    }
+
+    const artistIds = [
+      ...Object.values(stored.topListsByRange ?? {}).flatMap((topLists) => topLists?.artists.map((artist) => artist.id) ?? []),
+      ...Object.values(stored.heroTopListsByRange ?? {}).flatMap((topLists) => topLists?.artists.map((artist) => artist.id) ?? []),
+    ].filter(Boolean);
+    const metadataByArtistId = await getStoredArtistMetadataMapForOverview(artistIds);
+
+    if (metadataByArtistId.size === 0) {
+      return;
+    }
+
+    let changed = false;
+    const topListsByRange = Object.fromEntries(
+      Object.entries(stored.topListsByRange ?? {}).map(([range, topLists]) => {
+        if (!topLists) {
+          return [range, topLists];
+        }
+
+        const hydrated = hydrateTopListsDataArtistsWithStoredMetadata(topLists, metadataByArtistId);
+        if (hydrated !== topLists) {
+          changed = true;
+        }
+        return [range, hydrated];
+      }),
+    ) as StoredDashboardOverviewCache["topListsByRange"];
+    const heroTopListsByRange = Object.fromEntries(
+      Object.entries(stored.heroTopListsByRange ?? {}).map(([range, topLists]) => {
+        if (!topLists) {
+          return [range, topLists];
+        }
+
+        const hydrated = hydrateTopListsDataArtistsWithStoredMetadata(topLists, metadataByArtistId);
+        if (hydrated !== topLists) {
+          changed = true;
+        }
+        return [range, hydrated];
+      }),
+    ) as StoredDashboardOverviewCache["heroTopListsByRange"];
+
+    if (!changed) {
+      return;
+    }
+
+    await db.collection<StoredDashboardOverviewCache>(DASHBOARD_OVERVIEW_COLLECTION).updateOne(
+      { spotifyUserId },
+      {
+        $set: {
+          updatedAt: new Date().toISOString(),
+          topListsByRange,
+          heroTopListsByRange,
+        },
+      },
+    );
   } catch {
     return;
   }
