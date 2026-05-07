@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
       detail: "Rebuilding section caches including top lists",
     }).catch(() => undefined);
     await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
+      includeRediscovery: false,
       onProgress: async (detail) => {
         await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
           range,

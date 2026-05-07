@@ -49,6 +49,7 @@ type StoredPlaylistsCache = {
 type DashboardSectionCacheOptions = {
   accessToken?: string;
   onProgress?: (detail: string) => void | Promise<void>;
+  includeRediscovery?: boolean;
 };
 
 function logSectionTiming(spotifyUserId: string, section: string, step: string, startedAt: number) {
@@ -306,6 +307,11 @@ export async function writeStoredDashboardSectionCache(
   await reportProgress("Writing analysis section caches");
   await writeStoredAnalysisCacheEntries(spotifyUserId, analysisEntries, updatedAt);
   logSectionTiming(spotifyUserId, "section-cache", "write-analysis", writeAnalysisStartedAt);
+
+  if (options?.includeRediscovery === false) {
+    await reportProgress("Skipping rediscovery section cache rebuild for this pass");
+    return;
+  }
 
   const rediscoveryStartedAt = Date.now();
   await reportProgress("Building rediscovery section caches");

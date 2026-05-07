@@ -47,6 +47,7 @@ export async function POST() {
     await Promise.all([
       writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
         accessToken: authorizedSession.accessToken,
+        includeRediscovery: false,
         onProgress: async (detail) => {
           await markConnectedUserArtistMetadataBackfillStatus(
             authorizedSession.spotifyUserId,
