@@ -10,6 +10,7 @@ type DashboardDeepRefreshMonitorProps = {
 
 type EnrichmentStatus = "idle" | "pending" | "running" | "paused" | "success" | "error";
 type ArtistBackfillStatus = "idle" | "pending" | "running" | "paused" | "success" | "error";
+const BACKFILL_ONLY_STARTED_EVENT = "soundscope:dashboard-backfill-only-started";
 
 function formatStatusTimestamp(value?: string | null) {
   if (!value) {
@@ -87,6 +88,20 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
       setArtistBackfillRunning(false);
     }
   }, [artistBackfillStatus]);
+
+  useEffect(() => {
+    function handleBackfillOnlyStarted() {
+      setArtistBackfillRunning(true);
+      setRunningBackfillOnly(true);
+      setArtistBackfillStatus((currentStatus) => (currentStatus === "idle" ? "running" : currentStatus));
+      setArtistBackfillDetail((currentDetail) => currentDetail ?? "Starting imported-track normalization and metadata backfill");
+    }
+
+    window.addEventListener(BACKFILL_ONLY_STARTED_EVENT, handleBackfillOnlyStarted);
+    return () => {
+      window.removeEventListener(BACKFILL_ONLY_STARTED_EVENT, handleBackfillOnlyStarted);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -259,7 +274,9 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           : artistBackfillStatus === "error"
           ? `Artist metadata backfill finished with an error, so some artist images or genres may still be missing. ${artistBackfillError ?? ""}`.trim()
           : artistBackfillRunning || artistBackfillStatus === "running"
-            ? "Deep dashboard refresh finished its cache rebuild and is now filling missing artist metadata. The page will update automatically when that finishes."
+            ? status === "success"
+              ? "Deep dashboard refresh finished its cache rebuild and is now filling missing artist metadata. The page will update automatically when that finishes."
+              : "Imported-track normalization and metadata backfill are running in the background. The page will update automatically as saved progress lands."
             : artistBackfillStatus === "paused"
               ? "Artist metadata backfill paused to avoid a timeout. Refresh again to continue from the saved checkpoint."
             : artistBackfillStatus === "pending"

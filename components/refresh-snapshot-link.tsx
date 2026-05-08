@@ -8,6 +8,8 @@ type RefreshSnapshotLinkProps = {
   href: string;
 };
 
+const BACKFILL_ONLY_STARTED_EVENT = "soundscope:dashboard-backfill-only-started";
+
 export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -56,6 +58,7 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
     }
 
     setIsRunningBackfill(true);
+    window.dispatchEvent(new CustomEvent(BACKFILL_ONLY_STARTED_EVENT));
 
     try {
       await fetch("/api/dashboard/artist-metadata/backfill", {
