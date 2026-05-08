@@ -46,9 +46,7 @@ export async function POST() {
     const shouldPause = () => Date.now() - startedAt >= BACKFILL_ROUTE_BUDGET_MS;
     const resumeStep = connectedUser?.artistMetadataBackfillStatus === "running"
       ? connectedUser.artistMetadataBackfillStep ?? "artist-seed"
-      : connectedUser?.artistMetadataBackfillStatus === "pending" || connectedUser?.artistMetadataBackfillStatus === "paused"
-        ? connectedUser.artistMetadataBackfillStep ?? "artist-seed"
-        : "artist-seed";
+      : "artist-seed";
     const runId =
       connectedUser?.artistMetadataBackfillStatus === "running" ||
       connectedUser?.artistMetadataBackfillStatus === "pending" ||
@@ -56,17 +54,6 @@ export async function POST() {
         ? connectedUser.artistMetadataBackfillRunId ?? randomUUID()
         : randomUUID();
     let backfilledCount = connectedUser?.artistMetadataBackfillCount ?? 0;
-    const existingCheckpoint = (() => {
-      try {
-        return connectedUser?.artistMetadataBackfillCheckpoint
-          ? JSON.parse(connectedUser.artistMetadataBackfillCheckpoint) as { processedNameKeys?: string[] }
-          : null;
-      } catch {
-        return null;
-      }
-    })();
-    let normalizationCheckpointKeys = [...new Set(existingCheckpoint?.processedNameKeys ?? [])];
-    const getNormalizationCheckpoint = () => JSON.stringify({ processedNameKeys: [...new Set(normalizationCheckpointKeys)] });
     const assertRunIsStillActive = async () => {
       const latestConnectedUser = await getConnectedUser(authorizedSession.spotifyUserId).catch(() => null);
       if (
@@ -85,7 +72,7 @@ export async function POST() {
         detail: "Collecting missing artist ids and fetching metadata",
         step: resumeStep,
         backfilledCount,
-        checkpoint: resumeStep === "normalize-imports" ? getNormalizationCheckpoint() : connectedUser?.artistMetadataBackfillCheckpoint,
+        checkpoint: null,
         runId,
       },
     ).catch(() => undefined);
@@ -98,20 +85,6 @@ export async function POST() {
       );
       await assertRunIsStillActive();
       console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=backfilled count=${backfilledCount}`);
-      if (shouldPause()) {
-        await markConnectedUserArtistMetadataBackfillStatus(
-          authorizedSession.spotifyUserId,
-          "paused",
-          {
-            detail: `Paused after artist metadata fetch for ${backfilledCount} artists. Next refresh will continue with imported-track normalization.`,
-            step: "normalize-imports",
-            backfilledCount,
-            checkpoint: getNormalizationCheckpoint(),
-            runId,
-          },
-        ).catch(() => undefined);
-        return NextResponse.json({ status: "paused", resumeStep: "normalize-imports", backfilledCount }, { status: 202 });
-      }
     }
 
     let normalizationResult = {
@@ -134,7 +107,7 @@ export async function POST() {
           detail: "Resolving imported Last.fm plays to real Spotify track metadata",
           step: "normalize-imports",
           backfilledCount,
-          checkpoint: getNormalizationCheckpoint(),
+          checkpoint: null,
           runId,
         },
       ).catch(() => undefined);
@@ -145,21 +118,6 @@ export async function POST() {
           limitDistinctTracks: 40,
           perTrackTimeoutMs: 2500,
           maxRuntimeMs: 20000,
-          excludeNameKeys: resumeStep === "normalize-imports" ? normalizationCheckpointKeys : [],
-          onCheckpoint: async (state) => {
-            normalizationCheckpointKeys = [...new Set([...normalizationCheckpointKeys, ...state.processedNameKeys])];
-            await markConnectedUserArtistMetadataBackfillStatus(
-              authorizedSession.spotifyUserId,
-              "running",
-              {
-                detail: `Resolving imported Last.fm tracks to Spotify metadata (${Math.min(state.processedTrackGroups + 1, state.totalTrackGroups)}/${state.totalTrackGroups})`,
-                step: "normalize-imports",
-                backfilledCount,
-                checkpoint: getNormalizationCheckpoint(),
-                runId,
-              },
-            ).catch(() => undefined);
-          },
           onProgress: async (detail) => {
             await markConnectedUserArtistMetadataBackfillStatus(
               authorizedSession.spotifyUserId,
@@ -168,7 +126,7 @@ export async function POST() {
                 detail,
                 step: "normalize-imports",
                 backfilledCount,
-                checkpoint: getNormalizationCheckpoint(),
+                checkpoint: null,
                 runId,
               },
             ).catch(() => undefined);
@@ -179,27 +137,6 @@ export async function POST() {
       console.log(
         `[artist-backfill] user=${authorizedSession.spotifyUserId} step=normalize matched=${normalizationResult.matchedTrackGroups} unresolved=${normalizationResult.unresolvedTrackGroups} updated=${normalizationResult.updatedPlayCount} deletedDuplicates=${normalizationResult.deletedDuplicatePlayCount}`,
       );
-
-      if (normalizationResult.stoppedEarly || shouldPause()) {
-        normalizationCheckpointKeys = [...new Set([...normalizationCheckpointKeys, ...normalizationResult.processedNameKeys])];
-        await markConnectedUserArtistMetadataBackfillStatus(
-          authorizedSession.spotifyUserId,
-          "paused",
-          {
-            detail: `Paused imported-track normalization after ${normalizationResult.processedTrackGroups}/${normalizationResult.scannedTrackGroups} groups. Next refresh will resume from remaining unresolved tracks.`,
-            step: "normalize-imports",
-            backfilledCount,
-            checkpoint: getNormalizationCheckpoint(),
-            runId,
-          },
-        ).catch(() => undefined);
-        return NextResponse.json({
-          status: "paused",
-          resumeStep: "normalize-imports",
-          backfilledCount,
-          normalizationResult,
-        }, { status: 202 });
-      }
     }
 
     invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
@@ -227,6 +164,20 @@ export async function POST() {
         : "hydrate-top-lists";
 
     if (postNormalizeStartStep === "hydrate-top-lists") {
+      if (shouldPause()) {
+        await markConnectedUserArtistMetadataBackfillStatus(
+          authorizedSession.spotifyUserId,
+          "success",
+          {
+            detail: `Backfill applied ${normalizationResult.updatedPlayCount} imported-play updates and skipped remaining expensive cache hydration so saved progress could be kept. Run backfill again to continue unresolved tracks.`,
+            step: "complete",
+            backfilledCount,
+            checkpoint: null,
+            runId,
+          },
+        ).catch(() => undefined);
+        return NextResponse.json({ status: "success", partial: true, backfilledCount }, { status: 200 });
+      }
       await markConnectedUserArtistMetadataBackfillStatus(
         authorizedSession.spotifyUserId,
         "running",
@@ -245,20 +196,34 @@ export async function POST() {
       if (shouldPause()) {
         await markConnectedUserArtistMetadataBackfillStatus(
           authorizedSession.spotifyUserId,
-          "paused",
+          "success",
           {
-            detail: "Paused after updating stored top-list metadata. Next refresh will continue with overview metadata refresh.",
-            step: "hydrate-overview",
+            detail: "Backfill updated stored top-list metadata and stopped before the overview refresh so current progress could be kept. Run backfill again to continue unresolved tracks.",
+            step: "complete",
             backfilledCount,
             checkpoint: null,
             runId,
           },
         ).catch(() => undefined);
-        return NextResponse.json({ status: "paused", resumeStep: "hydrate-overview", backfilledCount }, { status: 202 });
+        return NextResponse.json({ status: "success", partial: true, backfilledCount }, { status: 200 });
       }
     }
 
     if (postNormalizeStartStep === "hydrate-top-lists" || postNormalizeStartStep === "hydrate-overview") {
+      if (shouldPause()) {
+        await markConnectedUserArtistMetadataBackfillStatus(
+          authorizedSession.spotifyUserId,
+          "success",
+          {
+            detail: "Backfill kept its imported-play updates and skipped the overview metadata refresh so the saved progress could land. Run backfill again to continue unresolved tracks.",
+            step: "complete",
+            backfilledCount,
+            checkpoint: null,
+            runId,
+          },
+        ).catch(() => undefined);
+        return NextResponse.json({ status: "success", partial: true, backfilledCount }, { status: 200 });
+      }
       await markConnectedUserArtistMetadataBackfillStatus(
         authorizedSession.spotifyUserId,
         "running",
@@ -277,20 +242,34 @@ export async function POST() {
       if (shouldPause()) {
         await markConnectedUserArtistMetadataBackfillStatus(
           authorizedSession.spotifyUserId,
-          "paused",
+          "success",
           {
-            detail: "Paused after updating overview metadata. Next refresh will continue with overview insights refresh.",
-            step: "refresh-overview-insights",
+            detail: "Backfill updated overview metadata and stopped before the overview insights refresh so current progress could be kept. Run backfill again to continue unresolved tracks.",
+            step: "complete",
             backfilledCount,
             checkpoint: null,
             runId,
           },
         ).catch(() => undefined);
-        return NextResponse.json({ status: "paused", resumeStep: "refresh-overview-insights", backfilledCount }, { status: 202 });
+        return NextResponse.json({ status: "success", partial: true, backfilledCount }, { status: 200 });
       }
     }
 
     if (postNormalizeStartStep !== "complete") {
+      if (shouldPause()) {
+        await markConnectedUserArtistMetadataBackfillStatus(
+          authorizedSession.spotifyUserId,
+          "success",
+          {
+            detail: "Backfill kept its imported-play updates and skipped the overview insights refresh so current progress could be kept. Run backfill again to continue unresolved tracks.",
+            step: "complete",
+            backfilledCount,
+            checkpoint: null,
+            runId,
+          },
+        ).catch(() => undefined);
+        return NextResponse.json({ status: "success", partial: true, backfilledCount }, { status: 200 });
+      }
       await markConnectedUserArtistMetadataBackfillStatus(
         authorizedSession.spotifyUserId,
         "running",
@@ -309,16 +288,16 @@ export async function POST() {
       if (shouldPause()) {
         await markConnectedUserArtistMetadataBackfillStatus(
           authorizedSession.spotifyUserId,
-          "paused",
+          "success",
           {
-            detail: "Paused after refreshing overview insights. Next refresh will complete the backfill.",
+            detail: "Backfill refreshed overview insights for the work completed so far and stopped before any extra processing. Run backfill again to continue unresolved tracks.",
             step: "complete",
             backfilledCount,
             checkpoint: null,
             runId,
           },
         ).catch(() => undefined);
-        return NextResponse.json({ status: "paused", resumeStep: "complete", backfilledCount }, { status: 202 });
+        return NextResponse.json({ status: "success", partial: true, backfilledCount }, { status: 200 });
       }
     }
 
@@ -327,7 +306,9 @@ export async function POST() {
       "success",
       {
         backfilledCount,
-        detail: `Artist metadata backfill finished for ${backfilledCount} artists. Imported-track normalization updated ${normalizationResult.updatedPlayCount} plays and removed ${normalizationResult.deletedDuplicatePlayCount} duplicates.`,
+        detail: normalizationResult.stoppedEarly || shouldPause()
+          ? `Backfill saved ${normalizationResult.updatedPlayCount} imported-play updates, removed ${normalizationResult.deletedDuplicatePlayCount} duplicates, and stopped before finishing every unresolved track. Run backfill again to continue with the smaller remaining set.`
+          : `Artist metadata backfill finished for ${backfilledCount} artists. Imported-track normalization updated ${normalizationResult.updatedPlayCount} plays and removed ${normalizationResult.deletedDuplicatePlayCount} duplicates.`,
         step: "complete",
         checkpoint: null,
         runId,
