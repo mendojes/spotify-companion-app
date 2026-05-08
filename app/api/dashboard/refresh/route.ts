@@ -73,7 +73,8 @@ export async function GET(request: NextRequest) {
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
     const hasPausedArtistBackfill =
-      existingConnectedUser?.artistMetadataBackfillStatus === "pending" &&
+      (existingConnectedUser?.artistMetadataBackfillStatus === "pending" ||
+        existingConnectedUser?.artistMetadataBackfillStatus === "paused") &&
       Boolean(existingConnectedUser.artistMetadataBackfillStep);
 
     if (hasPausedArtistBackfill) {

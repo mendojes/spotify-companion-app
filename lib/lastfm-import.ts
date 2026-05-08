@@ -831,6 +831,16 @@ export async function normalizeImportedLastFmScrobbles(
   options?: {
     limitDistinctTracks?: number;
     onProgress?: (detail: string) => void | Promise<void>;
+    onCheckpoint?: (state: {
+      processedNameKeys: string[];
+      processedTrackGroups: number;
+      totalTrackGroups: number;
+      matchedTrackGroups: number;
+      unresolvedTrackGroups: number;
+      updatedPlayCount: number;
+      deletedDuplicatePlayCount: number;
+      timedOutTrackGroups: number;
+    }) => void | Promise<void>;
     perTrackTimeoutMs?: number;
     maxRuntimeMs?: number;
     excludeNameKeys?: string[];
@@ -940,6 +950,16 @@ export async function normalizeImportedLastFmScrobbles(
     if (metadata === NORMALIZATION_TIMEOUT) {
       timedOutTrackGroups += 1;
       unresolvedTrackGroups += 1;
+      await options?.onCheckpoint?.({
+        processedNameKeys: [...processedNameKeys],
+        processedTrackGroups,
+        totalTrackGroups: groupedCandidates.length,
+        matchedTrackGroups,
+        unresolvedTrackGroups,
+        updatedPlayCount,
+        deletedDuplicatePlayCount,
+        timedOutTrackGroups,
+      });
       await options?.onProgress?.(
         `Skipping slow or unresolved imported track ${processedTrackGroups}/${groupedCandidates.length}. Progress is saved and the next refresh can continue.`,
       );
@@ -947,6 +967,16 @@ export async function normalizeImportedLastFmScrobbles(
     }
     if (!metadata?.trackId) {
       unresolvedTrackGroups += 1;
+      await options?.onCheckpoint?.({
+        processedNameKeys: [...processedNameKeys],
+        processedTrackGroups,
+        totalTrackGroups: groupedCandidates.length,
+        matchedTrackGroups,
+        unresolvedTrackGroups,
+        updatedPlayCount,
+        deletedDuplicatePlayCount,
+        timedOutTrackGroups,
+      });
       continue;
     }
     const resolvedTrackId = metadata.trackId;
@@ -1023,6 +1053,17 @@ export async function normalizeImportedLastFmScrobbles(
         })),
       ).catch(() => undefined);
     }
+
+    await options?.onCheckpoint?.({
+      processedNameKeys: [...processedNameKeys],
+      processedTrackGroups,
+      totalTrackGroups: groupedCandidates.length,
+      matchedTrackGroups,
+      unresolvedTrackGroups,
+      updatedPlayCount,
+      deletedDuplicatePlayCount,
+      timedOutTrackGroups,
+    });
   }
 
   return {

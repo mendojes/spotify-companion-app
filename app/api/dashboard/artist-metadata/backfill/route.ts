@@ -51,6 +51,8 @@ export async function POST() {
         return null;
       }
     })();
+    let normalizationCheckpointKeys = [...new Set(existingCheckpoint?.processedNameKeys ?? [])];
+    const getNormalizationCheckpoint = () => JSON.stringify({ processedNameKeys: [...new Set(normalizationCheckpointKeys)] });
 
     console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=start`);
     await markConnectedUserArtistMetadataBackfillStatus(
@@ -60,7 +62,7 @@ export async function POST() {
         detail: "Collecting missing artist ids and fetching metadata",
         step: resumeStep,
         backfilledCount,
-        checkpoint: connectedUser?.artistMetadataBackfillCheckpoint,
+        checkpoint: resumeStep === "normalize-imports" ? getNormalizationCheckpoint() : connectedUser?.artistMetadataBackfillCheckpoint,
       },
     ).catch(() => undefined);
 
@@ -78,7 +80,7 @@ export async function POST() {
             detail: `Paused after artist metadata fetch for ${backfilledCount} artists. Next refresh will continue with imported-track normalization.`,
             step: "normalize-imports",
             backfilledCount,
-            checkpoint: JSON.stringify({ processedNameKeys: [] }),
+            checkpoint: getNormalizationCheckpoint(),
           },
         ).catch(() => undefined);
         return NextResponse.json({ status: "paused", resumeStep: "normalize-imports", backfilledCount }, { status: 202 });
@@ -105,7 +107,7 @@ export async function POST() {
           detail: "Resolving imported Last.fm plays to real Spotify track metadata",
           step: "normalize-imports",
           backfilledCount,
-          checkpoint: connectedUser?.artistMetadataBackfillCheckpoint,
+          checkpoint: getNormalizationCheckpoint(),
         },
       ).catch(() => undefined);
       normalizationResult = await normalizeImportedLastFmScrobbles(
@@ -115,7 +117,20 @@ export async function POST() {
           limitDistinctTracks: 40,
           perTrackTimeoutMs: 2500,
           maxRuntimeMs: 20000,
-          excludeNameKeys: resumeStep === "normalize-imports" ? (existingCheckpoint?.processedNameKeys ?? []) : [],
+          excludeNameKeys: resumeStep === "normalize-imports" ? normalizationCheckpointKeys : [],
+          onCheckpoint: async (state) => {
+            normalizationCheckpointKeys = [...new Set([...normalizationCheckpointKeys, ...state.processedNameKeys])];
+            await markConnectedUserArtistMetadataBackfillStatus(
+              authorizedSession.spotifyUserId,
+              "running",
+              {
+                detail: `Resolving imported Last.fm tracks to Spotify metadata (${Math.min(state.processedTrackGroups + 1, state.totalTrackGroups)}/${state.totalTrackGroups})`,
+                step: "normalize-imports",
+                backfilledCount,
+                checkpoint: getNormalizationCheckpoint(),
+              },
+            ).catch(() => undefined);
+          },
           onProgress: async (detail) => {
             await markConnectedUserArtistMetadataBackfillStatus(
               authorizedSession.spotifyUserId,
@@ -124,7 +139,7 @@ export async function POST() {
                 detail,
                 step: "normalize-imports",
                 backfilledCount,
-                checkpoint: connectedUser?.artistMetadataBackfillCheckpoint,
+                checkpoint: getNormalizationCheckpoint(),
               },
             ).catch(() => undefined);
           },
@@ -135,10 +150,7 @@ export async function POST() {
       );
 
       if (normalizationResult.stoppedEarly || shouldPause()) {
-        const mergedProcessedNameKeys = [
-          ...(resumeStep === "normalize-imports" ? (existingCheckpoint?.processedNameKeys ?? []) : []),
-          ...normalizationResult.processedNameKeys,
-        ];
+        normalizationCheckpointKeys = [...new Set([...normalizationCheckpointKeys, ...normalizationResult.processedNameKeys])];
         await markConnectedUserArtistMetadataBackfillStatus(
           authorizedSession.spotifyUserId,
           "paused",
@@ -146,7 +158,7 @@ export async function POST() {
             detail: `Paused imported-track normalization after ${normalizationResult.processedTrackGroups}/${normalizationResult.scannedTrackGroups} groups. Next refresh will resume from remaining unresolved tracks.`,
             step: "normalize-imports",
             backfilledCount,
-            checkpoint: JSON.stringify({ processedNameKeys: [...new Set(mergedProcessedNameKeys)] }),
+            checkpoint: getNormalizationCheckpoint(),
           },
         ).catch(() => undefined);
         return NextResponse.json({
@@ -253,6 +265,19 @@ export async function POST() {
         allowLiveEnrichment: false,
         includeTopLists: false,
       }).catch(() => undefined);
+      if (shouldPause()) {
+        await markConnectedUserArtistMetadataBackfillStatus(
+          authorizedSession.spotifyUserId,
+          "paused",
+          {
+            detail: "Paused after refreshing overview insights. Next refresh will complete the backfill.",
+            step: "complete",
+            backfilledCount,
+            checkpoint: null,
+          },
+        ).catch(() => undefined);
+        return NextResponse.json({ status: "paused", resumeStep: "complete", backfilledCount }, { status: 202 });
+      }
     }
 
     await markConnectedUserArtistMetadataBackfillStatus(
