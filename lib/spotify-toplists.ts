@@ -26,6 +26,7 @@ export const FULL_TOP_LIST_LIMIT = 50;
 export const SNAPSHOT_TOP_LISTS_SCHEMA_VERSION = 2;
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
+const ALL_TIME_TOP_LIST_AGGREGATE_COLLECTION = "dashboard_top_lists_all_time_aggregate";
 const MIN_RECENT_PLAYS_FOR_TOPS = 5;
 const TOP_LIST_HISTORY_TTL_MS = 1000 * 30;
 const MAX_RECENT_PLAYS_FOR_TOPS_SCOPED = 5000;
@@ -375,13 +376,60 @@ type CanonicalTrackPlay = StoredRecentPlay & {
   canonicalTrackId: string;
 };
 
+type AllTimeTopListAggregateCategory = "artists" | "tracks" | "albums";
+
+type AllTimeArtistAggregateEntry = {
+  id: string;
+  name: string;
+  genres: string[];
+  imageUrl?: string;
+  playCount: number;
+  score: number;
+  lastPlayedAt: string;
+};
+
+type AllTimeTrackAggregateEntry = {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  popularity: number;
+  imageUrl?: string;
+  playCount: number;
+  score: number;
+  lastPlayedAt: string;
+};
+
+type AllTimeAlbumAggregateEntry = {
+  id: string;
+  name: string;
+  artist: string;
+  trackCount: number;
+  score: number;
+  imageUrl?: string;
+  playCount: number;
+  lastPlayedAt: string;
+};
+
+type StoredAllTimeTopListAggregateDocument<TEntry> = {
+  spotifyUserId: string;
+  category: AllTimeTopListAggregateCategory;
+  updatedAt: string;
+  lastProcessedPlayedAt: string;
+  entries: TEntry[];
+};
+
 function buildCanonicalTrackIdMaps(
   recentPlays: StoredRecentPlay[],
   snapshots: SpotifyDashboardSnapshot[],
   storedMetadata: Map<string, TrackMetadataCandidate>,
+  seedMaps?: {
+    byTrackNameKey?: Map<string, string>;
+    byTrackArtistKey?: Map<string, string>;
+  },
 ) {
-  const byTrackNameKey = new Map<string, string>();
-  const byTrackArtistKey = new Map<string, string>();
+  const byTrackNameKey = new Map<string, string>(seedMaps?.byTrackNameKey ?? []);
+  const byTrackArtistKey = new Map<string, string>(seedMaps?.byTrackArtistKey ?? []);
 
   const remember = (trackId: string | undefined, trackName: string, artistName: string, albumName: string) => {
     if (!trackId || trackId.startsWith("lastfm:")) {
@@ -422,8 +470,12 @@ function canonicalizeRecentPlays(
   recentPlays: StoredRecentPlay[],
   snapshots: SpotifyDashboardSnapshot[],
   storedMetadata: Map<string, TrackMetadataCandidate>,
+  seedMaps?: {
+    byTrackNameKey?: Map<string, string>;
+    byTrackArtistKey?: Map<string, string>;
+  },
 ) {
-  const { byTrackNameKey, byTrackArtistKey } = buildCanonicalTrackIdMaps(recentPlays, snapshots, storedMetadata);
+  const { byTrackNameKey, byTrackArtistKey } = buildCanonicalTrackIdMaps(recentPlays, snapshots, storedMetadata, seedMaps);
 
   return recentPlays.map((play) => {
     const metadataTrackId = storedMetadata.get(play.trackId)?.trackId;
@@ -1104,6 +1156,198 @@ function deriveRecentAlbums(recentPlays: CanonicalTrackPlay[], limit: number): T
     }));
 }
 
+function buildAggregateSeedMapsFromTrackEntries(trackEntries: AllTimeTrackAggregateEntry[]) {
+  const byTrackNameKey = new Map<string, string>();
+  const byTrackArtistKey = new Map<string, string>();
+
+  trackEntries.forEach((track) => {
+    if (!track.id || track.id.startsWith("lastfm:")) {
+      return;
+    }
+
+    const trackNameKey = buildTrackNameKey(track.title, track.artist, track.album);
+    const trackArtistKey = buildTrackArtistKey(track.title, track.artist);
+
+    if (!byTrackNameKey.has(trackNameKey)) {
+      byTrackNameKey.set(trackNameKey, track.id);
+    }
+
+    if (!byTrackArtistKey.has(trackArtistKey)) {
+      byTrackArtistKey.set(trackArtistKey, track.id);
+    }
+  });
+
+  return { byTrackNameKey, byTrackArtistKey };
+}
+
+function buildArtistMetadataFromAggregateEntries(artistEntries: AllTimeArtistAggregateEntry[]) {
+  const metadata = new Map<string, { genres: string[]; imageUrl?: string }>();
+
+  artistEntries.forEach((artist) => {
+    if (!artist.id) {
+      return;
+    }
+
+    metadata.set(artist.id, {
+      genres: artist.genres,
+      imageUrl: artist.imageUrl,
+    });
+  });
+
+  return metadata;
+}
+
+function mergeCanonicalPlaysIntoAllTimeAggregate(
+  canonicalRecentPlays: CanonicalTrackPlay[],
+  artistEntries: AllTimeArtistAggregateEntry[],
+  trackEntries: AllTimeTrackAggregateEntry[],
+  albumEntries: AllTimeAlbumAggregateEntry[],
+  artistMetadata: Map<string, { genres: string[]; imageUrl?: string }>,
+) {
+  const artistMap = new Map(artistEntries.map((entry) => [`${entry.id}::${entry.name.toLowerCase()}`, { ...entry }]));
+  const trackMap = new Map(trackEntries.map((entry) => [entry.id, { ...entry }]));
+  const albumMap = new Map(albumEntries.map((entry) => [entry.id, { ...entry }]));
+
+  canonicalRecentPlays.forEach((play, index) => {
+    const recencyWeight = Math.max(1, canonicalRecentPlays.length - index);
+
+    play.artistName.split(/,\s*/).forEach((artistName, artistIndex) => {
+      const artistId = play.artistIds?.[artistIndex] ?? `${artistName}::${play.trackName}`.toLowerCase();
+      const lookupKey = `${artistId}::${artistName.toLowerCase()}`;
+      const metadata = play.artistIds?.[artistIndex]
+        ? artistMetadata.get(play.artistIds[artistIndex] as string)
+        : undefined;
+      const existing = artistMap.get(lookupKey) ?? {
+        id: artistId,
+        name: artistName,
+        genres: metadata?.genres ?? [],
+        imageUrl: metadata?.imageUrl ?? play.imageUrl,
+        playCount: 0,
+        score: 0,
+        lastPlayedAt: play.playedAt,
+      };
+
+      existing.score += 100 + recencyWeight;
+      existing.playCount += 1;
+      if (play.playedAt > existing.lastPlayedAt) {
+        existing.lastPlayedAt = play.playedAt;
+      }
+      if (!existing.imageUrl && (metadata?.imageUrl || play.imageUrl)) {
+        existing.imageUrl = metadata?.imageUrl ?? play.imageUrl;
+      }
+      if (existing.genres.length === 0 && metadata?.genres?.length) {
+        existing.genres = metadata.genres;
+      }
+
+      artistMap.set(lookupKey, existing);
+    });
+
+    const existingTrack = trackMap.get(play.canonicalTrackId) ?? {
+      id: play.canonicalTrackId,
+      title: play.trackName,
+      artist: play.artistName,
+      album: play.albumName,
+      popularity: 0,
+      imageUrl: play.imageUrl,
+      playCount: 0,
+      score: 0,
+      lastPlayedAt: play.playedAt,
+    };
+
+    existingTrack.score += 100 + recencyWeight;
+    existingTrack.playCount += 1;
+    existingTrack.popularity = Math.min(100, existingTrack.playCount * 12 + Math.min(40, recencyWeight));
+    if (play.playedAt > existingTrack.lastPlayedAt) {
+      existingTrack.lastPlayedAt = play.playedAt;
+    }
+    if (!existingTrack.imageUrl && play.imageUrl) {
+      existingTrack.imageUrl = play.imageUrl;
+    }
+    trackMap.set(play.canonicalTrackId, existingTrack);
+
+    const albumKey = `${play.albumName}::${play.artistName}`.toLowerCase();
+    const existingAlbum = albumMap.get(albumKey) ?? {
+      id: albumKey,
+      name: play.albumName,
+      artist: play.artistName,
+      trackCount: 0,
+      score: 0,
+      imageUrl: play.imageUrl,
+      playCount: 0,
+      lastPlayedAt: play.playedAt,
+    };
+
+    existingAlbum.score += 100 + recencyWeight;
+    existingAlbum.playCount += 1;
+    existingAlbum.trackCount += 1;
+    if (play.playedAt > existingAlbum.lastPlayedAt) {
+      existingAlbum.lastPlayedAt = play.playedAt;
+    }
+    if (!existingAlbum.imageUrl && play.imageUrl) {
+      existingAlbum.imageUrl = play.imageUrl;
+    }
+    albumMap.set(albumKey, existingAlbum);
+  });
+
+  return {
+    artists: [...artistMap.values()],
+    tracks: [...trackMap.values()],
+    albums: [...albumMap.values()],
+  };
+}
+
+function materializeAllTimeTopListsFromAggregate(
+  aggregate: {
+    artists: AllTimeArtistAggregateEntry[];
+    tracks: AllTimeTrackAggregateEntry[];
+    albums: AllTimeAlbumAggregateEntry[];
+  },
+  limit: number,
+): TopListsData {
+  return normalizeTopListsDataRanking({
+    range: "all",
+    artists: [...aggregate.artists]
+      .sort((a, b) => b.playCount - a.playCount || b.score - a.score || b.lastPlayedAt.localeCompare(a.lastPlayedAt) || a.name.localeCompare(b.name))
+      .slice(0, limit)
+      .map((artist, index) => ({
+        id: artist.id,
+        rank: index + 1,
+        name: artist.name,
+        genres: artist.genres,
+        imageUrl: artist.imageUrl,
+        listenCount: artist.playCount,
+      })),
+    tracks: [...aggregate.tracks]
+      .sort((a, b) => b.playCount - a.playCount || b.score - a.score || b.lastPlayedAt.localeCompare(a.lastPlayedAt))
+      .slice(0, limit)
+      .map((track, index) => ({
+        id: track.id,
+        rank: index + 1,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        popularity: track.popularity,
+        imageUrl: track.imageUrl,
+        listenCount: track.playCount,
+      })),
+    albums: [...aggregate.albums]
+      .sort((a, b) => b.playCount - a.playCount || b.score - a.score || b.lastPlayedAt.localeCompare(a.lastPlayedAt))
+      .slice(0, limit)
+      .map((album, index) => ({
+        id: album.id,
+        rank: index + 1,
+        name: album.name,
+        artist: album.artist,
+        trackCount: album.trackCount,
+        score: album.score,
+        imageUrl: album.imageUrl,
+        listenCount: album.playCount,
+      })),
+    sourceLabel: "Shared Listening Lore listening history",
+    generatedAt: new Date().toISOString(),
+  });
+}
+
 async function getHistoricalSnapshots(spotifyUserId: string, range: TopListRange, from?: string, to?: string) {
   if (!hasMongoConfig()) {
     return [] as SpotifyDashboardSnapshot[];
@@ -1200,6 +1444,47 @@ async function getRecentPlaysForTopLists(spotifyUserId: string, range: TopListRa
   }
 }
 
+async function getRecentPlaysAfter(spotifyUserId: string, afterPlayedAt: string) {
+  if (!hasMongoConfig()) {
+    return [] as StoredRecentPlay[];
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return [] as StoredRecentPlay[];
+    }
+
+    const filterData = await getIgnoredPlaylistFilterData(spotifyUserId).catch(() => null);
+    const baseQuery: Record<string, unknown> = {
+      spotifyUserId,
+      playedAt: { $gt: afterPlayedAt },
+    };
+    const query = filterData && filterData.fullyIgnoredPlaylistIds.size > 0
+      ? {
+        ...baseQuery,
+        $or: [
+          { playlistId: { $exists: false } },
+          { playlistId: null },
+          { playlistId: { $nin: [...filterData.fullyIgnoredPlaylistIds] } },
+        ],
+      }
+      : baseQuery;
+
+    const recentPlays = await db
+      .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+      .find(query)
+      .sort({ playedAt: 1 })
+      .toArray();
+
+    return filterData
+      ? recentPlays.filter((play) => !shouldIgnoreRecentPlayByRules(play, filterData))
+      : recentPlays;
+  } catch {
+    return [] as StoredRecentPlay[];
+  }
+}
+
 function filterRecentPlaysForTopRange(recentPlays: StoredRecentPlay[], range: TopListRange, from?: string, to?: string) {
   const window = getWindow(range, from, to);
 
@@ -1277,6 +1562,211 @@ export async function getTopListHistoryData(spotifyUserId: string): Promise<TopL
 
 export function invalidateTopListHistoryCache(spotifyUserId: string) {
   invalidateCachedValue(`top-list-history:${spotifyUserId}`);
+}
+
+async function readStoredAllTimeTopListAggregate(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return null;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return null;
+  }
+
+  const docs = await db
+    .collection<StoredAllTimeTopListAggregateDocument<unknown>>(ALL_TIME_TOP_LIST_AGGREGATE_COLLECTION)
+    .find({ spotifyUserId })
+    .toArray();
+
+  if (docs.length < 3) {
+    return null;
+  }
+
+  const artistsDoc = docs.find((doc) => doc.category === "artists") as StoredAllTimeTopListAggregateDocument<AllTimeArtistAggregateEntry> | undefined;
+  const tracksDoc = docs.find((doc) => doc.category === "tracks") as StoredAllTimeTopListAggregateDocument<AllTimeTrackAggregateEntry> | undefined;
+  const albumsDoc = docs.find((doc) => doc.category === "albums") as StoredAllTimeTopListAggregateDocument<AllTimeAlbumAggregateEntry> | undefined;
+
+  if (!artistsDoc || !tracksDoc || !albumsDoc) {
+    return null;
+  }
+
+  return {
+    lastProcessedPlayedAt: [artistsDoc.lastProcessedPlayedAt, tracksDoc.lastProcessedPlayedAt, albumsDoc.lastProcessedPlayedAt]
+      .sort()
+      .at(-1) ?? "",
+    artists: artistsDoc.entries,
+    tracks: tracksDoc.entries,
+    albums: albumsDoc.entries,
+  };
+}
+
+async function writeStoredAllTimeTopListAggregate(
+  spotifyUserId: string,
+  aggregate: {
+    lastProcessedPlayedAt: string;
+    artists: AllTimeArtistAggregateEntry[];
+    tracks: AllTimeTrackAggregateEntry[];
+    albums: AllTimeAlbumAggregateEntry[];
+  },
+) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return;
+  }
+
+  const updatedAt = new Date().toISOString();
+  await db.collection<StoredAllTimeTopListAggregateDocument<unknown>>(ALL_TIME_TOP_LIST_AGGREGATE_COLLECTION).bulkWrite([
+    {
+      updateOne: {
+        filter: { spotifyUserId, category: "artists" },
+        update: {
+          $set: {
+            spotifyUserId,
+            category: "artists",
+            updatedAt,
+            lastProcessedPlayedAt: aggregate.lastProcessedPlayedAt,
+            entries: aggregate.artists,
+          },
+        },
+        upsert: true,
+      },
+    },
+    {
+      updateOne: {
+        filter: { spotifyUserId, category: "tracks" },
+        update: {
+          $set: {
+            spotifyUserId,
+            category: "tracks",
+            updatedAt,
+            lastProcessedPlayedAt: aggregate.lastProcessedPlayedAt,
+            entries: aggregate.tracks,
+          },
+        },
+        upsert: true,
+      },
+    },
+    {
+      updateOne: {
+        filter: { spotifyUserId, category: "albums" },
+        update: {
+          $set: {
+            spotifyUserId,
+            category: "albums",
+            updatedAt,
+            lastProcessedPlayedAt: aggregate.lastProcessedPlayedAt,
+            entries: aggregate.albums,
+          },
+        },
+        upsert: true,
+      },
+    },
+  ], { ordered: false });
+}
+
+export async function resetStoredAllTimeTopListAggregate(spotifyUserId: string) {
+  invalidateCachedValue(`top-list-all-time-aggregate:${spotifyUserId}`);
+
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return;
+  }
+
+  await db.collection(ALL_TIME_TOP_LIST_AGGREGATE_COLLECTION).deleteMany({ spotifyUserId });
+}
+
+export async function getStoredOrBuildIncrementalAllTimeTopLists(
+  spotifyUserId: string,
+  limit = FULL_TOP_LIST_LIMIT,
+  accessToken?: string,
+  options?: TopListHistoryOptions,
+) {
+  const boundedLimit = Math.max(1, Math.min(FULL_TOP_LIST_LIMIT, limit));
+
+  return getCachedValue(`top-list-all-time-aggregate:${spotifyUserId}`, TOP_LIST_HISTORY_TTL_MS, async () => {
+    let aggregate = await readStoredAllTimeTopListAggregate(spotifyUserId);
+    let snapshots: SpotifyDashboardSnapshot[] = [];
+    let recentPlaysForHydration: StoredRecentPlay[] = [];
+
+    if (!aggregate) {
+      const history = await getTopListHistoryData(spotifyUserId);
+      snapshots = history.snapshots;
+      recentPlaysForHydration = history.recentPlays;
+
+      const storedMetadata = buildTrackMetadataFromRecentPlays(history.recentPlays);
+      const canonicalRecentPlays = canonicalizeRecentPlays(history.recentPlays, history.snapshots, storedMetadata);
+      const artistMetadata = buildArtistMetadataFromSnapshots(history.snapshots);
+      const merged = mergeCanonicalPlaysIntoAllTimeAggregate(canonicalRecentPlays, [], [], [], artistMetadata);
+
+      aggregate = {
+        ...merged,
+        lastProcessedPlayedAt: history.recentPlays[0]?.playedAt ?? "",
+      };
+    } else if (aggregate.lastProcessedPlayedAt) {
+      const newRecentPlays = await getRecentPlaysAfter(spotifyUserId, aggregate.lastProcessedPlayedAt);
+      if (newRecentPlays.length > 0) {
+        recentPlaysForHydration = newRecentPlays;
+        const storedMetadata = buildTrackMetadataFromRecentPlays(newRecentPlays);
+        const canonicalRecentPlays = canonicalizeRecentPlays(
+          newRecentPlays,
+          [],
+          storedMetadata,
+          buildAggregateSeedMapsFromTrackEntries(aggregate.tracks),
+        );
+        const artistMetadata = buildArtistMetadataFromAggregateEntries(aggregate.artists);
+        const merged = mergeCanonicalPlaysIntoAllTimeAggregate(
+          canonicalRecentPlays,
+          aggregate.artists,
+          aggregate.tracks,
+          aggregate.albums,
+          artistMetadata,
+        );
+        aggregate = {
+          ...merged,
+          lastProcessedPlayedAt: newRecentPlays.at(-1)?.playedAt ?? aggregate.lastProcessedPlayedAt,
+        };
+      }
+    }
+
+    snapshots = snapshots.length > 0 ? snapshots : await getHistoricalSnapshots(spotifyUserId, "all");
+    const topLists = materializeAllTimeTopListsFromAggregate(aggregate, boundedLimit);
+    const hydrated = await hydrateTopListsTrackMetadata(topLists, recentPlaysForHydration, snapshots, accessToken, options);
+
+    const topTrackById = new Map(hydrated.tracks.map((track) => [track.id, track]));
+    const albumImageByKey = new Map(hydrated.albums.map((album) => [`${album.name}::${album.artist}`.toLowerCase(), album.imageUrl]));
+    aggregate = {
+      ...aggregate,
+      tracks: aggregate.tracks.map((track) => {
+        const hydratedTrack =
+          topTrackById.get(track.id) ??
+          hydrated.tracks.find((item) => item.title === track.title && item.artist === track.artist && item.album === track.album);
+        return hydratedTrack?.imageUrl && hydratedTrack.imageUrl !== track.imageUrl
+          ? { ...track, id: hydratedTrack.id, imageUrl: hydratedTrack.imageUrl }
+          : hydratedTrack?.id && hydratedTrack.id !== track.id
+            ? { ...track, id: hydratedTrack.id }
+            : track;
+      }),
+      albums: aggregate.albums.map((album) => {
+        const imageUrl = album.imageUrl ?? albumImageByKey.get(`${album.name}::${album.artist}`.toLowerCase());
+        return imageUrl && imageUrl !== album.imageUrl ? { ...album, imageUrl } : album;
+      }),
+    };
+
+    await writeStoredAllTimeTopListAggregate(spotifyUserId, aggregate);
+    return normalizeTopListsDataRanking({
+      ...hydrated,
+      generatedAt: aggregate.lastProcessedPlayedAt || new Date().toISOString(),
+    });
+  });
 }
 
 async function getFallbackSpotifyTopLists(accessToken: string, range: TopListRange, limit: number): Promise<TopListsData> {

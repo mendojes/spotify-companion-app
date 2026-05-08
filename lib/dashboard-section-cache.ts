@@ -2,7 +2,7 @@ import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { getDashboardAnalysisDetailFromHistory, getDashboardInsightsFromSnapshots, getSharedDashboardCacheSnapshots } from "@/lib/spotify-dashboard";
 import { getCachedValue, invalidateCachedValue } from "@/lib/runtime-cache";
 import { getPlaylistPageDataFromHistory, PlaylistPageData } from "@/lib/spotify-playlists";
-import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory, getTopListHistoryData, hydrateTopListsDataMetadata, normalizeTopListsDataRanking } from "@/lib/spotify-toplists";
+import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory, getStoredOrBuildIncrementalAllTimeTopLists, getTopListHistoryData, hydrateTopListsDataMetadata, normalizeTopListsDataRanking } from "@/lib/spotify-toplists";
 import { DashboardAnalysisDetail, DashboardInsights, DashboardRange, PlaylistSortOption, TopListRange, TopListsData } from "@/lib/types";
 
 const DASHBOARD_SECTION_RUNTIME_TTL_MS = 1000 * 30;
@@ -346,15 +346,22 @@ export async function writeStoredDashboardSectionCache(
   const topListsEntries = await Promise.all(
     TOP_LIST_RANGE_VALUES.map(async (range) => [
       range,
-      await getSpotifyTopListsFromHistory(
-        spotifyUserId,
-        range,
-        FULL_TOP_LIST_LIMIT,
-        undefined,
-        undefined,
-        options?.accessToken,
-        { allowCatalogLookup: false },
-      ),
+      range === "all"
+        ? await getStoredOrBuildIncrementalAllTimeTopLists(
+          spotifyUserId,
+          FULL_TOP_LIST_LIMIT,
+          options?.accessToken,
+          { allowCatalogLookup: false },
+        )
+        : await getSpotifyTopListsFromHistory(
+          spotifyUserId,
+          range,
+          FULL_TOP_LIST_LIMIT,
+          undefined,
+          undefined,
+          options?.accessToken,
+          { allowCatalogLookup: false },
+        ),
     ] as const),
   );
   logSectionTiming(spotifyUserId, "section-cache", "build-top-lists", topListsStartedAt);

@@ -9,6 +9,7 @@ const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const DASHBOARD_OVERVIEW_COLLECTION = "dashboard_overview_cache";
 const DASHBOARD_TOP_LISTS_CACHE_COLLECTION = "dashboard_top_lists_cache";
+const DASHBOARD_TOP_LISTS_ALL_TIME_AGGREGATE_COLLECTION = "dashboard_top_lists_all_time_aggregate";
 const DASHBOARD_ANALYSIS_CACHE_COLLECTION = "dashboard_analysis_cache";
 const DASHBOARD_REDISCOVERY_CACHE_COLLECTION = "dashboard_rediscovery_cache";
 const DASHBOARD_PLAYLISTS_CACHE_COLLECTION = "dashboard_playlists_cache";
@@ -69,6 +70,10 @@ try {
     db
       .collection(DASHBOARD_TOP_LISTS_CACHE_COLLECTION)
       .createIndex({ spotifyUserId: 1, range: 1 }, { unique: true }),
+
+    db
+      .collection(DASHBOARD_TOP_LISTS_ALL_TIME_AGGREGATE_COLLECTION)
+      .createIndex({ spotifyUserId: 1, category: 1 }, { unique: true }),
 
     db
       .collection(DASHBOARD_ANALYSIS_CACHE_COLLECTION)

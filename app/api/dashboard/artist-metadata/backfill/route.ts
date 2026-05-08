@@ -5,6 +5,7 @@ import { hydrateStoredDashboardOverviewTopListMetadata, invalidateDashboardOverv
 import { hydrateStoredTopListsSectionMetadata, invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
 import { getConnectedUser, markConnectedUserArtistMetadataBackfillStatus } from "@/lib/connected-users";
 import { normalizeImportedLastFmScrobbles } from "@/lib/lastfm-import";
+import { resetStoredAllTimeTopListAggregate } from "@/lib/spotify-toplists";
 
 export async function POST() {
   const session = await getSession();
@@ -62,6 +63,7 @@ export async function POST() {
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
 
     if (normalizationResult.updatedPlayCount > 0 || normalizationResult.deletedDuplicatePlayCount > 0) {
+      await resetStoredAllTimeTopListAggregate(authorizedSession.spotifyUserId).catch(() => undefined);
       await markConnectedUserArtistMetadataBackfillStatus(
         authorizedSession.spotifyUserId,
         "running",

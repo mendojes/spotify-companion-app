@@ -4,7 +4,7 @@ import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCach
 import { invalidateDashboardSnapshotCaches } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache } from "@/lib/spotify-playlists";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
-import { invalidateTopListHistoryCache } from "@/lib/spotify-toplists";
+import { invalidateTopListHistoryCache, resetStoredAllTimeTopListAggregate } from "@/lib/spotify-toplists";
 import { upsertStoredTrackMetadataFromRecentPlays } from "@/lib/track-metadata-cache";
 import { SpotifyDashboardSnapshot, SpotifyRecentlyPlayedItem, SpotifyTrack, StoredRecentPlay } from "@/lib/types";
 
@@ -1033,6 +1033,7 @@ export async function refreshLastFmImportCaches(spotifyUserId: string, accessTok
   invalidatePlaylistInsightsCache(spotifyUserId);
   invalidateDashboardOverviewRuntimeCache(spotifyUserId);
   invalidateDashboardSectionRuntimeCache(spotifyUserId);
+  await resetStoredAllTimeTopListAggregate(spotifyUserId).catch(() => undefined);
 
   await Promise.all([
     writeStoredDashboardOverviewCache(spotifyUserId, accessToken).catch(() => undefined),
