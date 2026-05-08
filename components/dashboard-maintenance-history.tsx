@@ -1,14 +1,12 @@
 import { listMaintenanceHistory } from "@/lib/dashboard-maintenance";
+import { formatPstDateTime } from "@/lib/time";
 
 function formatTimestamp(value?: string) {
   if (!value) {
     return "not recorded";
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatPstDateTime(value);
 }
 
 function formatAction(action: string) {
