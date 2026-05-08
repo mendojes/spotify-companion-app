@@ -36,12 +36,14 @@ export type ConnectedUser = {
   dashboardEnrichmentFinishedAt?: string;
   dashboardEnrichmentError?: string;
   dashboardEnrichmentDetail?: string;
+  dashboardEnrichmentStep?: string;
   artistMetadataBackfillStatus?: "idle" | "pending" | "running" | "success" | "error";
   artistMetadataBackfillStartedAt?: string;
   artistMetadataBackfillFinishedAt?: string;
   artistMetadataBackfillError?: string;
   artistMetadataBackfillCount?: number;
   artistMetadataBackfillDetail?: string;
+  artistMetadataBackfillStep?: string;
 };
 
 export type CommunityUserProfile = {
@@ -244,6 +246,7 @@ export async function markConnectedUserDashboardEnrichmentStatus(
     range?: "week" | "month" | "all";
     errorMessage?: string;
     detail?: string;
+    step?: string;
   },
 ) {
   if (!hasMongoConfig()) {
@@ -256,6 +259,10 @@ export async function markConnectedUserDashboardEnrichmentStatus(
   }
 
   const now = new Date().toISOString();
+  const existing = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne(
+    { spotifyUserId },
+    { projection: { dashboardEnrichmentStatus: 1, dashboardEnrichmentStartedAt: 1 } },
+  );
   await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
     { spotifyUserId },
     {
@@ -264,7 +271,11 @@ export async function markConnectedUserDashboardEnrichmentStatus(
         dashboardEnrichmentRange: options?.range,
         dashboardEnrichmentError: options?.errorMessage,
         dashboardEnrichmentDetail: options?.detail,
-        dashboardEnrichmentStartedAt: status === "running" ? now : undefined,
+        dashboardEnrichmentStep: options?.step,
+        dashboardEnrichmentStartedAt:
+          status === "running"
+            ? (existing?.dashboardEnrichmentStatus === "running" ? existing.dashboardEnrichmentStartedAt : now)
+            : undefined,
         dashboardEnrichmentFinishedAt: status === "success" || status === "error" ? now : undefined,
         updatedAt: now,
       },
@@ -279,6 +290,7 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
     errorMessage?: string;
     backfilledCount?: number;
     detail?: string;
+    step?: string;
   },
 ) {
   if (!hasMongoConfig()) {
@@ -291,6 +303,10 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
   }
 
   const now = new Date().toISOString();
+  const existing = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne(
+    { spotifyUserId },
+    { projection: { artistMetadataBackfillStatus: 1, artistMetadataBackfillStartedAt: 1 } },
+  );
   await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
     { spotifyUserId },
     {
@@ -299,7 +315,11 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
         artistMetadataBackfillError: options?.errorMessage,
         artistMetadataBackfillCount: options?.backfilledCount,
         artistMetadataBackfillDetail: options?.detail,
-        artistMetadataBackfillStartedAt: status === "running" ? now : undefined,
+        artistMetadataBackfillStep: options?.step,
+        artistMetadataBackfillStartedAt:
+          status === "running"
+            ? (existing?.artistMetadataBackfillStatus === "running" ? existing.artistMetadataBackfillStartedAt : now)
+            : undefined,
         artistMetadataBackfillFinishedAt: status === "success" || status === "error" ? now : undefined,
         updatedAt: now,
       },
