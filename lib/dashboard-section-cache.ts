@@ -57,6 +57,7 @@ type DashboardSectionCacheOptions = {
   onProgress?: (detail: string) => void | Promise<void>;
   includeRediscovery?: boolean;
   includeAllTimeAnalysis?: boolean;
+  includeAnalysis?: boolean;
 };
 
 function logSectionTiming(spotifyUserId: string, section: string, step: string, startedAt: number) {
@@ -377,25 +378,29 @@ export async function writeStoredDashboardSectionCache(
   await writeStoredTopListsCacheEntries(spotifyUserId, topListsEntries, updatedAt);
   logSectionTiming(spotifyUserId, "section-cache", "write-top-lists", writeTopListsStartedAt);
 
-  const analysisStartedAt = Date.now();
-  await reportProgress("Building analysis section caches");
-  const analysisRangesToBuild = options?.includeAllTimeAnalysis === false
-    ? DASHBOARD_RANGE_VALUES.filter((range) => range !== "all")
-    : DASHBOARD_RANGE_VALUES;
-  const analysisEntries: Array<readonly [AnalysisSectionKey, DashboardAnalysisDetail | null]> = [];
-  for (const range of analysisRangesToBuild) {
-    await reportProgress(`Building analysis caches for ${range}`);
-    analysisEntries.push(
-      [`${range}:trend` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "trend" })] as const,
-      [`${range}:heatmap` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "heatmap" })] as const,
-    );
-  }
-  logSectionTiming(spotifyUserId, "section-cache", "build-analysis", analysisStartedAt);
+  if (options?.includeAnalysis === false) {
+    await reportProgress("Skipping analysis section cache rebuild for this pass");
+  } else {
+    const analysisStartedAt = Date.now();
+    await reportProgress("Building analysis section caches");
+    const analysisRangesToBuild = options?.includeAllTimeAnalysis === false
+      ? DASHBOARD_RANGE_VALUES.filter((range) => range !== "all")
+      : DASHBOARD_RANGE_VALUES;
+    const analysisEntries: Array<readonly [AnalysisSectionKey, DashboardAnalysisDetail | null]> = [];
+    for (const range of analysisRangesToBuild) {
+      await reportProgress(`Building analysis caches for ${range}`);
+      analysisEntries.push(
+        [`${range}:trend` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "trend" })] as const,
+        [`${range}:heatmap` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "heatmap" })] as const,
+      );
+    }
+    logSectionTiming(spotifyUserId, "section-cache", "build-analysis", analysisStartedAt);
 
-  const writeAnalysisStartedAt = Date.now();
-  await reportProgress("Writing analysis section caches");
-  await writeStoredAnalysisCacheEntries(spotifyUserId, analysisEntries, updatedAt);
-  logSectionTiming(spotifyUserId, "section-cache", "write-analysis", writeAnalysisStartedAt);
+    const writeAnalysisStartedAt = Date.now();
+    await reportProgress("Writing analysis section caches");
+    await writeStoredAnalysisCacheEntries(spotifyUserId, analysisEntries, updatedAt);
+    logSectionTiming(spotifyUserId, "section-cache", "write-analysis", writeAnalysisStartedAt);
+  }
 
   if (options?.includeRediscovery === false) {
     await reportProgress("Skipping rediscovery section cache rebuild for this pass");
