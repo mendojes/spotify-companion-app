@@ -8,7 +8,7 @@ import {
   writeStoredTopListsSectionEntry,
 } from "@/lib/dashboard-section-cache";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
-import { normalizeImportedLastFmScrobbles } from "@/lib/lastfm-import";
+import { deleteImportedLastFmScrobbles, normalizeImportedLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
 import { getStoredTrackMetadataMap, TRACK_METADATA_COLLECTION } from "@/lib/track-metadata-cache";
 import { spotifyFetch } from "@/lib/spotify";
 import { TopListsData, StoredRecentPlay, SpotifyTrack } from "@/lib/types";
@@ -32,6 +32,7 @@ export type MaintenanceAction =
   | "rebuild-overview-cache"
   | "rebuild-top-list-caches"
   | "backfill-artist-metadata"
+  | "delete-lastfm-imports"
   | "normalize-lastfm-imports"
   | "refresh-track-library-full"
   | "refresh-track-library-incremental"
@@ -963,6 +964,12 @@ export async function runDashboardMaintenanceAction(
   if (action === "backfill-artist-metadata") {
     const count = await backfillMissingArtistMetadataForUser(spotifyUserId, accessToken);
     return { partial: false, count };
+  }
+
+  if (action === "delete-lastfm-imports") {
+    const result = await deleteImportedLastFmScrobbles(spotifyUserId);
+    await refreshLastFmImportCaches(spotifyUserId, accessToken).catch(() => undefined);
+    return { partial: false, ...result };
   }
 
   if (action === "normalize-lastfm-imports") {

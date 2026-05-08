@@ -170,30 +170,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         const shouldKickoffEnrich =
           !isAutoStartSuppressed() &&
           !enrichStartedRef.current &&
-          (data.artistBackfillStatus ?? "idle") !== "pending" &&
-          (data.artistBackfillStatus ?? "idle") !== "paused" &&
-          (
-            nextStatus === "pending" ||
-            (shouldStart && nextStatus === "idle")
-          );
-        const shouldKickoffArtistBackfill =
-          !isAutoStartSuppressed() &&
-          !artistBackfillStartedRef.current &&
-          (
-            (
-              nextStatus === "success" &&
-              (
-              (data.artistBackfillStatus ?? "idle") === "pending" ||
-              (data.artistBackfillStatus ?? "idle") === "paused" ||
-              (shouldStart && (data.artistBackfillStatus ?? "idle") === "idle")
-            )
-          ) ||
-          (
-              ((data.artistBackfillStatus ?? "idle") === "pending" || (data.artistBackfillStatus ?? "idle") === "paused") &&
-              typeof data.artistBackfillDetail === "string" &&
-              data.artistBackfillDetail.startsWith("Paused ")
-            )
-          );
+          (nextStatus === "pending" || (shouldStart && nextStatus === "idle"));
 
         if (shouldKickoffEnrich) {
           enrichStartedRef.current = true;
@@ -206,21 +183,6 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
             .catch(() => undefined);
         }
 
-        if (shouldKickoffArtistBackfill) {
-          artistBackfillStartedRef.current = true;
-          setArtistBackfillRunning(true);
-          void fetch("/api/dashboard/artist-metadata/backfill", {
-            method: "POST",
-            credentials: "same-origin",
-          })
-            .then(() => undefined)
-            .catch(() => undefined)
-            .finally(() => {
-              setArtistBackfillRunning(false);
-              router.refresh();
-            });
-        }
-
         if (
           nextStatus === "pending" ||
           nextStatus === "running" ||
@@ -228,8 +190,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           data.artistBackfillStatus === "pending" ||
           data.artistBackfillStatus === "running" ||
           data.artistBackfillStatus === "paused" ||
-          shouldKickoffEnrich ||
-          shouldKickoffArtistBackfill
+          shouldKickoffEnrich
         ) {
           pollCount += 1;
           const hasRunningWork =
@@ -290,13 +251,11 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           : artistBackfillStatus === "error"
           ? `Artist metadata backfill finished with an error, so some artist images or genres may still be missing. ${artistBackfillError ?? ""}`.trim()
           : artistBackfillRunning || artistBackfillStatus === "running"
-            ? status === "success"
-              ? "Deep dashboard refresh finished its cache rebuild and is now filling missing artist metadata. The page will update automatically when that finishes."
-              : "Imported-track normalization and metadata backfill are running in the background. The page will update automatically as saved progress lands."
+            ? "A manual maintenance backfill is running in the background. The page will update automatically as saved progress lands."
             : artistBackfillStatus === "paused"
               ? "Artist metadata backfill paused to avoid a timeout. Refresh again to continue from the saved checkpoint."
             : artistBackfillStatus === "pending"
-              ? "Deep dashboard refresh finished its cache rebuild. Missing artist metadata is queued and should start shortly when the follow-up job begins."
+              ? "A manual maintenance backfill is queued and should start shortly."
             : artistBackfillStatus === "success"
               ? `Artist metadata backfill finished${artistBackfillCount !== null ? ` for ${artistBackfillCount} artists` : ""}. If images are still blank, the current cached sources did not contain recoverable artist artwork.`
           : "Deep dashboard refresh is running in the background. The page will update automatically when the richer cache is ready."}
@@ -317,9 +276,13 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
               window.sessionStorage.removeItem(AUTO_START_SUPPRESS_KEY);
             }
             setArtistBackfillRunning(true);
-            void fetch("/api/dashboard/artist-metadata/backfill", {
+            void fetch("/api/dashboard/maintenance", {
               method: "POST",
               credentials: "same-origin",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ action: "normalize-lastfm-imports" }),
             })
               .catch(() => undefined)
               .finally(() => {
@@ -330,7 +293,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           }}
           className="rounded-full border border-[rgba(57,18,98,0.18)] bg-white/[0.18] px-4 py-2 text-xs uppercase tracking-[0.16em] text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold disabled:opacity-50"
         >
-          {runningBackfillOnly ? "Running Backfill..." : "Run Backfill Only"}
+          {runningBackfillOnly ? "Normalizing Last.fm..." : "Normalize Last.fm"}
         </button>
         <button
           type="button"

@@ -437,7 +437,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         {refreshed ? <Notice tone="cyan">Spotify snapshot refreshed successfully.</Notice> : null}
         {refreshErrorFlag ? <Notice tone="coral">Snapshot refresh failed. The dashboard is still using your previous cached data when available.</Notice> : null}
         {dashboardError ? <Notice tone="gold">{dashboardError}</Notice> : null}
-        <DashboardDeepRefreshMonitor range={selectedRange} shouldStart={false} />
+        <DashboardDeepRefreshMonitor range={selectedRange} shouldStart={Boolean(refreshed)} />
         <DashboardMaintenancePanel />
         {session ? <DashboardMaintenanceHistory spotifyUserId={session.spotifyUserId} /> : null}
       </div>
@@ -466,7 +466,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
-
 
 
 

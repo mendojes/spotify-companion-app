@@ -61,9 +61,13 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
     window.dispatchEvent(new CustomEvent(BACKFILL_ONLY_STARTED_EVENT));
 
     try {
-      await fetch("/api/dashboard/artist-metadata/backfill", {
+      await fetch("/api/dashboard/maintenance", {
         method: "POST",
         credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "normalize-lastfm-imports" }),
       });
       router.refresh();
     } finally {
@@ -80,7 +84,7 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
         className="pixel-chip inline-flex min-h-11 items-center gap-2 px-3 text-xs text-[var(--theme-text)] transition hover:text-[#2d0d46] disabled:cursor-wait disabled:opacity-80 sm:px-4 sm:text-sm"
       >
         <Wand2 className={`h-4 w-4 ${isRunningBackfill ? "animate-pulse" : ""}`} />
-        {isRunningBackfill ? "Running backfill" : "Run backfill only"}
+        {isRunningBackfill ? "Normalizing Last.fm" : "Normalize Last.fm"}
       </button>
       <button
         type="button"
@@ -93,7 +97,7 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
       </button>
       {isRefreshing || isRunningBackfill ? (
         <p className="text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)] sm:text-sm">
-          {isRefreshing ? "Refreshing snapshot..." : "Running backfill only..."}
+          {isRefreshing ? "Refreshing snapshot..." : "Normalizing Last.fm..."}
         </p>
       ) : null}
     </div>

@@ -18,6 +18,7 @@ const BUTTONS: MaintenanceButton[] = [
   { action: "rebuild-overview-cache", label: "Overview Cache", description: "Rebuild only the dashboard overview cache.", lane: "dashboard" },
   { action: "rebuild-top-list-caches", label: "Top Lists Cache", description: "Rebuild cached week, month, and year top lists only.", lane: "dashboard" },
   { action: "backfill-artist-metadata", label: "Artist Metadata", description: "Fetch missing permanent artist metadata and images.", lane: "dashboard" },
+  { action: "delete-lastfm-imports", label: "Delete Last.fm Imports", description: "Remove imported Last.fm plays and reset the permanent-library footprint they created.", lane: "dashboard" },
   { action: "refresh-track-library-full", label: "Track Library Full", description: "Full rebuild of permanent track metadata and all-time counts, while skipping unresolved Last.fm imports.", lane: "dashboard" },
   { action: "refresh-track-library-incremental", label: "Track Library Incremental", description: "Only add plays after the stored track-library checkpoint, while skipping unresolved Last.fm imports.", lane: "dashboard" },
   { action: "refresh-artist-library-full", label: "Artist Library Full", description: "Full rebuild of permanent artist counts for this user.", lane: "dashboard" },

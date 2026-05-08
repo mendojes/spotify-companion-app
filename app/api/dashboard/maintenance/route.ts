@@ -16,6 +16,7 @@ function isMaintenanceAction(value: string): value is MaintenanceAction {
     "rebuild-overview-cache",
     "rebuild-top-list-caches",
     "backfill-artist-metadata",
+    "delete-lastfm-imports",
     "normalize-lastfm-imports",
     "refresh-track-library-full",
     "refresh-track-library-incremental",
@@ -38,6 +39,8 @@ function describeMaintenanceAction(action: MaintenanceAction) {
       return "Rebuilding cached week, month, and year top lists";
     case "backfill-artist-metadata":
       return "Backfilling artist metadata";
+    case "delete-lastfm-imports":
+      return "Deleting imported Last.fm plays and resetting their permanent-library footprint";
     case "normalize-lastfm-imports":
       return "Normalizing imported Last.fm scrobbles";
     case "refresh-track-library-full":

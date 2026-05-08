@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
 import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
@@ -5,11 +6,17 @@ import { invalidateDashboardSnapshotCaches } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache } from "@/lib/spotify-playlists";
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { invalidateTopListHistoryCache, resetStoredAllTimeTopListAggregate } from "@/lib/spotify-toplists";
-import { upsertStoredTrackMetadataFromRecentPlays } from "@/lib/track-metadata-cache";
+import { TRACK_METADATA_COLLECTION, upsertStoredTrackMetadataFromRecentPlays } from "@/lib/track-metadata-cache";
 import { SpotifyDashboardSnapshot, SpotifyRecentlyPlayedItem, SpotifyTrack, StoredRecentPlay } from "@/lib/types";
 
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
+const USER_TRACK_LIBRARY_COLLECTION = "spotify_user_track_library";
+const USER_ARTIST_LIBRARY_COLLECTION = "spotify_user_artist_library";
+const USER_ALBUM_LIBRARY_COLLECTION = "spotify_user_album_library";
+const USER_LIBRARY_STATE_COLLECTION = "spotify_user_library_state";
+const ALL_TIME_TOP_LISTS_STATE_COLLECTION = "dashboard_all_time_top_lists_state";
+const ALBUM_METADATA_COLLECTION = "spotify_album_metadata";
 const IMPORT_BATCH_SIZE = 500;
 const LASTFM_IMPORT_SOURCE_TYPE = "lastfm_import";
 const DEFAULT_DUPLICATE_WINDOW_MS = 1000 * 60 * 7;
@@ -140,6 +147,28 @@ function buildNameKey(trackName: string, artistName: string, albumName: string) 
   return `${normalizeText(trackName)}::${normalizeText(artistName)}::${normalizeText(albumName)}`;
 }
 
+function toArtistKeys(play: Pick<StoredRecentPlay, "artistIds" | "artistNames" | "artistName">) {
+  const ids = play.artistIds ?? [];
+  const names = play.artistNames?.length ? play.artistNames : play.artistName.split(/,\s*/).filter(Boolean);
+  if (ids.length > 0 && names.length > 0) {
+    return ids.map((artistId, index) => ({
+      artistKey: artistId,
+      artistId,
+      name: names[index] ?? names[0] ?? play.artistName,
+    }));
+  }
+
+  return [{
+    artistKey: `name:${normalizeText(play.artistName)}`,
+    artistId: undefined,
+    name: play.artistName,
+  }];
+}
+
+function toAlbumKey(play: Pick<StoredRecentPlay, "albumName" | "artistName">) {
+  return `${normalizeText(play.albumName)}::${normalizeText(play.artistName)}`;
+}
+
 function getDuplicateWindowMs(play: Pick<StoredRecentPlay, "durationMs">) {
   const durationWithBufferMs = (play.durationMs ?? 0) + 1000 * 90;
   return Math.min(
@@ -242,7 +271,49 @@ async function getCachedMetadataCandidates(
   ).values()];
   const uniqueTrackIds = [...new Set(plays.map((play) => play.trackId).filter((trackId) => !trackId.startsWith("lastfm:")))];
 
-  const [recentPlayCandidates, snapshots] = await Promise.all([
+  const [libraryCandidates, globalTrackCacheCandidates, recentPlayCandidates, snapshots] = await Promise.all([
+    db
+      .collection<{
+        trackId: string;
+        trackName: string;
+        artistName: string;
+        artistNames?: string[];
+        artistIds?: string[];
+        albumId?: string;
+        albumName: string;
+        durationMs?: number;
+        imageUrl?: string;
+      }>(USER_TRACK_LIBRARY_COLLECTION)
+      .find({
+        spotifyUserId,
+        $or: [
+          ...uniqueTrackIds.map((trackId) => ({ trackId })),
+          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ trackName, artistName })),
+        ],
+      })
+      .sort({ totalPlayCount: -1, lastPlayedAt: -1 })
+      .limit(1000)
+      .toArray(),
+    db
+      .collection<{
+        trackId: string;
+        trackName: string;
+        artistName: string;
+        artistNames?: string[];
+        artistIds?: string[];
+        albumId?: string;
+        albumName: string;
+        durationMs?: number;
+        imageUrl?: string;
+      }>(TRACK_METADATA_COLLECTION)
+      .find({
+        $or: [
+          ...uniqueTrackIds.map((trackId) => ({ trackId })),
+          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ trackName, artistName })),
+        ],
+      })
+      .limit(1000)
+      .toArray(),
     db
       .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
       .find({
@@ -265,9 +336,27 @@ async function getCachedMetadataCandidates(
 
   const snapshotCandidates = snapshots.flatMap((snapshot) => collectSnapshotTrackCandidates(snapshot).map(toMetadataCandidateFromSpotifyTrack));
   return [
+    ...libraryCandidates.map((candidate) => ({ ...candidate })),
+    ...globalTrackCacheCandidates.map((candidate) => ({ ...candidate })),
     ...recentPlayCandidates.map(toMetadataCandidateFromStoredPlay),
     ...snapshotCandidates,
   ];
+}
+
+function buildLocalTrackId(play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">) {
+  return `local:${createHash("sha1").update(`${play.trackName}::${play.artistName}::${play.albumName}`).digest("hex").slice(0, 24)}`;
+}
+
+function finalizeImportedPlay(play: ParsedLastFmPlay, candidate?: TrackMetadataCandidate) {
+  const hydrated = applyMetadataCandidate(play, candidate);
+  if (!hydrated.trackId.startsWith("lastfm:")) {
+    return hydrated;
+  }
+
+  return {
+    ...hydrated,
+    trackId: buildLocalTrackId(hydrated),
+  };
 }
 
 function applyMetadataCandidate(play: ParsedLastFmPlay, candidate?: TrackMetadataCandidate) {
@@ -294,9 +383,9 @@ function applyMetadataCandidate(play: ParsedLastFmPlay, candidate?: TrackMetadat
 }
 
 async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastFmPlay) {
-  const query = `track:${play.trackName} artist:${play.artistName}`;
+  const query = `track:${play.trackName} artist:${play.artistName} album:${play.albumName}`;
   const response = await spotifyFetch<SpotifySearchTracksResponse>(
-    `/search?type=track&limit=5&q=${encodeURIComponent(query)}`,
+    `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
     accessToken,
   ).catch(() => null);
   const items = response?.tracks?.items ?? [];
@@ -307,7 +396,13 @@ async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastF
 
   const exactTrackName = normalizeText(play.trackName);
   const exactArtistName = normalizeText(play.artistName);
+  const exactAlbumName = normalizeText(play.albumName);
   const preferred =
+    items.find((track) =>
+      normalizeText(track.name) === exactTrackName &&
+      normalizeText(track.album.name) === exactAlbumName &&
+      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
+    ) ??
     items.find((track) =>
       normalizeText(track.name) === exactTrackName &&
       track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
@@ -379,11 +474,11 @@ async function hydrateImportedPlayMetadata(
         metadataMaps.byTrackArtistKey.get(play.trackArtistKey);
 
       if (cachedCandidate) {
-        return applyMetadataCandidate(play, cachedCandidate);
+        return finalizeImportedPlay(play, cachedCandidate);
       }
 
       if (!spotifyToken) {
-        return play;
+        return finalizeImportedPlay(play);
       }
 
       const spotifyLookupKey = `${play.trackName}::${play.artistName}`;
@@ -391,7 +486,7 @@ async function hydrateImportedPlayMetadata(
         spotifySearchCache.set(spotifyLookupKey, (await searchSpotifyTrackMetadata(spotifyToken, play)) ?? null);
       }
 
-      return applyMetadataCandidate(play, spotifySearchCache.get(spotifyLookupKey) ?? undefined);
+      return finalizeImportedPlay(play, spotifySearchCache.get(spotifyLookupKey) ?? undefined);
     }),
   );
 }
@@ -678,6 +773,183 @@ async function getExistingNearbyPlays(db: Awaited<ReturnType<typeof getDatabase>
     .toArray();
 }
 
+async function upsertPermanentLibrariesFromImportedPlays(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  spotifyUserId: string,
+  plays: StoredRecentPlay[],
+) {
+  if (!db || plays.length === 0) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const trackGroups = new Map<string, {
+    trackId: string;
+    trackName: string;
+    artistName: string;
+    artistNames?: string[];
+    artistIds?: string[];
+    albumName: string;
+    durationMs?: number;
+    imageUrl?: string;
+    totalPlayCount: number;
+    lastPlayedAt: string;
+  }>();
+  const artistGroups = new Map<string, {
+    artistKey: string;
+    artistId?: string;
+    name: string;
+    totalPlayCount: number;
+    lastPlayedAt: string;
+  }>();
+  const albumGroups = new Map<string, {
+    albumKey: string;
+    albumId?: string;
+    name: string;
+    artistName: string;
+    artistNames?: string[];
+    artistIds?: string[];
+    imageUrl?: string;
+    trackIds: string[];
+    totalPlayCount: number;
+    lastPlayedAt: string;
+  }>();
+
+  plays.forEach((play) => {
+    const existingTrack = trackGroups.get(play.trackId);
+    trackGroups.set(play.trackId, {
+      trackId: play.trackId,
+      trackName: play.trackName,
+      artistName: play.artistName,
+      artistNames: play.artistNames,
+      artistIds: play.artistIds,
+      albumName: play.albumName,
+      durationMs: play.durationMs,
+      imageUrl: play.imageUrl,
+      totalPlayCount: (existingTrack?.totalPlayCount ?? 0) + 1,
+      lastPlayedAt: existingTrack?.lastPlayedAt && existingTrack.lastPlayedAt > play.playedAt ? existingTrack.lastPlayedAt : play.playedAt,
+    });
+
+    toArtistKeys(play).forEach((artist) => {
+      const existingArtist = artistGroups.get(artist.artistKey);
+      artistGroups.set(artist.artistKey, {
+        artistKey: artist.artistKey,
+        artistId: artist.artistId,
+        name: artist.name,
+        totalPlayCount: (existingArtist?.totalPlayCount ?? 0) + 1,
+        lastPlayedAt: existingArtist?.lastPlayedAt && existingArtist.lastPlayedAt > play.playedAt ? existingArtist.lastPlayedAt : play.playedAt,
+      });
+    });
+
+    const albumKey = toAlbumKey(play);
+    const existingAlbum = albumGroups.get(albumKey);
+    albumGroups.set(albumKey, {
+      albumKey,
+      albumId: existingAlbum?.albumId,
+      name: play.albumName,
+      artistName: play.artistName,
+      artistNames: play.artistNames,
+      artistIds: play.artistIds,
+      imageUrl: play.imageUrl ?? existingAlbum?.imageUrl,
+      trackIds: [...new Set([...(existingAlbum?.trackIds ?? []), play.trackId])],
+      totalPlayCount: (existingAlbum?.totalPlayCount ?? 0) + 1,
+      lastPlayedAt: existingAlbum?.lastPlayedAt && existingAlbum.lastPlayedAt > play.playedAt ? existingAlbum.lastPlayedAt : play.playedAt,
+    });
+  });
+
+  const trackOps = [...trackGroups.values()].map((record) => ({
+    updateOne: {
+      filter: { spotifyUserId, trackId: record.trackId },
+      update: {
+        $set: {
+          trackName: record.trackName,
+          artistName: record.artistName,
+          artistNames: record.artistNames,
+          artistIds: record.artistIds,
+          albumName: record.albumName,
+          durationMs: record.durationMs,
+          imageUrl: record.imageUrl,
+          lastPlayedAt: record.lastPlayedAt,
+          updatedAt: now,
+        },
+        $inc: {
+          totalPlayCount: record.totalPlayCount,
+        },
+      },
+      upsert: true,
+    },
+  }));
+  const artistOps = [...artistGroups.values()].map((record) => ({
+    updateOne: {
+      filter: { spotifyUserId, artistKey: record.artistKey },
+      update: {
+        $set: {
+          artistId: record.artistId,
+          name: record.name,
+          lastPlayedAt: record.lastPlayedAt,
+          updatedAt: now,
+        },
+        $inc: {
+          totalPlayCount: record.totalPlayCount,
+        },
+      },
+      upsert: true,
+    },
+  }));
+  const albumOps = [...albumGroups.values()].map((record) => ({
+    updateOne: {
+      filter: { spotifyUserId, albumKey: record.albumKey },
+      update: {
+        $set: {
+          albumId: record.albumId,
+          name: record.name,
+          artistName: record.artistName,
+          artistNames: record.artistNames,
+          artistIds: record.artistIds,
+          imageUrl: record.imageUrl,
+          trackIds: record.trackIds,
+          lastPlayedAt: record.lastPlayedAt,
+          updatedAt: now,
+        },
+        $inc: {
+          totalPlayCount: record.totalPlayCount,
+        },
+      },
+      upsert: true,
+    },
+  }));
+
+  await Promise.all([
+    trackOps.length > 0 ? db.collection(USER_TRACK_LIBRARY_COLLECTION).bulkWrite(trackOps, { ordered: false }) : Promise.resolve(),
+    artistOps.length > 0 ? db.collection(USER_ARTIST_LIBRARY_COLLECTION).bulkWrite(artistOps, { ordered: false }) : Promise.resolve(),
+    albumOps.length > 0 ? db.collection(USER_ALBUM_LIBRARY_COLLECTION).bulkWrite(albumOps, { ordered: false }) : Promise.resolve(),
+    albumOps.length > 0
+      ? db.collection(ALBUM_METADATA_COLLECTION).bulkWrite(
+        [...albumGroups.values()].map((record) => ({
+          updateOne: {
+            filter: { albumKey: record.albumKey },
+            update: {
+              $set: {
+                albumKey: record.albumKey,
+                albumId: record.albumId,
+                name: record.name,
+                artistName: record.artistName,
+                artistNames: record.artistNames,
+                artistIds: record.artistIds,
+                imageUrl: record.imageUrl,
+                trackIds: record.trackIds,
+                updatedAt: now,
+              },
+            },
+            upsert: true,
+          },
+        })),
+        { ordered: false },
+      )
+      : Promise.resolve(),
+  ]);
+}
+
 export async function importLastFmScrobbles(csvText: string, spotifyUserId: string, accessToken?: string): Promise<LastFmImportResult> {
   const { plays, totalRows, skippedRows } = parseLastFmCsv(csvText, spotifyUserId);
 
@@ -787,6 +1059,7 @@ export async function importLastFmScrobbles(csvText: string, spotifyUserId: stri
       { ordered: false },
     );
     await upsertStoredTrackMetadataFromRecentPlays(enrichedNewPlays).catch(() => undefined);
+    await upsertPermanentLibrariesFromImportedPlays(db, spotifyUserId, enrichedNewPlays).catch(() => undefined);
 
     importedCount += enrichedNewPlays.length;
   }
@@ -807,21 +1080,46 @@ export async function importLastFmScrobbleChunk(payload: LastFmImportPayload) {
 
 export async function deleteImportedLastFmScrobbles(spotifyUserId: string) {
   if (!hasMongoConfig()) {
-    return { deletedCount: 0 };
+    return { deletedCount: 0, resetLibraries: false };
   }
 
   const db = await getDatabase({ forceRetry: true });
   if (!db) {
-    return { deletedCount: 0 };
+    return { deletedCount: 0, resetLibraries: false };
   }
+
+  const importedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      spotifyUserId,
+      sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+    })
+    .project({ trackId: 1 })
+    .toArray();
+  const importedTrackIdsToForget = [...new Set(
+    importedPlays
+      .map((play) => play.trackId)
+      .filter((trackId): trackId is string => Boolean(trackId) && (/^local:/i.test(trackId) || /^lastfm:/i.test(trackId))),
+  )];
 
   const result = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).deleteMany({
     spotifyUserId,
     sourceType: LASTFM_IMPORT_SOURCE_TYPE,
   });
 
+  await Promise.all([
+    db.collection(USER_TRACK_LIBRARY_COLLECTION).deleteMany({ spotifyUserId }),
+    db.collection(USER_ARTIST_LIBRARY_COLLECTION).deleteMany({ spotifyUserId }),
+    db.collection(USER_ALBUM_LIBRARY_COLLECTION).deleteMany({ spotifyUserId }),
+    db.collection(USER_LIBRARY_STATE_COLLECTION).deleteMany({ spotifyUserId }),
+    db.collection(ALL_TIME_TOP_LISTS_STATE_COLLECTION).deleteMany({ spotifyUserId }),
+    importedTrackIdsToForget.length > 0
+      ? db.collection(TRACK_METADATA_COLLECTION).deleteMany({ trackId: { $in: importedTrackIdsToForget } })
+      : Promise.resolve(),
+  ]);
+
   return {
     deletedCount: result.deletedCount ?? 0,
+    resetLibraries: true,
   };
 }
 

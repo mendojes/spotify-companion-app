@@ -3,12 +3,10 @@ import { randomUUID } from "node:crypto";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import {
   getConnectedUser,
-  markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
 } from "@/lib/connected-users";
 import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache, writeStoredPlaylistsSectionCache } from "@/lib/dashboard-section-cache";
 import { writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
-import { getMissingArtistMetadataIdsForUser as getMissingArtistMetadataIdsForOverviewUser } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache, syncPlaylistLibrary } from "@/lib/spotify-playlists";
 
 function normalizeRange(range?: string) {
@@ -163,28 +161,15 @@ export async function POST(request: NextRequest) {
       await assertRunIsStillActive();
       logEnrichmentTiming(authorizedSession.spotifyUserId, "section-cache", sectionCacheStartedAt);
     }
-    const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
-    await markConnectedUserArtistMetadataBackfillStatus(
-      authorizedSession.spotifyUserId,
-      "pending",
-      {
-        detail: missingArtistIds.length > 0
-          ? `Queued ${missingArtistIds.length} artist ids plus imported-track normalization for follow-up metadata backfill`
-          : "Queued imported-track normalization and top-list metadata follow-up after dashboard cache rebuild",
-        runId: connectedUser?.artistMetadataBackfillRunId ?? null,
-      },
-    ).catch(() => undefined);
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
       range,
-      detail: missingArtistIds.length > 0
-        ? `Dashboard caches rebuilt. Artist metadata backfill queued for ${missingArtistIds.length} artists`
-        : "Dashboard caches rebuilt. Follow-up imported-track normalization and metadata hydration queued",
+      detail: "Dashboard caches rebuilt successfully.",
       step: "complete",
       runId,
     }).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "total", startedAt);
 
-    return NextResponse.json({ status: "success", needsArtistMetadataBackfill: missingArtistIds.length > 0 });
+    return NextResponse.json({ status: "success", needsArtistMetadataBackfill: false });
   } catch (error) {
     if (error instanceof CancelledEnrichmentRunError) {
       return NextResponse.json({ status: "cancelled" }, { status: 202 });

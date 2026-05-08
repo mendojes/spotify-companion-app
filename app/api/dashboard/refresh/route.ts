@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import {
+  markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
   markConnectedUserRecentSync,
   markConnectedUserSnapshotStatus,
@@ -69,10 +70,17 @@ export async function GET(request: NextRequest) {
     invalidateTopListHistoryCache(authorizedSession.spotifyUserId);
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
-    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
+    await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "idle", {
+      detail: "",
+      step: "",
+      checkpoint: null,
+      runId: null,
+      backfilledCount: 0,
+    }).catch(() => undefined);
+    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "pending", {
       range,
-      detail: "Spotify snapshot refresh finished. Run the exact maintenance step you want next from the dashboard controls.",
-      step: "snapshot-refresh",
+      detail: "Spotify snapshot refresh finished. Rebuilding the dashboard caches next.",
+      step: "queued",
       checkpoint: null,
       runId: null,
     }).catch(() => undefined);
