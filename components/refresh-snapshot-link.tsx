@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RefreshCcw } from "lucide-react";
+import { RefreshCcw, Wand2 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type RefreshSnapshotLinkProps = {
@@ -13,6 +13,7 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRunningBackfill, setIsRunningBackfill] = useState(false);
   const search = searchParams.toString();
 
   useEffect(() => {
@@ -49,8 +50,35 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
     }
   }
 
+  async function handleBackfillOnly() {
+    if (isRunningBackfill) {
+      return;
+    }
+
+    setIsRunningBackfill(true);
+
+    try {
+      await fetch("/api/dashboard/artist-metadata/backfill", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      router.refresh();
+    } finally {
+      setIsRunningBackfill(false);
+    }
+  }
+
   return (
     <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={handleBackfillOnly}
+        disabled={isRunningBackfill}
+        className="pixel-chip inline-flex min-h-11 items-center gap-2 px-3 text-xs text-[var(--theme-text)] transition hover:text-[#2d0d46] disabled:cursor-wait disabled:opacity-80 sm:px-4 sm:text-sm"
+      >
+        <Wand2 className={`h-4 w-4 ${isRunningBackfill ? "animate-pulse" : ""}`} />
+        {isRunningBackfill ? "Running backfill" : "Run backfill only"}
+      </button>
       <button
         type="button"
         onClick={handleRefresh}
@@ -60,9 +88,9 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
         <RefreshCcw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
         {isRefreshing ? "Refreshing snapshot" : "Refresh snapshot"}
       </button>
-      {isRefreshing ? (
+      {isRefreshing || isRunningBackfill ? (
         <p className="text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)] sm:text-sm">
-          Refreshing snapshot...
+          {isRefreshing ? "Refreshing snapshot..." : "Running backfill only..."}
         </p>
       ) : null}
     </div>
