@@ -343,27 +343,31 @@ export async function writeStoredDashboardSectionCache(
 
   const topListsStartedAt = Date.now();
   await reportProgress("Building top-list caches from stored listening history");
-  const topListsEntries = await Promise.all(
-    TOP_LIST_RANGE_VALUES.map(async (range) => [
-      range,
+  const topListsEntries: Array<readonly [Exclude<TopListRange, "custom">, TopListsData | null]> = [];
+  for (const range of TOP_LIST_RANGE_VALUES) {
+    await reportProgress(
       range === "all"
-        ? await getStoredOrBuildIncrementalAllTimeTopLists(
-          spotifyUserId,
-          FULL_TOP_LIST_LIMIT,
-          options?.accessToken,
-          { allowCatalogLookup: false },
-        )
-        : await getSpotifyTopListsFromHistory(
-          spotifyUserId,
-          range,
-          FULL_TOP_LIST_LIMIT,
-          undefined,
-          undefined,
-          options?.accessToken,
-          { allowCatalogLookup: false },
-        ),
-    ] as const),
-  );
+        ? "Building top-list cache for all time from incremental aggregate"
+        : `Building top-list cache for ${range} from scoped listening history`,
+    );
+    const data = range === "all"
+      ? await getStoredOrBuildIncrementalAllTimeTopLists(
+        spotifyUserId,
+        FULL_TOP_LIST_LIMIT,
+        options?.accessToken,
+        { allowCatalogLookup: false },
+      )
+      : await getSpotifyTopListsFromHistory(
+        spotifyUserId,
+        range,
+        FULL_TOP_LIST_LIMIT,
+        undefined,
+        undefined,
+        options?.accessToken,
+        { allowCatalogLookup: false },
+      );
+    topListsEntries.push([range, data] as const);
+  }
   logSectionTiming(spotifyUserId, "section-cache", "build-top-lists", topListsStartedAt);
 
   const updatedAt = new Date().toISOString();

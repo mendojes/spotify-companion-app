@@ -1549,11 +1549,11 @@ async function getRecentPlayTopLists(
   };
 }
 
-export async function getTopListHistoryData(spotifyUserId: string): Promise<TopListHistoryData> {
-  return getCachedValue(`top-list-history:${spotifyUserId}`, TOP_LIST_HISTORY_TTL_MS, async () => {
+export async function getTopListHistoryData(spotifyUserId: string, range: TopListRange = "all"): Promise<TopListHistoryData> {
+  return getCachedValue(`top-list-history:${spotifyUserId}:${range}`, TOP_LIST_HISTORY_TTL_MS, async () => {
     const [snapshots, recentPlays] = await Promise.all([
-      getHistoricalSnapshots(spotifyUserId, "all"),
-      getRecentPlaysForTopLists(spotifyUserId, "all"),
+      getHistoricalSnapshots(spotifyUserId, range),
+      getRecentPlaysForTopLists(spotifyUserId, range),
     ]);
 
     return { snapshots, recentPlays };
@@ -1561,7 +1561,9 @@ export async function getTopListHistoryData(spotifyUserId: string): Promise<TopL
 }
 
 export function invalidateTopListHistoryCache(spotifyUserId: string) {
-  invalidateCachedValue(`top-list-history:${spotifyUserId}`);
+  ["week", "month", "year", "all", "custom"].forEach((range) => {
+    invalidateCachedValue(`top-list-history:${spotifyUserId}:${range}`);
+  });
 }
 
 async function readStoredAllTimeTopListAggregate(spotifyUserId: string) {
@@ -1949,7 +1951,8 @@ export async function getSpotifyTopListsFromHistory(
   accessToken?: string,
   options?: TopListHistoryOptions,
 ) {
-  const history = await getTopListHistoryData(spotifyUserId);
+  const historyRange = range === "custom" || from || to ? "all" : range;
+  const history = await getTopListHistoryData(spotifyUserId, historyRange);
   return getSpotifyTopListsFromHistoryData(history, range, limit, from, to, accessToken, options);
 }
 
