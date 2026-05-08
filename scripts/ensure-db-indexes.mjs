@@ -17,6 +17,13 @@ const PLAYLIST_TRACK_CACHE_COLLECTION = "spotify_playlist_track_cache";
 const PLAYLIST_TRACK_SYNC_COLLECTION = "spotify_playlist_track_sync";
 const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
 const TRACK_METADATA_COLLECTION = "spotify_track_metadata";
+const ALBUM_METADATA_COLLECTION = "spotify_album_metadata";
+const USER_TRACK_LIBRARY_COLLECTION = "spotify_user_track_library";
+const USER_ARTIST_LIBRARY_COLLECTION = "spotify_user_artist_library";
+const USER_ALBUM_LIBRARY_COLLECTION = "spotify_user_album_library";
+const USER_LIBRARY_STATE_COLLECTION = "spotify_user_library_state";
+const ALL_TIME_TOP_LISTS_STATE_COLLECTION = "dashboard_all_time_top_lists_state";
+const MAINTENANCE_HISTORY_COLLECTION = "dashboard_maintenance_history";
 const AUDIO_FEATURE_CACHE_COLLECTION = "spotify_audio_feature_cache";
 
 if (!uri) {
@@ -94,6 +101,43 @@ try {
     db
       .collection(TRACK_METADATA_COLLECTION)
       .createIndex({ trackId: 1 }, { unique: true }),
+
+    db
+      .collection(ALBUM_METADATA_COLLECTION)
+      .createIndex({ albumKey: 1 }, { unique: true }),
+
+    db
+      .collection(USER_TRACK_LIBRARY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, trackId: 1 }, { unique: true }),
+    db
+      .collection(USER_TRACK_LIBRARY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, totalPlayCount: -1, lastPlayedAt: -1 }),
+
+    db
+      .collection(USER_ARTIST_LIBRARY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, artistKey: 1 }, { unique: true }),
+    db
+      .collection(USER_ARTIST_LIBRARY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, totalPlayCount: -1, lastPlayedAt: -1 }),
+
+    db
+      .collection(USER_ALBUM_LIBRARY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, albumKey: 1 }, { unique: true }),
+    db
+      .collection(USER_ALBUM_LIBRARY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, totalPlayCount: -1, lastPlayedAt: -1 }),
+
+    db
+      .collection(USER_LIBRARY_STATE_COLLECTION)
+      .createIndex({ spotifyUserId: 1, action: 1 }, { unique: true }),
+
+    db
+      .collection(ALL_TIME_TOP_LISTS_STATE_COLLECTION)
+      .createIndex({ spotifyUserId: 1 }, { unique: true }),
+
+    db
+      .collection(MAINTENANCE_HISTORY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, action: 1 }, { unique: true }),
 
     db
       .collection(AUDIO_FEATURE_CACHE_COLLECTION)

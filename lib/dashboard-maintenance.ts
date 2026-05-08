@@ -1,0 +1,986 @@
+import { createHash } from "node:crypto";
+import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
+import { writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
+import {
+  invalidateDashboardSectionRuntimeCache,
+  writeStoredDashboardSectionCache,
+  writeStoredPlaylistsSectionCache,
+  writeStoredTopListsSectionEntry,
+} from "@/lib/dashboard-section-cache";
+import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
+import { normalizeImportedLastFmScrobbles } from "@/lib/lastfm-import";
+import { getStoredTrackMetadataMap, TRACK_METADATA_COLLECTION } from "@/lib/track-metadata-cache";
+import { spotifyFetch } from "@/lib/spotify";
+import { TopListsData, StoredRecentPlay, SpotifyTrack } from "@/lib/types";
+
+const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
+const USER_TRACK_LIBRARY_COLLECTION = "spotify_user_track_library";
+const USER_ARTIST_LIBRARY_COLLECTION = "spotify_user_artist_library";
+const USER_ALBUM_LIBRARY_COLLECTION = "spotify_user_album_library";
+const USER_LIBRARY_STATE_COLLECTION = "spotify_user_library_state";
+const ALL_TIME_TOP_LISTS_STATE_COLLECTION = "dashboard_all_time_top_lists_state";
+const ARTIST_METADATA_COLLECTION = "spotify_artist_metadata";
+const ALBUM_METADATA_COLLECTION = "spotify_album_metadata";
+const TOP_LISTS_CACHE_COLLECTION = "dashboard_top_lists_cache";
+const MAINTENANCE_HISTORY_COLLECTION = "dashboard_maintenance_history";
+
+const PAGE_SIZE = 2_000;
+const MAX_RUNTIME_MS = 22_000;
+
+export type MaintenanceAction =
+  | "rebuild-playlist-cache"
+  | "rebuild-overview-cache"
+  | "rebuild-top-list-caches"
+  | "backfill-artist-metadata"
+  | "normalize-lastfm-imports"
+  | "refresh-track-library-full"
+  | "refresh-track-library-incremental"
+  | "refresh-artist-library-full"
+  | "refresh-artist-library-incremental"
+  | "refresh-album-library-full"
+  | "refresh-album-library-incremental"
+  | "refresh-all-time-full"
+  | "refresh-all-time-incremental";
+
+type MaintenanceProgressReporter = (detail: string) => Promise<void> | void;
+
+type UserTrackLibraryDoc = {
+  spotifyUserId: string;
+  trackId: string;
+  trackName: string;
+  artistName: string;
+  artistNames?: string[];
+  artistIds?: string[];
+  albumId?: string;
+  albumName: string;
+  durationMs?: number;
+  imageUrl?: string;
+  totalPlayCount: number;
+  lastPlayedAt: string;
+  updatedAt: string;
+};
+
+type UserArtistLibraryDoc = {
+  spotifyUserId: string;
+  artistKey: string;
+  artistId?: string;
+  name: string;
+  genres?: string[];
+  imageUrl?: string;
+  totalPlayCount: number;
+  lastPlayedAt: string;
+  updatedAt: string;
+};
+
+type UserAlbumLibraryDoc = {
+  spotifyUserId: string;
+  albumKey: string;
+  albumId?: string;
+  name: string;
+  artistName: string;
+  artistNames?: string[];
+  artistIds?: string[];
+  imageUrl?: string;
+  trackIds?: string[];
+  totalPlayCount: number;
+  lastPlayedAt: string;
+  updatedAt: string;
+};
+
+type StoredAlbumMetadataDoc = {
+  albumKey: string;
+  albumId?: string;
+  name: string;
+  artistName: string;
+  artistNames?: string[];
+  artistIds?: string[];
+  imageUrl?: string;
+  trackIds?: string[];
+  updatedAt: string;
+};
+
+type UserLibraryStateDoc = {
+  spotifyUserId: string;
+  action: string;
+  mode: "full" | "incremental";
+  lastProcessedPlayedAt?: string;
+  buildComplete?: boolean;
+  updatedAt: string;
+};
+
+type AllTimeTopListsStateDoc = {
+  spotifyUserId: string;
+  lastComputedPlayedAt?: string;
+  mode: "full" | "incremental";
+  updatedAt: string;
+};
+
+export type MaintenanceHistoryEntry = {
+  spotifyUserId: string;
+  action: MaintenanceAction;
+  status: "running" | "success" | "error";
+  detail: string;
+  partial?: boolean;
+  startedAt: string;
+  finishedAt?: string;
+  updatedAt: string;
+};
+
+function normalizeText(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function toSafeTrackId(play: Pick<StoredRecentPlay, "trackId" | "trackName" | "artistName" | "albumName">) {
+  if (play.trackId?.trim()) {
+    return play.trackId.trim();
+  }
+
+  const base = `${play.trackName}::${play.artistName}::${play.albumName}`;
+  return `local:${createHash("sha1").update(base).digest("hex").slice(0, 24)}`;
+}
+
+function toArtistKeys(play: Pick<StoredRecentPlay, "artistIds" | "artistNames" | "artistName">) {
+  const ids = play.artistIds ?? [];
+  const names = play.artistNames?.length ? play.artistNames : play.artistName.split(/,\s*/).filter(Boolean);
+  if (ids.length > 0 && names.length > 0) {
+    return ids.map((artistId, index) => ({
+      artistKey: artistId,
+      artistId,
+      name: names[index] ?? names[0] ?? play.artistName,
+    }));
+  }
+
+  return [{
+    artistKey: `name:${normalizeText(play.artistName)}`,
+    artistId: undefined,
+    name: play.artistName,
+  }];
+}
+
+function toAlbumKey(play: Pick<StoredRecentPlay, "albumName" | "artistName">) {
+  return `${normalizeText(play.albumName)}::${normalizeText(play.artistName)}`;
+}
+
+async function getLatestPlayedAt(spotifyUserId: string) {
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return "";
+  }
+
+  const latest = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({ spotifyUserId })
+    .sort({ playedAt: -1 })
+    .limit(1)
+    .project({ playedAt: 1 })
+    .toArray();
+
+  return latest[0]?.playedAt ?? "";
+}
+
+async function readUserLibraryState(spotifyUserId: string, action: string) {
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return null;
+  }
+
+  return db.collection<UserLibraryStateDoc>(USER_LIBRARY_STATE_COLLECTION).findOne({ spotifyUserId, action }) as Promise<UserLibraryStateDoc | null>;
+}
+
+async function writeUserLibraryState(
+  spotifyUserId: string,
+  action: string,
+  patch: Partial<UserLibraryStateDoc> & Pick<UserLibraryStateDoc, "mode">,
+) {
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  await db.collection<UserLibraryStateDoc>(USER_LIBRARY_STATE_COLLECTION).updateOne(
+    { spotifyUserId, action },
+    {
+      $set: {
+        spotifyUserId,
+        action,
+        updatedAt: new Date().toISOString(),
+        ...patch,
+      },
+    },
+    { upsert: true },
+  );
+}
+
+async function upsertTrackMetadataCacheEntry(record: Omit<UserTrackLibraryDoc, "spotifyUserId" | "totalPlayCount" | "lastPlayedAt" | "updatedAt">) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  await db.collection(TRACK_METADATA_COLLECTION).updateOne(
+    { trackId: record.trackId },
+    {
+      $set: {
+        trackId: record.trackId,
+        trackName: record.trackName,
+        artistName: record.artistName,
+        artistNames: record.artistNames,
+        artistIds: record.artistIds,
+        albumId: record.albumId,
+        albumName: record.albumName,
+        durationMs: record.durationMs,
+        imageUrl: record.imageUrl,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+    { upsert: true },
+  );
+}
+
+function buildTrackBulkOps(
+  spotifyUserId: string,
+  plays: StoredRecentPlay[],
+  metadataByTrackId: Map<string, Awaited<ReturnType<typeof getStoredTrackMetadataMap>> extends Map<string, infer T> ? T : never>,
+) {
+  const grouped = new Map<string, UserTrackLibraryDoc>();
+  plays.forEach((play) => {
+    const trackId = toSafeTrackId(play);
+    const metadata = metadataByTrackId.get(trackId);
+    const existing = grouped.get(trackId);
+    const base: UserTrackLibraryDoc = {
+      spotifyUserId,
+      trackId,
+      trackName: metadata?.trackName ?? play.trackName,
+      artistName: metadata?.artistName ?? play.artistName,
+      artistNames: metadata?.artistNames ?? play.artistNames,
+      artistIds: metadata?.artistIds ?? play.artistIds,
+      albumId: metadata?.albumId,
+      albumName: metadata?.albumName ?? play.albumName,
+      durationMs: metadata?.durationMs ?? play.durationMs,
+      imageUrl: metadata?.imageUrl ?? play.imageUrl,
+      totalPlayCount: (existing?.totalPlayCount ?? 0) + 1,
+      lastPlayedAt: existing?.lastPlayedAt && existing.lastPlayedAt > play.playedAt ? existing.lastPlayedAt : play.playedAt,
+      updatedAt: new Date().toISOString(),
+    };
+    grouped.set(trackId, base);
+  });
+
+  return [...grouped.values()].map((record) => ({
+    updateOne: {
+      filter: { spotifyUserId, trackId: record.trackId },
+      update: {
+        $set: {
+          trackName: record.trackName,
+          artistName: record.artistName,
+          artistNames: record.artistNames,
+          artistIds: record.artistIds,
+          albumId: record.albumId,
+          albumName: record.albumName,
+          durationMs: record.durationMs,
+          imageUrl: record.imageUrl,
+          lastPlayedAt: record.lastPlayedAt,
+          updatedAt: record.updatedAt,
+        },
+        $inc: {
+          totalPlayCount: record.totalPlayCount,
+        },
+      },
+      upsert: true,
+    },
+  }));
+}
+
+function buildArtistBulkOps(spotifyUserId: string, plays: StoredRecentPlay[]) {
+  const grouped = new Map<string, UserArtistLibraryDoc>();
+  plays.forEach((play) => {
+    toArtistKeys(play).forEach((artist) => {
+      const existing = grouped.get(artist.artistKey);
+      grouped.set(artist.artistKey, {
+        spotifyUserId,
+        artistKey: artist.artistKey,
+        artistId: artist.artistId,
+        name: artist.name,
+        totalPlayCount: (existing?.totalPlayCount ?? 0) + 1,
+        lastPlayedAt: existing?.lastPlayedAt && existing.lastPlayedAt > play.playedAt ? existing.lastPlayedAt : play.playedAt,
+        updatedAt: new Date().toISOString(),
+        genres: existing?.genres,
+        imageUrl: existing?.imageUrl,
+      });
+    });
+  });
+
+  return [...grouped.values()].map((record) => ({
+    updateOne: {
+      filter: { spotifyUserId, artistKey: record.artistKey },
+      update: {
+        $set: {
+          artistId: record.artistId,
+          name: record.name,
+          lastPlayedAt: record.lastPlayedAt,
+          updatedAt: record.updatedAt,
+        },
+        $inc: {
+          totalPlayCount: record.totalPlayCount,
+        },
+      },
+      upsert: true,
+    },
+  }));
+}
+
+function buildAlbumBulkOps(
+  spotifyUserId: string,
+  plays: StoredRecentPlay[],
+  metadataByTrackId: Map<string, Awaited<ReturnType<typeof getStoredTrackMetadataMap>> extends Map<string, infer T> ? T : never>,
+) {
+  const grouped = new Map<string, UserAlbumLibraryDoc>();
+  plays.forEach((play) => {
+    const trackId = toSafeTrackId(play);
+    const metadata = metadataByTrackId.get(trackId);
+    const resolvedAlbumName = metadata?.albumName ?? play.albumName;
+    const resolvedArtistName = metadata?.artistName ?? play.artistName;
+    const albumKey = `${normalizeText(resolvedAlbumName)}::${normalizeText(resolvedArtistName)}`;
+    const existing = grouped.get(albumKey);
+    grouped.set(albumKey, {
+      spotifyUserId,
+      albumKey,
+      albumId: metadata?.albumId ?? existing?.albumId,
+      name: resolvedAlbumName,
+      artistName: resolvedArtistName,
+      artistNames: metadata?.artistNames ?? play.artistNames,
+      artistIds: metadata?.artistIds ?? play.artistIds,
+      imageUrl: metadata?.imageUrl ?? play.imageUrl ?? existing?.imageUrl,
+      trackIds: [...new Set([...(existing?.trackIds ?? []), trackId])],
+      totalPlayCount: (existing?.totalPlayCount ?? 0) + 1,
+      lastPlayedAt: existing?.lastPlayedAt && existing.lastPlayedAt > play.playedAt ? existing.lastPlayedAt : play.playedAt,
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  return [...grouped.values()].map((record) => ({
+    updateOne: {
+      filter: { spotifyUserId, albumKey: record.albumKey },
+      update: {
+        $set: {
+          albumId: record.albumId,
+          name: record.name,
+          artistName: record.artistName,
+          artistNames: record.artistNames,
+          artistIds: record.artistIds,
+          imageUrl: record.imageUrl,
+          trackIds: record.trackIds,
+          lastPlayedAt: record.lastPlayedAt,
+          updatedAt: record.updatedAt,
+        },
+        $inc: {
+          totalPlayCount: record.totalPlayCount,
+        },
+      },
+      upsert: true,
+    },
+  }));
+}
+
+async function upsertAlbumMetadataEntries(records: UserAlbumLibraryDoc[]) {
+  if (!hasMongoConfig() || records.length === 0) {
+    return;
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  const deduped = new Map<string, StoredAlbumMetadataDoc>();
+  records.forEach((record) => {
+    deduped.set(record.albumKey, {
+      albumKey: record.albumKey,
+      albumId: record.albumId,
+      name: record.name,
+      artistName: record.artistName,
+      artistNames: record.artistNames,
+      artistIds: record.artistIds,
+      imageUrl: record.imageUrl,
+      trackIds: record.trackIds,
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  await db.collection<StoredAlbumMetadataDoc>(ALBUM_METADATA_COLLECTION).bulkWrite(
+    [...deduped.values()].map((record) => ({
+      updateOne: {
+        filter: { albumKey: record.albumKey },
+        update: {
+          $set: record,
+        },
+        upsert: true,
+      },
+    })),
+    { ordered: false },
+  );
+}
+
+export async function writeMaintenanceHistoryEntry(
+  spotifyUserId: string,
+  action: MaintenanceAction,
+  status: MaintenanceHistoryEntry["status"],
+  detail: string,
+  options?: {
+    partial?: boolean;
+    startedAt?: string;
+  },
+) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  const updatedAt = new Date().toISOString();
+  await db.collection<MaintenanceHistoryEntry>(MAINTENANCE_HISTORY_COLLECTION).updateOne(
+    { spotifyUserId, action },
+    {
+      $set: {
+        spotifyUserId,
+        action,
+        status,
+        detail,
+        partial: options?.partial,
+        updatedAt,
+        startedAt: options?.startedAt ?? updatedAt,
+        finishedAt: status === "running" ? undefined : updatedAt,
+      },
+    },
+    { upsert: true },
+  );
+}
+
+export async function listMaintenanceHistory(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return [] as MaintenanceHistoryEntry[];
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return [] as MaintenanceHistoryEntry[];
+  }
+
+  return db.collection<MaintenanceHistoryEntry>(MAINTENANCE_HISTORY_COLLECTION)
+    .find({ spotifyUserId })
+    .sort({ updatedAt: -1 })
+    .toArray() as Promise<MaintenanceHistoryEntry[]>;
+}
+
+async function clearUserLibraryCollections(spotifyUserId: string, target: "tracks" | "artists" | "albums" | "all") {
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  const ops: Promise<unknown>[] = [];
+  if (target === "tracks" || target === "all") {
+    ops.push(db.collection(USER_TRACK_LIBRARY_COLLECTION).deleteMany({ spotifyUserId }));
+  }
+  if (target === "artists" || target === "all") {
+    ops.push(db.collection(USER_ARTIST_LIBRARY_COLLECTION).deleteMany({ spotifyUserId }));
+  }
+  if (target === "albums" || target === "all") {
+    ops.push(db.collection(USER_ALBUM_LIBRARY_COLLECTION).deleteMany({ spotifyUserId }));
+  }
+  await Promise.all(ops);
+}
+
+export async function syncUserLibraryFromRecentPlays(
+  spotifyUserId: string,
+  target: "tracks" | "artists" | "albums" | "all",
+  mode: "full" | "incremental",
+  onProgress?: MaintenanceProgressReporter,
+) {
+  if (!hasMongoConfig()) {
+    return { partial: false, processedPlays: 0, lastProcessedPlayedAt: "", buildComplete: true };
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return { partial: false, processedPlays: 0, lastProcessedPlayedAt: "", buildComplete: true };
+  }
+
+  const action = `library:${target}`;
+  let state = await readUserLibraryState(spotifyUserId, action);
+  if (!state || state.mode !== mode || state.buildComplete || mode === "full" && !state.lastProcessedPlayedAt) {
+    if (mode === "full") {
+      await clearUserLibraryCollections(spotifyUserId, target);
+    }
+    const nextLastProcessedPlayedAt = mode === "incremental" ? state?.lastProcessedPlayedAt ?? "" : "";
+    state = {
+      spotifyUserId,
+      action,
+      mode,
+      lastProcessedPlayedAt: nextLastProcessedPlayedAt,
+      buildComplete: false,
+      updatedAt: new Date().toISOString(),
+    } as UserLibraryStateDoc;
+    await writeUserLibraryState(spotifyUserId, action, {
+      mode,
+      lastProcessedPlayedAt: nextLastProcessedPlayedAt,
+      buildComplete: false,
+    });
+  }
+
+  const startedAt = Date.now();
+  let processedPlays = 0;
+  let cursor = state?.lastProcessedPlayedAt ?? "";
+
+  while (Date.now() - startedAt < MAX_RUNTIME_MS) {
+    const plays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+      .find({
+        spotifyUserId,
+        ...(cursor ? { playedAt: { $gt: cursor } } : {}),
+      })
+      .sort({ playedAt: 1 })
+      .limit(PAGE_SIZE)
+      .toArray();
+
+    if (plays.length === 0) {
+      await writeUserLibraryState(spotifyUserId, action, {
+        mode,
+        lastProcessedPlayedAt: cursor,
+        buildComplete: true,
+      });
+      return { partial: false, processedPlays, lastProcessedPlayedAt: cursor, buildComplete: true };
+    }
+
+    await onProgress?.(`Processing ${target} library batch ending at ${plays[plays.length - 1]?.playedAt ?? "unknown time"}`);
+    const trackIds = [...new Set(plays.map((play) => toSafeTrackId(play)))];
+    const metadataByTrackId = await getStoredTrackMetadataMap(trackIds);
+    const bulkWrites: Promise<unknown>[] = [];
+    if (target === "tracks" || target === "all") {
+      const trackOps = buildTrackBulkOps(spotifyUserId, plays, metadataByTrackId);
+      if (trackOps.length > 0) {
+        bulkWrites.push(db.collection(USER_TRACK_LIBRARY_COLLECTION).bulkWrite(trackOps, { ordered: false }));
+      }
+      await Promise.all(plays.slice(0, 25).map((play) => upsertTrackMetadataCacheEntry({
+        trackId: toSafeTrackId(play),
+        trackName: metadataByTrackId.get(toSafeTrackId(play))?.trackName ?? play.trackName,
+        artistName: metadataByTrackId.get(toSafeTrackId(play))?.artistName ?? play.artistName,
+        artistNames: metadataByTrackId.get(toSafeTrackId(play))?.artistNames ?? play.artistNames,
+        artistIds: metadataByTrackId.get(toSafeTrackId(play))?.artistIds ?? play.artistIds,
+        albumId: metadataByTrackId.get(toSafeTrackId(play))?.albumId,
+        albumName: metadataByTrackId.get(toSafeTrackId(play))?.albumName ?? play.albumName,
+        durationMs: metadataByTrackId.get(toSafeTrackId(play))?.durationMs ?? play.durationMs,
+        imageUrl: metadataByTrackId.get(toSafeTrackId(play))?.imageUrl ?? play.imageUrl,
+      }).catch(() => undefined)));
+    }
+    if (target === "artists" || target === "all") {
+      const artistOps = buildArtistBulkOps(spotifyUserId, plays);
+      if (artistOps.length > 0) {
+        bulkWrites.push(db.collection(USER_ARTIST_LIBRARY_COLLECTION).bulkWrite(artistOps, { ordered: false }));
+      }
+    }
+    if (target === "albums" || target === "all") {
+      const albumOps = buildAlbumBulkOps(spotifyUserId, plays, metadataByTrackId);
+      if (albumOps.length > 0) {
+        bulkWrites.push(db.collection(USER_ALBUM_LIBRARY_COLLECTION).bulkWrite(albumOps, { ordered: false }));
+        await upsertAlbumMetadataEntries(albumOps.map((op) => ({
+          spotifyUserId,
+          albumKey: op.updateOne.filter.albumKey,
+          albumId: op.updateOne.update.$set.albumId,
+          name: op.updateOne.update.$set.name,
+          artistName: op.updateOne.update.$set.artistName,
+          artistNames: op.updateOne.update.$set.artistNames,
+          artistIds: op.updateOne.update.$set.artistIds,
+          imageUrl: op.updateOne.update.$set.imageUrl,
+          trackIds: op.updateOne.update.$set.trackIds,
+          totalPlayCount: op.updateOne.update.$inc.totalPlayCount,
+          lastPlayedAt: op.updateOne.update.$set.lastPlayedAt,
+          updatedAt: op.updateOne.update.$set.updatedAt,
+        } as UserAlbumLibraryDoc))).catch(() => undefined);
+      }
+    }
+    await Promise.all(bulkWrites);
+
+    processedPlays += plays.length;
+    cursor = plays[plays.length - 1]?.playedAt ?? cursor;
+    await writeUserLibraryState(spotifyUserId, action, {
+      mode,
+      lastProcessedPlayedAt: cursor,
+      buildComplete: false,
+    });
+  }
+
+  return { partial: true, processedPlays, lastProcessedPlayedAt: cursor, buildComplete: false };
+}
+
+async function loadArtistMetadataMapForUser(spotifyUserId: string) {
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return new Map<string, { imageUrl?: string; genres?: string[] }>();
+  }
+
+  const records = await db.collection<{ artistId: string; imageUrl?: string; genres?: string[] }>(ARTIST_METADATA_COLLECTION)
+    .find({})
+    .toArray();
+  return new Map(records.map((record) => [record.artistId, { imageUrl: record.imageUrl, genres: record.genres }]));
+}
+
+export async function buildAllTimeTopListsFromUserLibraries(
+  spotifyUserId: string,
+  mode: "full" | "incremental",
+) {
+  if (!hasMongoConfig()) {
+    return { partial: false, lastComputedPlayedAt: "" };
+  }
+
+  const librarySync = await syncUserLibraryFromRecentPlays(spotifyUserId, "all", mode);
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return { partial: librarySync.partial, lastComputedPlayedAt: librarySync.lastProcessedPlayedAt };
+  }
+
+  const [tracks, artists, albums, latestPlayedAt, artistMeta] = await Promise.all([
+    db.collection<UserTrackLibraryDoc>(USER_TRACK_LIBRARY_COLLECTION).find({ spotifyUserId }).sort({ totalPlayCount: -1, lastPlayedAt: -1 }).limit(50).toArray(),
+    db.collection<UserArtistLibraryDoc>(USER_ARTIST_LIBRARY_COLLECTION).find({ spotifyUserId }).sort({ totalPlayCount: -1, lastPlayedAt: -1 }).limit(50).toArray(),
+    db.collection<UserAlbumLibraryDoc>(USER_ALBUM_LIBRARY_COLLECTION).find({ spotifyUserId }).sort({ totalPlayCount: -1, lastPlayedAt: -1 }).limit(50).toArray(),
+    getLatestPlayedAt(spotifyUserId),
+    loadArtistMetadataMapForUser(spotifyUserId),
+  ]);
+
+  const data: TopListsData = {
+    range: "all",
+    sourceLabel: "Listening Lore permanent library counts",
+    generatedAt: new Date().toISOString(),
+    artists: artists.map((artist, index) => ({
+      id: artist.artistId ?? artist.artistKey,
+      rank: index + 1,
+      name: artist.name,
+      genres: artist.artistId ? (artistMeta.get(artist.artistId)?.genres ?? []) : [],
+      imageUrl: artist.artistId ? artistMeta.get(artist.artistId)?.imageUrl : artist.imageUrl,
+      listenCount: artist.totalPlayCount,
+    })),
+    tracks: tracks.map((track, index) => ({
+      id: track.trackId,
+      rank: index + 1,
+      title: track.trackName,
+      artist: track.artistName,
+      album: track.albumName,
+      popularity: 0,
+      imageUrl: track.imageUrl,
+      listenCount: track.totalPlayCount,
+    })),
+    albums: albums.map((album, index) => ({
+      id: album.albumId ?? album.albumKey,
+      rank: index + 1,
+      name: album.name,
+      artist: album.artistName,
+      trackCount: 0,
+      score: album.totalPlayCount,
+      imageUrl: album.imageUrl,
+      listenCount: album.totalPlayCount,
+    })),
+  };
+
+  await writeStoredTopListsSectionEntry(spotifyUserId, "all", data);
+  await db.collection<AllTimeTopListsStateDoc>(ALL_TIME_TOP_LISTS_STATE_COLLECTION).updateOne(
+    { spotifyUserId },
+    {
+      $set: {
+        spotifyUserId,
+        lastComputedPlayedAt: latestPlayedAt,
+        mode,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+    { upsert: true },
+  );
+
+  return { partial: librarySync.partial, lastComputedPlayedAt: latestPlayedAt };
+}
+
+async function findCachedTrackByNames(
+  spotifyUserId: string,
+  play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">,
+) {
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return null;
+  }
+
+  const normalizedTrack = normalizeText(play.trackName);
+  const normalizedArtist = normalizeText(play.artistName);
+  const normalizedAlbum = normalizeText(play.albumName);
+
+  const recentTrack = await db.collection<UserTrackLibraryDoc>(USER_TRACK_LIBRARY_COLLECTION)
+    .find({
+      spotifyUserId,
+      trackName: play.trackName,
+      artistName: play.artistName,
+    })
+    .sort({ totalPlayCount: -1, lastPlayedAt: -1 })
+    .limit(1)
+    .toArray();
+  if (recentTrack[0]) {
+    return recentTrack[0];
+  }
+
+  const globalTracks = await db.collection<{ trackId: string; trackName: string; artistName: string; albumId?: string; albumName: string; artistNames?: string[]; artistIds?: string[]; imageUrl?: string; durationMs?: number }>(TRACK_METADATA_COLLECTION)
+    .find({})
+    .toArray();
+
+  return globalTracks.find((track) =>
+    normalizeText(track.trackName) === normalizedTrack &&
+    normalizeText(track.artistName) === normalizedArtist &&
+    normalizeText(track.albumName) === normalizedAlbum,
+  ) ?? globalTracks.find((track) =>
+    normalizeText(track.trackName) === normalizedTrack &&
+    normalizeText(track.artistName) === normalizedArtist,
+  ) ?? null;
+}
+
+type SpotifySearchTracksResponse = {
+  tracks?: {
+    items: SpotifyTrack[];
+  };
+};
+
+async function searchSpotifyTrackMetadata(accessToken: string, play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">) {
+  const query = `track:${play.trackName} artist:${play.artistName} album:${play.albumName}`;
+  const response = await spotifyFetch<SpotifySearchTracksResponse>(
+    `/search?type=track&limit=5&q=${encodeURIComponent(query)}`,
+    accessToken,
+  ).catch(() => null);
+
+  const track = response?.tracks?.items?.[0];
+  if (!track?.id) {
+    return null;
+  }
+
+  return {
+    trackId: track.id,
+    trackName: track.name,
+    artistName: track.artists.map((artist) => artist.name).join(", "),
+    artistNames: track.artists.map((artist) => artist.name),
+    artistIds: track.artists.map((artist) => artist.id).filter((value): value is string => Boolean(value)),
+    albumName: track.album.name,
+    durationMs: track.duration_ms,
+    imageUrl: track.album.images?.[0]?.url,
+  };
+}
+
+export async function normalizeImportedLastFmWithPermanentCache(
+  spotifyUserId: string,
+  accessToken: string,
+  onProgress?: MaintenanceProgressReporter,
+) {
+  const db = await getDatabase({ forceRetry: true });
+  if (db) {
+    const unresolvedSeedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+      .find({
+        spotifyUserId,
+        sourceType: "lastfm_import",
+        trackId: { $regex: "^lastfm:" },
+      })
+      .sort({ playedAt: -1 })
+      .limit(80)
+      .toArray();
+
+    let preResolvedCount = 0;
+    for (const play of unresolvedSeedPlays) {
+      await onProgress?.(`Checking permanent libraries for ${play.trackName}`);
+      const cached = await findCachedTrackByNames(spotifyUserId, play);
+      if (!cached) {
+        continue;
+      }
+
+      await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).updateOne(
+        { _id: play._id },
+        {
+          $set: {
+            trackId: cached.trackId,
+            trackName: cached.trackName,
+            artistName: cached.artistName,
+            artistNames: cached.artistNames,
+            artistIds: cached.artistIds,
+            albumName: cached.albumName,
+            durationMs: cached.durationMs,
+            imageUrl: cached.imageUrl,
+          },
+        },
+      );
+      await upsertTrackMetadataCacheEntry({
+        trackId: cached.trackId,
+        trackName: cached.trackName,
+        artistName: cached.artistName,
+        artistNames: cached.artistNames,
+        artistIds: cached.artistIds,
+        albumId: cached.albumId,
+        albumName: cached.albumName,
+        durationMs: cached.durationMs,
+        imageUrl: cached.imageUrl,
+      }).catch(() => undefined);
+      preResolvedCount += 1;
+    }
+
+    if (preResolvedCount > 0) {
+      await onProgress?.(`Resolved ${preResolvedCount} imported scrobbles from permanent libraries before any Spotify lookup`);
+    }
+  }
+
+  const normalization = await normalizeImportedLastFmScrobbles(spotifyUserId, accessToken, {
+    limitDistinctTracks: 40,
+    perTrackTimeoutMs: 2500,
+    maxRuntimeMs: 20_000,
+    onProgress,
+  });
+
+  const freshDb = await getDatabase({ forceRetry: true });
+  if (!freshDb) {
+    return normalization;
+  }
+
+  const unresolved = await freshDb.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      spotifyUserId,
+      sourceType: "lastfm_import",
+      trackId: { $regex: "^lastfm:" },
+    })
+    .sort({ playedAt: -1 })
+    .limit(40)
+    .toArray();
+
+  let updatedFallbackCount = 0;
+  for (const play of unresolved) {
+    if (Date.now() % 1_000_000 === -1) {
+      break;
+    }
+    await onProgress?.(`Matching imported scrobble ${play.trackName} by cache or Spotify search`);
+    const cached = await findCachedTrackByNames(spotifyUserId, play);
+    const matched = cached ?? await searchSpotifyTrackMetadata(accessToken, play).catch(() => null);
+    const finalTrackId = matched?.trackId ?? `local:${createHash("sha1").update(`${play.trackName}::${play.artistName}::${play.albumName}`).digest("hex").slice(0, 24)}`;
+    const finalRecord = {
+      trackId: finalTrackId,
+      trackName: matched?.trackName ?? play.trackName,
+      artistName: matched?.artistName ?? play.artistName,
+      artistNames: matched?.artistNames ?? play.artistNames,
+      artistIds: matched?.artistIds ?? play.artistIds,
+      albumName: matched?.albumName ?? play.albumName,
+      durationMs: matched?.durationMs ?? play.durationMs,
+      imageUrl: matched?.imageUrl ?? play.imageUrl,
+    };
+    await freshDb.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).updateOne(
+      { _id: play._id },
+      {
+        $set: finalRecord,
+      },
+    );
+    await upsertTrackMetadataCacheEntry(finalRecord).catch(() => undefined);
+    updatedFallbackCount += 1;
+  }
+
+  return {
+    ...normalization,
+    updatedPlayCount: normalization.updatedPlayCount + updatedFallbackCount,
+  };
+}
+
+export async function runDashboardMaintenanceAction(
+  action: MaintenanceAction,
+  spotifyUserId: string,
+  accessToken: string,
+  onProgress?: MaintenanceProgressReporter,
+) {
+  if (action === "rebuild-playlist-cache") {
+    await onProgress?.("Rebuilding playlist section cache");
+    await writeStoredPlaylistsSectionCache(spotifyUserId);
+    return { partial: false };
+  }
+
+  if (action === "rebuild-overview-cache") {
+    await writeStoredDashboardOverviewCache(spotifyUserId, accessToken, undefined, {
+      allowLiveEnrichment: false,
+      includeTopLists: false,
+      onProgress,
+    });
+    return { partial: false };
+  }
+
+  if (action === "rebuild-top-list-caches") {
+    invalidateDashboardSectionRuntimeCache(spotifyUserId);
+    await writeStoredDashboardSectionCache(spotifyUserId, {
+      accessToken,
+      includeRediscovery: false,
+      includeAnalysis: false,
+      includeAllTimeAnalysis: false,
+      includeAllTimeTopLists: false,
+      onProgress,
+    });
+    return { partial: false };
+  }
+
+  if (action === "backfill-artist-metadata") {
+    const count = await backfillMissingArtistMetadataForUser(spotifyUserId, accessToken);
+    return { partial: false, count };
+  }
+
+  if (action === "normalize-lastfm-imports") {
+    const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress);
+    return { partial: Boolean(result.stoppedEarly), result };
+  }
+
+  if (action === "refresh-track-library-full") {
+    return syncUserLibraryFromRecentPlays(spotifyUserId, "tracks", "full", onProgress);
+  }
+  if (action === "refresh-track-library-incremental") {
+    return syncUserLibraryFromRecentPlays(spotifyUserId, "tracks", "incremental", onProgress);
+  }
+  if (action === "refresh-artist-library-full") {
+    return syncUserLibraryFromRecentPlays(spotifyUserId, "artists", "full", onProgress);
+  }
+  if (action === "refresh-artist-library-incremental") {
+    return syncUserLibraryFromRecentPlays(spotifyUserId, "artists", "incremental", onProgress);
+  }
+  if (action === "refresh-album-library-full") {
+    return syncUserLibraryFromRecentPlays(spotifyUserId, "albums", "full", onProgress);
+  }
+  if (action === "refresh-album-library-incremental") {
+    return syncUserLibraryFromRecentPlays(spotifyUserId, "albums", "incremental", onProgress);
+  }
+  if (action === "refresh-all-time-full") {
+    return buildAllTimeTopListsFromUserLibraries(spotifyUserId, "full");
+  }
+
+  return buildAllTimeTopListsFromUserLibraries(spotifyUserId, "incremental");
+}
+
+export async function clearDashboardMaintenanceState(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  await Promise.all([
+    db.collection<UserLibraryStateDoc>(USER_LIBRARY_STATE_COLLECTION).deleteMany({ spotifyUserId }),
+    db.collection<AllTimeTopListsStateDoc>(ALL_TIME_TOP_LISTS_STATE_COLLECTION).deleteMany({ spotifyUserId }),
+    db.collection<MaintenanceHistoryEntry>(MAINTENANCE_HISTORY_COLLECTION).deleteMany({ spotifyUserId }),
+  ]);
+}
+
+export const DASHBOARD_MAINTENANCE_COLLECTIONS = {
+  USER_TRACK_LIBRARY_COLLECTION,
+  USER_ARTIST_LIBRARY_COLLECTION,
+  USER_ALBUM_LIBRARY_COLLECTION,
+  USER_LIBRARY_STATE_COLLECTION,
+  ALL_TIME_TOP_LISTS_STATE_COLLECTION,
+  ALBUM_METADATA_COLLECTION,
+  MAINTENANCE_HISTORY_COLLECTION,
+  TOP_LISTS_CACHE_COLLECTION,
+};

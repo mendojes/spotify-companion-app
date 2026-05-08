@@ -11,6 +11,7 @@ type DashboardDeepRefreshMonitorProps = {
 type EnrichmentStatus = "idle" | "pending" | "running" | "paused" | "success" | "error";
 type ArtistBackfillStatus = "idle" | "pending" | "running" | "paused" | "success" | "error";
 const BACKFILL_ONLY_STARTED_EVENT = "soundscope:dashboard-backfill-only-started";
+const DASHBOARD_JOB_STARTED_EVENT = "soundscope:dashboard-job-started";
 
 function formatStatusTimestamp(value?: string | null) {
   if (!value) {
@@ -97,9 +98,24 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
       setArtistBackfillDetail((currentDetail) => currentDetail ?? "Starting imported-track normalization and metadata backfill");
     }
 
+    function handleDashboardJobStarted(event: Event) {
+      const customEvent = event as CustomEvent<{ lane?: "dashboard" | "backfill"; detail?: string }>;
+      if (customEvent.detail?.lane === "backfill") {
+        setArtistBackfillRunning(true);
+        setArtistBackfillStatus("running");
+        setArtistBackfillDetail(customEvent.detail.detail ?? "Starting dashboard backfill job");
+        return;
+      }
+
+      setStatus("running");
+      setDetail(customEvent.detail?.detail ?? "Starting dashboard maintenance job");
+    }
+
     window.addEventListener(BACKFILL_ONLY_STARTED_EVENT, handleBackfillOnlyStarted);
+    window.addEventListener(DASHBOARD_JOB_STARTED_EVENT, handleDashboardJobStarted as EventListener);
     return () => {
       window.removeEventListener(BACKFILL_ONLY_STARTED_EVENT, handleBackfillOnlyStarted);
+      window.removeEventListener(DASHBOARD_JOB_STARTED_EVENT, handleDashboardJobStarted as EventListener);
     };
   }, []);
 

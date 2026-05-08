@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Disc3, LibraryBig, Sparkles, UserRound } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DashboardDeepRefreshMonitor } from "@/components/dashboard-deep-refresh-monitor";
+import { DashboardMaintenanceHistory } from "@/components/dashboard-maintenance-history";
+import { DashboardMaintenancePanel } from "@/components/dashboard-maintenance-panel";
 import { DashboardView } from "@/components/dashboard-view";
 import { NowPlayingPanel } from "@/components/now-playing-panel";
 import { PublicMoodOverview } from "@/components/public-mood-overview";
@@ -435,7 +437,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         {refreshed ? <Notice tone="cyan">Spotify snapshot refreshed successfully.</Notice> : null}
         {refreshErrorFlag ? <Notice tone="coral">Snapshot refresh failed. The dashboard is still using your previous cached data when available.</Notice> : null}
         {dashboardError ? <Notice tone="gold">{dashboardError}</Notice> : null}
-        <DashboardDeepRefreshMonitor range={selectedRange} shouldStart={Boolean(refreshed)} />
+        <DashboardDeepRefreshMonitor range={selectedRange} shouldStart={false} />
+        <DashboardMaintenancePanel />
+        {session ? <DashboardMaintenanceHistory spotifyUserId={session.spotifyUserId} /> : null}
       </div>
 
       <DashboardView
@@ -462,8 +466,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </main>
   );
 }
-
-
 
 
 

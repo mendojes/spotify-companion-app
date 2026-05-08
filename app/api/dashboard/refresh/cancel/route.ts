@@ -4,6 +4,7 @@ import {
   markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
 } from "@/lib/connected-users";
+import { clearDashboardMaintenanceState } from "@/lib/dashboard-maintenance";
 
 export async function POST() {
   const session = await getSession();
@@ -31,6 +32,7 @@ export async function POST() {
       backfilledCount: 0,
       runId: null,
     }).catch(() => undefined);
+    await clearDashboardMaintenanceState(authorizedSession.spotifyUserId).catch(() => undefined);
 
     return NextResponse.json({ status: "cancelled" });
   } catch (error) {

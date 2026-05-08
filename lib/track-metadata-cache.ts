@@ -9,6 +9,7 @@ export type StoredTrackMetadata = {
   artistName: string;
   artistNames?: string[];
   artistIds?: string[];
+  albumId?: string;
   albumName: string;
   durationMs?: number;
   imageUrl?: string;
@@ -46,6 +47,7 @@ function chooseBetterTrackMetadata(
     artistName: current.artistName || candidate.artistName,
     artistNames: current.artistNames?.length ? current.artistNames : candidate.artistNames,
     artistIds: current.artistIds?.length ? current.artistIds : candidate.artistIds,
+    albumId: current.albumId ?? candidate.albumId,
     albumName: current.albumName || candidate.albumName,
     durationMs: current.durationMs ?? candidate.durationMs,
     imageUrl: current.imageUrl ?? candidate.imageUrl,
@@ -63,6 +65,7 @@ function toTrackMetadataFromStoredPlay(play: StoredRecentPlay): Omit<StoredTrack
     artistName: play.artistName,
     artistNames: play.artistNames,
     artistIds: play.artistIds,
+    albumId: undefined,
     albumName: play.albumName,
     durationMs: play.durationMs,
     imageUrl: play.imageUrl,
@@ -80,6 +83,7 @@ export function toTrackMetadataFromSpotifyTrack(track: SpotifyTrack): Omit<Store
     artistName: track.artists.map((artist) => artist.name).join(", "),
     artistNames: track.artists.map((artist) => artist.name),
     artistIds: track.artists.map((artist) => artist.id).filter((id): id is string => Boolean(id)),
+    albumId: track.album.id,
     albumName: track.album.name,
     durationMs: track.duration_ms,
     imageUrl: track.album.images?.[0]?.url,
