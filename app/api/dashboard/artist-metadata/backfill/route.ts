@@ -77,6 +77,7 @@ export async function POST() {
           includeRediscovery: false,
           includeAnalysis: false,
           includeAllTimeAnalysis: false,
+          includeAllTimeTopLists: false,
           onProgress: async (detail) => {
             await markConnectedUserArtistMetadataBackfillStatus(
               authorizedSession.spotifyUserId,

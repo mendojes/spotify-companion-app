@@ -58,6 +58,7 @@ type DashboardSectionCacheOptions = {
   includeRediscovery?: boolean;
   includeAllTimeAnalysis?: boolean;
   includeAnalysis?: boolean;
+  includeAllTimeTopLists?: boolean;
 };
 
 function logSectionTiming(spotifyUserId: string, section: string, step: string, startedAt: number) {
@@ -260,6 +261,35 @@ async function writeStoredTopListsCacheEntries(
   );
 }
 
+export async function writeStoredTopListsSectionEntry(
+  spotifyUserId: string,
+  range: Exclude<TopListRange, "custom">,
+  data: TopListsData,
+  updatedAt = new Date().toISOString(),
+) {
+  if (!hasMongoConfig()) {
+    return;
+  }
+
+  const db = await getDatabase();
+  if (!db) {
+    return;
+  }
+
+  await db.collection<StoredTopListsCache>(TOP_LISTS_CACHE_COLLECTION).updateOne(
+    { spotifyUserId, range },
+    {
+      $set: {
+        spotifyUserId,
+        range,
+        updatedAt,
+        data,
+      },
+    },
+    { upsert: true },
+  );
+}
+
 async function writeStoredAnalysisCacheEntries(
   spotifyUserId: string,
   entries: Array<readonly [AnalysisSectionKey, DashboardAnalysisDetail | null]>,
@@ -345,8 +375,11 @@ export async function writeStoredDashboardSectionCache(
 
   const topListsStartedAt = Date.now();
   await reportProgress("Building top-list caches from stored listening history");
+  const topListRangesToBuild = options?.includeAllTimeTopLists === false
+    ? TOP_LIST_RANGE_VALUES.filter((range) => range !== "all")
+    : TOP_LIST_RANGE_VALUES;
   const topListsEntries: Array<readonly [Exclude<TopListRange, "custom">, TopListsData | null]> = [];
-  for (const range of TOP_LIST_RANGE_VALUES) {
+  for (const range of topListRangesToBuild) {
     await reportProgress(
       range === "all"
         ? "Building top-list cache for all time from incremental aggregate"
@@ -371,6 +404,10 @@ export async function writeStoredDashboardSectionCache(
     topListsEntries.push([range, data] as const);
   }
   logSectionTiming(spotifyUserId, "section-cache", "build-top-lists", topListsStartedAt);
+
+  if (options?.includeAllTimeTopLists === false) {
+    await reportProgress("Skipping all-time top-list cache rebuild for this pass");
+  }
 
   const updatedAt = new Date().toISOString();
   const writeTopListsStartedAt = Date.now();

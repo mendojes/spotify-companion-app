@@ -1486,6 +1486,40 @@ async function getRecentPlaysAfter(spotifyUserId: string, afterPlayedAt: string)
   }
 }
 
+async function hasRecentPlaysAfter(spotifyUserId: string, afterPlayedAt: string) {
+  if (!afterPlayedAt || !hasMongoConfig()) {
+    return false;
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return false;
+    }
+
+    const filterData = await getIgnoredPlaylistFilterData(spotifyUserId).catch(() => null);
+    const baseQuery: Record<string, unknown> = {
+      spotifyUserId,
+      playedAt: { $gt: afterPlayedAt },
+    };
+    const query = filterData && filterData.fullyIgnoredPlaylistIds.size > 0
+      ? {
+        ...baseQuery,
+        $or: [
+          { playlistId: { $exists: false } },
+          { playlistId: null },
+          { playlistId: { $nin: [...filterData.fullyIgnoredPlaylistIds] } },
+        ],
+      }
+      : baseQuery;
+
+    const play = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).find(query).sort({ playedAt: 1 }).limit(1).next();
+    return Boolean(play && (!filterData || !shouldIgnoreRecentPlayByRules(play, filterData)));
+  } catch {
+    return false;
+  }
+}
+
 async function getRecentPlaysPageAscending(
   spotifyUserId: string,
   options?: { afterPlayedAt?: string; limit?: number },
@@ -1671,6 +1705,15 @@ async function readStoredAllTimeTopListAggregate(spotifyUserId: string) {
     tracks: tracksDoc.entries,
     albums: albumsDoc.entries,
   };
+}
+
+export async function shouldRefreshStoredAllTimeTopLists(spotifyUserId: string) {
+  const aggregate = await readStoredAllTimeTopListAggregate(spotifyUserId);
+  if (!aggregate?.buildComplete) {
+    return true;
+  }
+
+  return hasRecentPlaysAfter(spotifyUserId, aggregate.lastProcessedPlayedAt);
 }
 
 async function writeStoredAllTimeTopListAggregate(

@@ -2,8 +2,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthorizedSession, isSessionRefreshFailure, requireSpotifySession } from "@/lib/auth";
-import { getStoredTopListsSection } from "@/lib/dashboard-section-cache";
-import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory } from "@/lib/spotify-toplists";
+import { getStoredTopListsSection, writeStoredTopListsSectionEntry } from "@/lib/dashboard-section-cache";
+import { FULL_TOP_LIST_LIMIT, getSpotifyTopListsFromHistory, getStoredOrBuildIncrementalAllTimeTopLists, shouldRefreshStoredAllTimeTopLists } from "@/lib/spotify-toplists";
 import { TopListAlbum, TopListArtist, TopListRange, TopListTrack } from "@/lib/types";
 
 type TopListsPageProps = {
@@ -250,7 +250,18 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
     data = shouldPreferHistoryData
       ? null
       : await getStoredTopListsSection(session.spotifyUserId, selectedRange, selectedFrom, selectedTo);
-    if (data && topListsNeedArtworkRepair(data)) {
+    const shouldRefreshAllTime = !shouldPreferHistoryData && selectedRange === "all"
+      ? await shouldRefreshStoredAllTimeTopLists(session.spotifyUserId)
+      : false;
+    if (selectedRange === "all" && shouldRefreshAllTime) {
+      const authorizedSession = await getAuthorizedSession(session);
+      data = await getStoredOrBuildIncrementalAllTimeTopLists(
+        session.spotifyUserId,
+        FULL_TOP_LIST_LIMIT,
+        authorizedSession.accessToken,
+      );
+      await writeStoredTopListsSectionEntry(session.spotifyUserId, "all", data).catch(() => undefined);
+    } else if (data && topListsNeedArtworkRepair(data) && selectedRange !== "all") {
       const authorizedSession = await getAuthorizedSession(session);
       data = await getSpotifyTopListsFromHistory(
         session.spotifyUserId,
@@ -262,13 +273,18 @@ export default async function TopListsPage({ searchParams }: TopListsPageProps) 
       );
     }
     if (!data) {
-      data = await getSpotifyTopListsFromHistory(
-        session.spotifyUserId,
-        selectedRange,
-        FULL_TOP_LIST_LIMIT,
-        selectedFrom,
-        selectedTo,
-      );
+      data = selectedRange === "all" && !shouldPreferHistoryData
+        ? await getStoredOrBuildIncrementalAllTimeTopLists(session.spotifyUserId, FULL_TOP_LIST_LIMIT)
+        : await getSpotifyTopListsFromHistory(
+          session.spotifyUserId,
+          selectedRange,
+          FULL_TOP_LIST_LIMIT,
+          selectedFrom,
+          selectedTo,
+        );
+      if (data && selectedRange === "all" && !shouldPreferHistoryData) {
+        await writeStoredTopListsSectionEntry(session.spotifyUserId, "all", data).catch(() => undefined);
+      }
     }
     console.log(`[dashboard-page] user=${session.spotifyUserId} page=top-lists step=load elapsedMs=${Date.now() - loadStartedAt}`);
   } catch (error) {

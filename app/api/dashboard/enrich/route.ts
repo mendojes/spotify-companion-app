@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
       includeRediscovery: false,
       includeAnalysis: false,
       includeAllTimeAnalysis: false,
+      includeAllTimeTopLists: false,
       onProgress: async (detail) => {
         await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
           range,
