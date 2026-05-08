@@ -75,6 +75,7 @@ export async function POST() {
         writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
           accessToken: authorizedSession.accessToken,
           includeRediscovery: false,
+          includeAllTimeAnalysis: false,
           onProgress: async (detail) => {
             await markConnectedUserArtistMetadataBackfillStatus(
               authorizedSession.spotifyUserId,

@@ -89,6 +89,7 @@ export async function POST(request: NextRequest) {
     }).catch(() => undefined);
     await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
       includeRediscovery: false,
+      includeAllTimeAnalysis: false,
       onProgress: async (detail) => {
         await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
           range,

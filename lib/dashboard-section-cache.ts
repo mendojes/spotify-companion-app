@@ -56,6 +56,7 @@ type DashboardSectionCacheOptions = {
   accessToken?: string;
   onProgress?: (detail: string) => void | Promise<void>;
   includeRediscovery?: boolean;
+  includeAllTimeAnalysis?: boolean;
 };
 
 function logSectionTiming(spotifyUserId: string, section: string, step: string, startedAt: number) {
@@ -378,12 +379,17 @@ export async function writeStoredDashboardSectionCache(
 
   const analysisStartedAt = Date.now();
   await reportProgress("Building analysis section caches");
-  const analysisEntries = await Promise.all(
-    DASHBOARD_RANGE_VALUES.flatMap((range) => ([
-      (async () => [`${range}:trend` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "trend" })] as const)(),
-      (async () => [`${range}:heatmap` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "heatmap" })] as const)(),
-    ])),
-  );
+  const analysisRangesToBuild = options?.includeAllTimeAnalysis === false
+    ? DASHBOARD_RANGE_VALUES.filter((range) => range !== "all")
+    : DASHBOARD_RANGE_VALUES;
+  const analysisEntries: Array<readonly [AnalysisSectionKey, DashboardAnalysisDetail | null]> = [];
+  for (const range of analysisRangesToBuild) {
+    await reportProgress(`Building analysis caches for ${range}`);
+    analysisEntries.push(
+      [`${range}:trend` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "trend" })] as const,
+      [`${range}:heatmap` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "heatmap" })] as const,
+    );
+  }
   logSectionTiming(spotifyUserId, "section-cache", "build-analysis", analysisStartedAt);
 
   const writeAnalysisStartedAt = Date.now();
