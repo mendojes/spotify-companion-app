@@ -88,6 +88,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
 
         const shouldKickoffEnrich =
           !enrichStartedRef.current &&
+          (data.artistBackfillStatus ?? "idle") !== "pending" &&
           (
             nextStatus === "pending" ||
             (shouldStart && nextStatus === "idle")
@@ -95,10 +96,17 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         const shouldKickoffArtistBackfill =
           !artistBackfillStartedRef.current &&
           (
-            nextStatus === "success" &&
             (
-              (data.artistBackfillStatus ?? "idle") === "pending" ||
-              (shouldStart && (data.artistBackfillStatus ?? "idle") === "idle")
+              nextStatus === "success" &&
+              (
+                (data.artistBackfillStatus ?? "idle") === "pending" ||
+                (shouldStart && (data.artistBackfillStatus ?? "idle") === "idle")
+              )
+            ) ||
+            (
+              (data.artistBackfillStatus ?? "idle") === "pending" &&
+              typeof data.artistBackfillDetail === "string" &&
+              data.artistBackfillDetail.startsWith("Paused ")
             )
           );
 

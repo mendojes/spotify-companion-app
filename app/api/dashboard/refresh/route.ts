@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthorizedSession, getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import {
+  getConnectedUser,
   markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
   markConnectedUserRecentSync,
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
   try {
     const refreshStartedAt = Date.now();
     await touchConnectedUser(session.spotifyUserId);
+    const existingConnectedUser = await getConnectedUser(authorizedSession.spotifyUserId).catch(() => null);
     const recentSyncStartedAt = Date.now();
     const recentPlays = await syncRecentPlays(
       authorizedSession.accessToken,
@@ -70,13 +72,27 @@ export async function GET(request: NextRequest) {
     invalidateTopListHistoryCache(authorizedSession.spotifyUserId);
     invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
     invalidateDashboardOverviewRuntimeCache(authorizedSession.spotifyUserId);
-    await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "pending", {
-      range,
-      detail: "Refresh finished. Waiting for dashboard enrichment follow-up job",
-    }).catch(() => undefined);
-    await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "pending", {
-      detail: "Queued after dashboard enrichment determines whether artist metadata is still missing",
-    }).catch(() => undefined);
+    const hasPausedArtistBackfill =
+      existingConnectedUser?.artistMetadataBackfillStatus === "pending" &&
+      Boolean(existingConnectedUser.artistMetadataBackfillStep);
+
+    if (hasPausedArtistBackfill) {
+      await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
+        range,
+        detail: "Snapshot refresh finished. Resuming paused artist metadata backfill instead of restarting dashboard enrichment.",
+        step: "complete",
+      }).catch(() => undefined);
+    } else {
+      await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "pending", {
+        range,
+        detail: "Refresh finished. Waiting for dashboard enrichment follow-up job",
+        step: "start",
+      }).catch(() => undefined);
+      await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "pending", {
+        detail: "Queued after dashboard enrichment determines whether artist metadata is still missing",
+        step: "artist-seed",
+      }).catch(() => undefined);
+    }
     logRefreshTiming(authorizedSession.spotifyUserId, "total", refreshStartedAt);
     return NextResponse.redirect(getAppUrl(`/dashboard?range=${range}&refreshed=1`));
   } catch (error) {
