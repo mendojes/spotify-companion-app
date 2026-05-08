@@ -38,6 +38,7 @@ export type ConnectedUser = {
   dashboardEnrichmentDetail?: string;
   dashboardEnrichmentStep?: string;
   dashboardEnrichmentCheckpoint?: string;
+  dashboardEnrichmentRunId?: string;
   artistMetadataBackfillStatus?: "idle" | "pending" | "running" | "paused" | "success" | "error";
   artistMetadataBackfillStartedAt?: string;
   artistMetadataBackfillFinishedAt?: string;
@@ -46,6 +47,7 @@ export type ConnectedUser = {
   artistMetadataBackfillDetail?: string;
   artistMetadataBackfillStep?: string;
   artistMetadataBackfillCheckpoint?: string;
+  artistMetadataBackfillRunId?: string;
 };
 
 export type CommunityUserProfile = {
@@ -250,6 +252,7 @@ export async function markConnectedUserDashboardEnrichmentStatus(
     detail?: string;
     step?: string;
     checkpoint?: string | null;
+    runId?: string | null;
   },
 ) {
   if (!hasMongoConfig()) {
@@ -264,7 +267,7 @@ export async function markConnectedUserDashboardEnrichmentStatus(
   const now = new Date().toISOString();
   const existing = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne(
     { spotifyUserId },
-    { projection: { dashboardEnrichmentStatus: 1, dashboardEnrichmentStartedAt: 1, dashboardEnrichmentStep: 1, dashboardEnrichmentDetail: 1, dashboardEnrichmentRange: 1, dashboardEnrichmentCheckpoint: 1 } },
+    { projection: { dashboardEnrichmentStatus: 1, dashboardEnrichmentStartedAt: 1, dashboardEnrichmentStep: 1, dashboardEnrichmentDetail: 1, dashboardEnrichmentRange: 1, dashboardEnrichmentCheckpoint: 1, dashboardEnrichmentRunId: 1 } },
   );
   await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
     { spotifyUserId },
@@ -279,6 +282,10 @@ export async function markConnectedUserDashboardEnrichmentStatus(
           options?.checkpoint === null
             ? undefined
             : options?.checkpoint ?? existing?.dashboardEnrichmentCheckpoint,
+        dashboardEnrichmentRunId:
+          options?.runId === null
+            ? undefined
+            : options?.runId ?? existing?.dashboardEnrichmentRunId,
         dashboardEnrichmentStartedAt:
           status === "running" || status === "paused"
             ? (existing?.dashboardEnrichmentStatus === "running" ? existing.dashboardEnrichmentStartedAt : now)
@@ -299,6 +306,7 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
     detail?: string;
     step?: string;
     checkpoint?: string | null;
+    runId?: string | null;
   },
 ) {
   if (!hasMongoConfig()) {
@@ -321,6 +329,7 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
         artistMetadataBackfillDetail: 1,
         artistMetadataBackfillStep: 1,
         artistMetadataBackfillCheckpoint: 1,
+        artistMetadataBackfillRunId: 1,
       },
     },
   );
@@ -337,6 +346,10 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
           options?.checkpoint === null
             ? undefined
             : options?.checkpoint ?? existing?.artistMetadataBackfillCheckpoint,
+        artistMetadataBackfillRunId:
+          options?.runId === null
+            ? undefined
+            : options?.runId ?? existing?.artistMetadataBackfillRunId,
         artistMetadataBackfillStartedAt:
           status === "running" || status === "paused"
             ? (existing?.artistMetadataBackfillStatus === "running" ? existing.artistMetadataBackfillStartedAt : now)

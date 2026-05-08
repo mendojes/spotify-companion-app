@@ -22,6 +22,35 @@ function formatStatusTimestamp(value?: string | null) {
   }).format(new Date(value));
 }
 
+const AUTO_START_SUPPRESS_KEY = "dashboard-refresh-auto-start-suppressed-until";
+
+function isAutoStartSuppressed() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const rawValue = window.sessionStorage.getItem(AUTO_START_SUPPRESS_KEY);
+  if (!rawValue) {
+    return false;
+  }
+
+  const until = Number(rawValue);
+  if (!Number.isFinite(until) || until <= Date.now()) {
+    window.sessionStorage.removeItem(AUTO_START_SUPPRESS_KEY);
+    return false;
+  }
+
+  return true;
+}
+
+function suppressAutoStartForMs(durationMs: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(AUTO_START_SUPPRESS_KEY, String(Date.now() + durationMs));
+}
+
 export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDeepRefreshMonitorProps) {
   const router = useRouter();
   const [status, setStatus] = useState<EnrichmentStatus>("idle");
@@ -40,6 +69,24 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
   const [runningBackfillOnly, setRunningBackfillOnly] = useState(false);
   const enrichStartedRef = useRef(false);
   const artistBackfillStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (status === "idle" || status === "success" || status === "error") {
+      enrichStartedRef.current = false;
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (
+      artistBackfillStatus === "idle" ||
+      artistBackfillStatus === "success" ||
+      artistBackfillStatus === "error" ||
+      artistBackfillStatus === "paused"
+    ) {
+      artistBackfillStartedRef.current = false;
+      setArtistBackfillRunning(false);
+    }
+  }, [artistBackfillStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +137,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         setArtistBackfillFinishedAt(data.artistBackfillFinishedAt ?? null);
 
         const shouldKickoffEnrich =
+          !isAutoStartSuppressed() &&
           !enrichStartedRef.current &&
           (data.artistBackfillStatus ?? "idle") !== "pending" &&
           (data.artistBackfillStatus ?? "idle") !== "paused" &&
@@ -98,6 +146,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
             (shouldStart && nextStatus === "idle")
           );
         const shouldKickoffArtistBackfill =
+          !isAutoStartSuppressed() &&
           !artistBackfillStartedRef.current &&
           (
             (
@@ -229,7 +278,11 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           disabled={runningBackfillOnly || cancelling}
           onClick={() => {
             setRunningBackfillOnly(true);
-            artistBackfillStartedRef.current = true;
+            enrichStartedRef.current = false;
+            artistBackfillStartedRef.current = false;
+            if (typeof window !== "undefined") {
+              window.sessionStorage.removeItem(AUTO_START_SUPPRESS_KEY);
+            }
             setArtistBackfillRunning(true);
             void fetch("/api/dashboard/artist-metadata/backfill", {
               method: "POST",
@@ -251,6 +304,10 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           disabled={cancelling || runningBackfillOnly}
           onClick={() => {
             setCancelling(true);
+            enrichStartedRef.current = false;
+            artistBackfillStartedRef.current = false;
+            setArtistBackfillRunning(false);
+            suppressAutoStartForMs(60_000);
             void fetch("/api/dashboard/refresh/cancel", {
               method: "POST",
               credentials: "same-origin",

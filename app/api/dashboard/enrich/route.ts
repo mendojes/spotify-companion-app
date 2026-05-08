@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import {
   getConnectedUser,
@@ -23,6 +24,13 @@ function logEnrichmentTiming(spotifyUserId: string, step: string, startedAt: num
 }
 
 const RESUME_STALE_MS = 1000 * 60 * 4;
+
+class CancelledEnrichmentRunError extends Error {
+  constructor() {
+    super("Dashboard enrichment was cancelled or superseded.");
+    this.name = "CancelledEnrichmentRunError";
+  }
+}
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -52,10 +60,26 @@ export async function POST(request: NextRequest) {
     }
 
     const startedAt = Date.now();
+    const runId =
+      connectedUser?.dashboardEnrichmentStatus === "running" ||
+      connectedUser?.dashboardEnrichmentStatus === "pending" ||
+      connectedUser?.dashboardEnrichmentStatus === "paused"
+        ? connectedUser.dashboardEnrichmentRunId ?? randomUUID()
+        : randomUUID();
+    const assertRunIsStillActive = async () => {
+      const latestConnectedUser = await getConnectedUser(authorizedSession.spotifyUserId).catch(() => null);
+      if (
+        latestConnectedUser?.dashboardEnrichmentStatus === "idle" ||
+        (latestConnectedUser?.dashboardEnrichmentRunId && latestConnectedUser.dashboardEnrichmentRunId !== runId)
+      ) {
+        throw new CancelledEnrichmentRunError();
+      }
+    };
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
       range,
       detail: "Starting dashboard enrichment",
       step: connectedUser?.dashboardEnrichmentStatus === "running" ? connectedUser.dashboardEnrichmentStep : "start",
+      runId,
     }).catch(() => undefined);
     const resumeStep = connectedUser?.dashboardEnrichmentStatus === "running"
       ? connectedUser.dashboardEnrichmentStep ?? "start"
@@ -67,8 +91,10 @@ export async function POST(request: NextRequest) {
         range,
         detail: "Syncing playlist library",
         step: "playlist-sync",
+        runId,
       }).catch(() => undefined);
       await syncPlaylistLibrary(authorizedSession.accessToken, authorizedSession.spotifyUserId).catch(() => undefined);
+      await assertRunIsStillActive();
       logEnrichmentTiming(authorizedSession.spotifyUserId, "playlist-library-sync", playlistSyncStartedAt);
       invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
       invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
@@ -81,8 +107,10 @@ export async function POST(request: NextRequest) {
         range,
         detail: "Rebuilding playlist section cache",
         step: "playlist-section",
+        runId,
       }).catch(() => undefined);
       await writeStoredPlaylistsSectionCache(authorizedSession.spotifyUserId).catch(() => undefined);
+      await assertRunIsStillActive();
       logEnrichmentTiming(authorizedSession.spotifyUserId, "playlist-section-cache", playlistSectionStartedAt);
     }
 
@@ -92,6 +120,7 @@ export async function POST(request: NextRequest) {
         range,
         detail: "Rebuilding overview cache",
         step: "overview",
+        runId,
       }).catch(() => undefined);
       await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, range, {
         allowLiveEnrichment: false,
@@ -101,9 +130,11 @@ export async function POST(request: NextRequest) {
             range,
             detail: `Overview cache: ${detail}`,
             step: "overview",
+            runId,
           }).catch(() => undefined);
         },
       });
+      await assertRunIsStillActive();
       logEnrichmentTiming(authorizedSession.spotifyUserId, "overview-cache", overviewStartedAt);
     }
 
@@ -113,6 +144,7 @@ export async function POST(request: NextRequest) {
         range,
         detail: "Rebuilding section caches including top lists",
         step: "section-cache",
+        runId,
       }).catch(() => undefined);
       await writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
         includeRediscovery: false,
@@ -124,9 +156,11 @@ export async function POST(request: NextRequest) {
             range,
             detail,
             step: "section-cache",
+            runId,
           }).catch(() => undefined);
         },
       }).catch(() => undefined);
+      await assertRunIsStillActive();
       logEnrichmentTiming(authorizedSession.spotifyUserId, "section-cache", sectionCacheStartedAt);
     }
     const missingArtistIds = await getMissingArtistMetadataIdsForOverviewUser(authorizedSession.spotifyUserId).catch(() => [] as string[]);
@@ -137,6 +171,7 @@ export async function POST(request: NextRequest) {
         detail: missingArtistIds.length > 0
           ? `Queued ${missingArtistIds.length} artist ids plus imported-track normalization for follow-up metadata backfill`
           : "Queued imported-track normalization and top-list metadata follow-up after dashboard cache rebuild",
+        runId: connectedUser?.artistMetadataBackfillRunId ?? null,
       },
     ).catch(() => undefined);
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
@@ -145,11 +180,15 @@ export async function POST(request: NextRequest) {
         ? `Dashboard caches rebuilt. Artist metadata backfill queued for ${missingArtistIds.length} artists`
         : "Dashboard caches rebuilt. Follow-up imported-track normalization and metadata hydration queued",
       step: "complete",
+      runId,
     }).catch(() => undefined);
     logEnrichmentTiming(authorizedSession.spotifyUserId, "total", startedAt);
 
     return NextResponse.json({ status: "success", needsArtistMetadataBackfill: missingArtistIds.length > 0 });
   } catch (error) {
+    if (error instanceof CancelledEnrichmentRunError) {
+      return NextResponse.json({ status: "cancelled" }, { status: 202 });
+    }
     if (isSessionRefreshFailure(error)) {
       return NextResponse.json({ error: "Session refresh failed." }, { status: 401 });
     }

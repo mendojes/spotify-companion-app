@@ -22,12 +22,14 @@ export async function POST() {
       detail: "",
       step: "",
       checkpoint: null,
+      runId: null,
     }).catch(() => undefined);
     await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "idle", {
       detail: "",
       step: "",
       checkpoint: null,
       backfilledCount: 0,
+      runId: null,
     }).catch(() => undefined);
 
     return NextResponse.json({ status: "cancelled" });

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
 import { hydrateStoredDashboardOverviewTopListMetadata, invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
@@ -9,6 +10,13 @@ import { resetStoredAllTimeTopListAggregate } from "@/lib/spotify-toplists";
 
 const RESUME_STALE_MS = 1000 * 60 * 4;
 const BACKFILL_ROUTE_BUDGET_MS = 1000 * 60 * 2;
+
+class CancelledBackfillRunError extends Error {
+  constructor() {
+    super("Artist metadata backfill was cancelled or superseded.");
+    this.name = "CancelledBackfillRunError";
+  }
+}
 
 export async function POST() {
   const session = await getSession();
@@ -41,6 +49,12 @@ export async function POST() {
       : connectedUser?.artistMetadataBackfillStatus === "pending" || connectedUser?.artistMetadataBackfillStatus === "paused"
         ? connectedUser.artistMetadataBackfillStep ?? "artist-seed"
         : "artist-seed";
+    const runId =
+      connectedUser?.artistMetadataBackfillStatus === "running" ||
+      connectedUser?.artistMetadataBackfillStatus === "pending" ||
+      connectedUser?.artistMetadataBackfillStatus === "paused"
+        ? connectedUser.artistMetadataBackfillRunId ?? randomUUID()
+        : randomUUID();
     let backfilledCount = connectedUser?.artistMetadataBackfillCount ?? 0;
     const existingCheckpoint = (() => {
       try {
@@ -53,6 +67,15 @@ export async function POST() {
     })();
     let normalizationCheckpointKeys = [...new Set(existingCheckpoint?.processedNameKeys ?? [])];
     const getNormalizationCheckpoint = () => JSON.stringify({ processedNameKeys: [...new Set(normalizationCheckpointKeys)] });
+    const assertRunIsStillActive = async () => {
+      const latestConnectedUser = await getConnectedUser(authorizedSession.spotifyUserId).catch(() => null);
+      if (
+        latestConnectedUser?.artistMetadataBackfillStatus === "idle" ||
+        (latestConnectedUser?.artistMetadataBackfillRunId && latestConnectedUser.artistMetadataBackfillRunId !== runId)
+      ) {
+        throw new CancelledBackfillRunError();
+      }
+    };
 
     console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=start`);
     await markConnectedUserArtistMetadataBackfillStatus(
@@ -63,14 +86,17 @@ export async function POST() {
         step: resumeStep,
         backfilledCount,
         checkpoint: resumeStep === "normalize-imports" ? getNormalizationCheckpoint() : connectedUser?.artistMetadataBackfillCheckpoint,
+        runId,
       },
     ).catch(() => undefined);
 
     if (resumeStep === "artist-seed") {
+      await assertRunIsStillActive();
       backfilledCount = await backfillMissingArtistMetadataForUser(
         authorizedSession.spotifyUserId,
         authorizedSession.accessToken,
       );
+      await assertRunIsStillActive();
       console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=backfilled count=${backfilledCount}`);
       if (shouldPause()) {
         await markConnectedUserArtistMetadataBackfillStatus(
@@ -81,6 +107,7 @@ export async function POST() {
             step: "normalize-imports",
             backfilledCount,
             checkpoint: getNormalizationCheckpoint(),
+            runId,
           },
         ).catch(() => undefined);
         return NextResponse.json({ status: "paused", resumeStep: "normalize-imports", backfilledCount }, { status: 202 });
@@ -108,6 +135,7 @@ export async function POST() {
           step: "normalize-imports",
           backfilledCount,
           checkpoint: getNormalizationCheckpoint(),
+          runId,
         },
       ).catch(() => undefined);
       normalizationResult = await normalizeImportedLastFmScrobbles(
@@ -128,6 +156,7 @@ export async function POST() {
                 step: "normalize-imports",
                 backfilledCount,
                 checkpoint: getNormalizationCheckpoint(),
+                runId,
               },
             ).catch(() => undefined);
           },
@@ -140,11 +169,13 @@ export async function POST() {
                 step: "normalize-imports",
                 backfilledCount,
                 checkpoint: getNormalizationCheckpoint(),
+                runId,
               },
             ).catch(() => undefined);
           },
         },
       );
+      await assertRunIsStillActive();
       console.log(
         `[artist-backfill] user=${authorizedSession.spotifyUserId} step=normalize matched=${normalizationResult.matchedTrackGroups} unresolved=${normalizationResult.unresolvedTrackGroups} updated=${normalizationResult.updatedPlayCount} deletedDuplicates=${normalizationResult.deletedDuplicatePlayCount}`,
       );
@@ -159,6 +190,7 @@ export async function POST() {
             step: "normalize-imports",
             backfilledCount,
             checkpoint: getNormalizationCheckpoint(),
+            runId,
           },
         ).catch(() => undefined);
         return NextResponse.json({
@@ -184,6 +216,7 @@ export async function POST() {
           step: "hydrate-top-lists",
           backfilledCount,
           checkpoint: null,
+          runId,
         },
       ).catch(() => undefined);
     }
@@ -201,12 +234,14 @@ export async function POST() {
           detail: `Updating stored top-list section cache metadata (${backfilledCount} artists)`,
           step: "hydrate-top-lists",
           backfilledCount,
+          runId,
         },
       ).catch(() => undefined);
       await hydrateStoredTopListsSectionMetadata(
         authorizedSession.spotifyUserId,
         authorizedSession.accessToken,
       ).catch(() => undefined);
+      await assertRunIsStillActive();
       if (shouldPause()) {
         await markConnectedUserArtistMetadataBackfillStatus(
           authorizedSession.spotifyUserId,
@@ -216,6 +251,7 @@ export async function POST() {
             step: "hydrate-overview",
             backfilledCount,
             checkpoint: null,
+            runId,
           },
         ).catch(() => undefined);
         return NextResponse.json({ status: "paused", resumeStep: "hydrate-overview", backfilledCount }, { status: 202 });
@@ -230,12 +266,14 @@ export async function POST() {
           detail: "Updating stored overview metadata after imported-track normalization",
           step: "hydrate-overview",
           backfilledCount,
+          runId,
         },
       ).catch(() => undefined);
       await hydrateStoredDashboardOverviewTopListMetadata(
         authorizedSession.spotifyUserId,
         authorizedSession.accessToken,
       ).catch(() => undefined);
+      await assertRunIsStillActive();
       if (shouldPause()) {
         await markConnectedUserArtistMetadataBackfillStatus(
           authorizedSession.spotifyUserId,
@@ -245,6 +283,7 @@ export async function POST() {
             step: "refresh-overview-insights",
             backfilledCount,
             checkpoint: null,
+            runId,
           },
         ).catch(() => undefined);
         return NextResponse.json({ status: "paused", resumeStep: "refresh-overview-insights", backfilledCount }, { status: 202 });
@@ -259,12 +298,14 @@ export async function POST() {
           detail: "Refreshing overview insights cache after imported-track normalization",
           step: "refresh-overview-insights",
           backfilledCount,
+          runId,
         },
       ).catch(() => undefined);
       await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, undefined, {
         allowLiveEnrichment: false,
         includeTopLists: false,
       }).catch(() => undefined);
+      await assertRunIsStillActive();
       if (shouldPause()) {
         await markConnectedUserArtistMetadataBackfillStatus(
           authorizedSession.spotifyUserId,
@@ -274,6 +315,7 @@ export async function POST() {
             step: "complete",
             backfilledCount,
             checkpoint: null,
+            runId,
           },
         ).catch(() => undefined);
         return NextResponse.json({ status: "paused", resumeStep: "complete", backfilledCount }, { status: 202 });
@@ -288,12 +330,16 @@ export async function POST() {
         detail: `Artist metadata backfill finished for ${backfilledCount} artists. Imported-track normalization updated ${normalizationResult.updatedPlayCount} plays and removed ${normalizationResult.deletedDuplicatePlayCount} duplicates.`,
         step: "complete",
         checkpoint: null,
+        runId,
       },
     ).catch(() => undefined);
     console.log(`[artist-backfill] user=${authorizedSession.spotifyUserId} step=success count=${backfilledCount}`);
 
     return NextResponse.json({ status: "success", backfilledCount });
   } catch (error) {
+    if (error instanceof CancelledBackfillRunError) {
+      return NextResponse.json({ status: "cancelled" }, { status: 202 });
+    }
     if (isSessionRefreshFailure(error)) {
       return NextResponse.json({ error: "Session refresh failed." }, { status: 401 });
     }
