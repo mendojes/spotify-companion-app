@@ -261,17 +261,17 @@ export async function markConnectedUserDashboardEnrichmentStatus(
   const now = new Date().toISOString();
   const existing = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne(
     { spotifyUserId },
-    { projection: { dashboardEnrichmentStatus: 1, dashboardEnrichmentStartedAt: 1 } },
+    { projection: { dashboardEnrichmentStatus: 1, dashboardEnrichmentStartedAt: 1, dashboardEnrichmentStep: 1, dashboardEnrichmentDetail: 1, dashboardEnrichmentRange: 1 } },
   );
   await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
     { spotifyUserId },
     {
       $set: {
         dashboardEnrichmentStatus: status,
-        dashboardEnrichmentRange: options?.range,
+        dashboardEnrichmentRange: options?.range ?? existing?.dashboardEnrichmentRange,
         dashboardEnrichmentError: options?.errorMessage,
-        dashboardEnrichmentDetail: options?.detail,
-        dashboardEnrichmentStep: options?.step,
+        dashboardEnrichmentDetail: options?.detail ?? existing?.dashboardEnrichmentDetail,
+        dashboardEnrichmentStep: options?.step ?? existing?.dashboardEnrichmentStep,
         dashboardEnrichmentStartedAt:
           status === "running"
             ? (existing?.dashboardEnrichmentStatus === "running" ? existing.dashboardEnrichmentStartedAt : now)
@@ -305,7 +305,15 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
   const now = new Date().toISOString();
   const existing = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne(
     { spotifyUserId },
-    { projection: { artistMetadataBackfillStatus: 1, artistMetadataBackfillStartedAt: 1 } },
+    {
+      projection: {
+        artistMetadataBackfillStatus: 1,
+        artistMetadataBackfillStartedAt: 1,
+        artistMetadataBackfillCount: 1,
+        artistMetadataBackfillDetail: 1,
+        artistMetadataBackfillStep: 1,
+      },
+    },
   );
   await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
     { spotifyUserId },
@@ -313,9 +321,9 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
       $set: {
         artistMetadataBackfillStatus: status,
         artistMetadataBackfillError: options?.errorMessage,
-        artistMetadataBackfillCount: options?.backfilledCount,
-        artistMetadataBackfillDetail: options?.detail,
-        artistMetadataBackfillStep: options?.step,
+        artistMetadataBackfillCount: options?.backfilledCount ?? existing?.artistMetadataBackfillCount,
+        artistMetadataBackfillDetail: options?.detail ?? existing?.artistMetadataBackfillDetail,
+        artistMetadataBackfillStep: options?.step ?? existing?.artistMetadataBackfillStep,
         artistMetadataBackfillStartedAt:
           status === "running"
             ? (existing?.artistMetadataBackfillStatus === "running" ? existing.artistMetadataBackfillStartedAt : now)
