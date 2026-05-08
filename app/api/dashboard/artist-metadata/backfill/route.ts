@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
 import { hydrateStoredDashboardOverviewTopListMetadata, invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
-import { hydrateStoredTopListsSectionMetadata, invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
+import { hydrateStoredTopListsSectionMetadata, invalidateDashboardSectionRuntimeCache } from "@/lib/dashboard-section-cache";
 import { getConnectedUser, markConnectedUserArtistMetadataBackfillStatus } from "@/lib/connected-users";
 import { normalizeImportedLastFmScrobbles } from "@/lib/lastfm-import";
 import { resetStoredAllTimeTopListAggregate } from "@/lib/spotify-toplists";
@@ -68,27 +68,43 @@ export async function POST() {
         authorizedSession.spotifyUserId,
         "running",
         {
-          detail: `Rebuilding cached top lists after imported-track normalization (${normalizationResult.updatedPlayCount} updated plays, ${normalizationResult.deletedDuplicatePlayCount} duplicate removals)`,
+          detail: `Imported-track normalization updated ${normalizationResult.updatedPlayCount} plays and removed ${normalizationResult.deletedDuplicatePlayCount} duplicates. Refreshing lightweight metadata caches only; all-time rankings will update on demand.`,
         },
       ).catch(() => undefined);
       await Promise.all([
-        writeStoredDashboardSectionCache(authorizedSession.spotifyUserId, {
-          accessToken: authorizedSession.accessToken,
-          includeRediscovery: false,
-          includeAnalysis: false,
-          includeAllTimeAnalysis: false,
-          includeAllTimeTopLists: false,
-          onProgress: async (detail) => {
-            await markConnectedUserArtistMetadataBackfillStatus(
-              authorizedSession.spotifyUserId,
-              "running",
-              { detail },
-            ).catch(() => undefined);
-          },
-        }).catch(() => undefined),
-        writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, undefined, {
-          allowLiveEnrichment: false,
-        }).catch(() => undefined),
+        (async () => {
+          await markConnectedUserArtistMetadataBackfillStatus(
+            authorizedSession.spotifyUserId,
+            "running",
+            { detail: "Updating stored top-list metadata after imported-track normalization" },
+          ).catch(() => undefined);
+          await hydrateStoredTopListsSectionMetadata(
+            authorizedSession.spotifyUserId,
+            authorizedSession.accessToken,
+          ).catch(() => undefined);
+        })(),
+        (async () => {
+          await markConnectedUserArtistMetadataBackfillStatus(
+            authorizedSession.spotifyUserId,
+            "running",
+            { detail: "Updating stored overview metadata after imported-track normalization" },
+          ).catch(() => undefined);
+          await hydrateStoredDashboardOverviewTopListMetadata(
+            authorizedSession.spotifyUserId,
+            authorizedSession.accessToken,
+          ).catch(() => undefined);
+        })(),
+        (async () => {
+          await markConnectedUserArtistMetadataBackfillStatus(
+            authorizedSession.spotifyUserId,
+            "running",
+            { detail: "Refreshing overview insights cache after imported-track normalization" },
+          ).catch(() => undefined);
+          await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, undefined, {
+            allowLiveEnrichment: false,
+            includeTopLists: false,
+          }).catch(() => undefined);
+        })(),
       ]);
     } else {
       await markConnectedUserArtistMetadataBackfillStatus(
