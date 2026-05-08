@@ -375,6 +375,7 @@ export async function writeStoredDashboardSectionCache(
 
   const topListsStartedAt = Date.now();
   await reportProgress("Building top-list caches from stored listening history");
+  const updatedAt = new Date().toISOString();
   const topListRangesToBuild = options?.includeAllTimeTopLists === false
     ? TOP_LIST_RANGE_VALUES.filter((range) => range !== "all")
     : TOP_LIST_RANGE_VALUES;
@@ -402,6 +403,9 @@ export async function writeStoredDashboardSectionCache(
         { allowCatalogLookup: false },
       );
     topListsEntries.push([range, data] as const);
+    if (data) {
+      await writeStoredTopListsSectionEntry(spotifyUserId, range, data, updatedAt).catch(() => undefined);
+    }
   }
   logSectionTiming(spotifyUserId, "section-cache", "build-top-lists", topListsStartedAt);
 
@@ -409,10 +413,8 @@ export async function writeStoredDashboardSectionCache(
     await reportProgress("Skipping all-time top-list cache rebuild for this pass");
   }
 
-  const updatedAt = new Date().toISOString();
   const writeTopListsStartedAt = Date.now();
-  await reportProgress("Writing top-list caches");
-  await writeStoredTopListsCacheEntries(spotifyUserId, topListsEntries, updatedAt);
+  await reportProgress("Top-list caches saved incrementally during rebuild");
   logSectionTiming(spotifyUserId, "section-cache", "write-top-lists", writeTopListsStartedAt);
 
   if (options?.includeAnalysis === false) {
@@ -426,16 +428,15 @@ export async function writeStoredDashboardSectionCache(
     const analysisEntries: Array<readonly [AnalysisSectionKey, DashboardAnalysisDetail | null]> = [];
     for (const range of analysisRangesToBuild) {
       await reportProgress(`Building analysis caches for ${range}`);
-      analysisEntries.push(
-        [`${range}:trend` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "trend" })] as const,
-        [`${range}:heatmap` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "heatmap" })] as const,
-      );
+      const trendEntry = [`${range}:trend` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "trend" })] as const;
+      const heatmapEntry = [`${range}:heatmap` as const, await getDashboardAnalysisDetailFromHistory(spotifyUserId, range, { section: "heatmap" })] as const;
+      analysisEntries.push(trendEntry, heatmapEntry);
+      await writeStoredAnalysisCacheEntries(spotifyUserId, [trendEntry, heatmapEntry], updatedAt).catch(() => undefined);
     }
     logSectionTiming(spotifyUserId, "section-cache", "build-analysis", analysisStartedAt);
 
     const writeAnalysisStartedAt = Date.now();
-    await reportProgress("Writing analysis section caches");
-    await writeStoredAnalysisCacheEntries(spotifyUserId, analysisEntries, updatedAt);
+    await reportProgress("Analysis section caches saved incrementally during rebuild");
     logSectionTiming(spotifyUserId, "section-cache", "write-analysis", writeAnalysisStartedAt);
   }
 

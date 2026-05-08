@@ -30,7 +30,7 @@ export type ConnectedUser = {
   lastSnapshotStatus?: "success" | "error";
   lastSnapshotError?: string;
   lastRecentSyncAt?: string;
-  dashboardEnrichmentStatus?: "pending" | "running" | "paused" | "success" | "error";
+  dashboardEnrichmentStatus?: "idle" | "pending" | "running" | "paused" | "success" | "error";
   dashboardEnrichmentRange?: "week" | "month" | "all";
   dashboardEnrichmentStartedAt?: string;
   dashboardEnrichmentFinishedAt?: string;
@@ -243,7 +243,7 @@ export async function markConnectedUserRecentSync(spotifyUserId: string) {
 
 export async function markConnectedUserDashboardEnrichmentStatus(
   spotifyUserId: string,
-  status: "pending" | "running" | "paused" | "success" | "error",
+  status: "idle" | "pending" | "running" | "paused" | "success" | "error",
   options?: {
     range?: "week" | "month" | "all";
     errorMessage?: string;

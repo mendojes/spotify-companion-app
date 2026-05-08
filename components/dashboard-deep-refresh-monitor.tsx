@@ -36,6 +36,8 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
   const [artistBackfillDetail, setArtistBackfillDetail] = useState<string | null>(null);
   const [artistBackfillStartedAt, setArtistBackfillStartedAt] = useState<string | null>(null);
   const [artistBackfillFinishedAt, setArtistBackfillFinishedAt] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [runningBackfillOnly, setRunningBackfillOnly] = useState(false);
   const enrichStartedRef = useRef(false);
   const artistBackfillStartedRef = useRef(false);
 
@@ -220,6 +222,49 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
       <div className="mt-3 space-y-1 font-mono text-xs uppercase tracking-[0.08em] text-[#5a2f7f]">
         <p>Dashboard enrich: {status} | detail: {detail ?? "none"} | started: {formatStatusTimestamp(startedAt)} | finished: {formatStatusTimestamp(finishedAt)}</p>
         <p>Artist backfill: {artistBackfillStatus} | detail: {artistBackfillDetail ?? "none"} | started: {formatStatusTimestamp(artistBackfillStartedAt)} | finished: {formatStatusTimestamp(artistBackfillFinishedAt)}</p>
+      </div>
+      <div className="mt-4 flex flex-wrap justify-end gap-3">
+        <button
+          type="button"
+          disabled={runningBackfillOnly || cancelling}
+          onClick={() => {
+            setRunningBackfillOnly(true);
+            artistBackfillStartedRef.current = true;
+            setArtistBackfillRunning(true);
+            void fetch("/api/dashboard/artist-metadata/backfill", {
+              method: "POST",
+              credentials: "same-origin",
+            })
+              .catch(() => undefined)
+              .finally(() => {
+                setRunningBackfillOnly(false);
+                setArtistBackfillRunning(false);
+                router.refresh();
+              });
+          }}
+          className="rounded-full border border-[rgba(57,18,98,0.18)] bg-white/[0.18] px-4 py-2 text-xs uppercase tracking-[0.16em] text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold disabled:opacity-50"
+        >
+          {runningBackfillOnly ? "Running Backfill..." : "Run Backfill Only"}
+        </button>
+        <button
+          type="button"
+          disabled={cancelling || runningBackfillOnly}
+          onClick={() => {
+            setCancelling(true);
+            void fetch("/api/dashboard/refresh/cancel", {
+              method: "POST",
+              credentials: "same-origin",
+            })
+              .catch(() => undefined)
+              .finally(() => {
+                setCancelling(false);
+                router.refresh();
+              });
+          }}
+          className="rounded-full border border-[rgba(57,18,98,0.18)] bg-white/[0.18] px-4 py-2 text-xs uppercase tracking-[0.16em] text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold disabled:opacity-50"
+        >
+          {cancelling ? "Cancelling..." : "Cancel Refresh Progress"}
+        </button>
       </div>
     </div>
   );
