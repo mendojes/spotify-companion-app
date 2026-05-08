@@ -74,6 +74,12 @@ export async function POST(request: NextRequest) {
     await writeStoredDashboardOverviewCache(authorizedSession.spotifyUserId, authorizedSession.accessToken, range, {
       allowLiveEnrichment: false,
       includeTopLists: false,
+      onProgress: async (detail) => {
+        await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "running", {
+          range,
+          detail: `Overview cache: ${detail}`,
+        }).catch(() => undefined);
+      },
     });
     logEnrichmentTiming(authorizedSession.spotifyUserId, "overview-cache", overviewStartedAt);
     const sectionCacheStartedAt = Date.now();

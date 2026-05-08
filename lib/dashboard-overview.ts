@@ -163,16 +163,26 @@ export async function writeStoredDashboardOverviewCache(
   spotifyUserId: string,
   accessToken?: string,
   prioritizedRange?: DashboardRange,
-  options?: { allowLiveEnrichment?: boolean; includeTopLists?: boolean },
+  options?: {
+    allowLiveEnrichment?: boolean;
+    includeTopLists?: boolean;
+    onProgress?: (detail: string) => void | Promise<void>;
+  },
 ) {
   if (!hasMongoConfig()) {
     return;
   }
 
+  const reportProgress = async (detail: string) => {
+    await options?.onProgress?.(detail);
+  };
+
   const totalStart = Date.now();
+  await reportProgress("Reading existing overview cache");
   const existingStart = Date.now();
   const existingStored = await readStoredDashboardOverviewCache(spotifyUserId);
   logOverviewWriteTiming(spotifyUserId, "read-existing", existingStart);
+  await reportProgress("Loading dashboard snapshots for overview cache");
   const snapshotsStart = Date.now();
   const snapshotRange = prioritizedRange && options?.allowLiveEnrichment === false ? prioritizedRange : "all";
   const snapshots = await getSharedDashboardCacheSnapshots(spotifyUserId, snapshotRange);
@@ -184,13 +194,19 @@ export async function writeStoredDashboardOverviewCache(
       ? [...new Set<TopListRange>(["week", heroRangeToTopRange(prioritizedRange)])].filter((range): range is Exclude<TopListRange, "custom"> => range !== "custom")
       : TOP_LIST_RANGE_VALUES)
     : [];
-  const historyPreviewStart = Date.now();
-  const [topListHistory, playlistPreview] = await Promise.all([
-    getTopListHistoryData(spotifyUserId),
-    getDashboardPlaylistInsightPreview(spotifyUserId),
-  ]);
-  logOverviewWriteTiming(spotifyUserId, "history-preview", historyPreviewStart);
+  let topListHistory: Awaited<ReturnType<typeof getTopListHistoryData>> = { snapshots: [], recentPlays: [] };
+  if (shouldBuildTopLists) {
+    await reportProgress("Loading top-list history for overview cache");
+    const historyStart = Date.now();
+    topListHistory = await getTopListHistoryData(spotifyUserId);
+    logOverviewWriteTiming(spotifyUserId, "history-preview", historyStart);
+  }
+  await reportProgress("Loading playlist preview for overview cache");
+  const playlistPreviewStart = Date.now();
+  const playlistPreview = await getDashboardPlaylistInsightPreview(spotifyUserId);
+  logOverviewWriteTiming(spotifyUserId, "playlist-preview", playlistPreviewStart);
 
+  await reportProgress("Building overview insights");
   const insightsStart = Date.now();
   const insightsByRangeEntries = await Promise.all(
     rangesToBuild.map(async (range) => {
@@ -226,6 +242,9 @@ export async function writeStoredDashboardOverviewCache(
   logOverviewWriteTiming(spotifyUserId, "insights", insightsStart);
 
   const topListsStart = Date.now();
+  if (shouldBuildTopLists) {
+    await reportProgress("Building overview top-list previews");
+  }
   const topListsAccessToken = options?.allowLiveEnrichment === false ? undefined : accessToken;
   const topListsByRangeEntries = shouldBuildTopLists
     ? await Promise.all(
@@ -269,6 +288,7 @@ export async function writeStoredDashboardOverviewCache(
   } satisfies Partial<Record<DashboardRange, TopListsData>>;
 
   try {
+    await reportProgress("Writing overview cache");
     const writeStart = Date.now();
     const db = await getDatabase();
     if (!db) {
