@@ -416,6 +416,7 @@ type StoredAllTimeTopListAggregateDocument<TEntry> = {
   category: AllTimeTopListAggregateCategory;
   updatedAt: string;
   lastProcessedPlayedAt: string;
+  buildComplete?: boolean;
   entries: TEntry[];
 };
 
@@ -1485,6 +1486,74 @@ async function getRecentPlaysAfter(spotifyUserId: string, afterPlayedAt: string)
   }
 }
 
+async function getRecentPlaysPageAscending(
+  spotifyUserId: string,
+  options?: { afterPlayedAt?: string; limit?: number },
+) {
+  if (!hasMongoConfig()) {
+    return {
+      recentPlays: [] as StoredRecentPlay[],
+      hasMore: false,
+      nextCursor: null as string | null,
+    };
+  }
+
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return {
+        recentPlays: [] as StoredRecentPlay[],
+        hasMore: false,
+        nextCursor: null as string | null,
+      };
+    }
+
+    const filterData = await getIgnoredPlaylistFilterData(spotifyUserId).catch(() => null);
+    const baseQuery: Record<string, unknown> = {
+      spotifyUserId,
+    };
+    if (options?.afterPlayedAt) {
+      baseQuery.playedAt = { $gt: options.afterPlayedAt };
+    }
+
+    const query = filterData && filterData.fullyIgnoredPlaylistIds.size > 0
+      ? {
+        ...baseQuery,
+        $or: [
+          { playlistId: { $exists: false } },
+          { playlistId: null },
+          { playlistId: { $nin: [...filterData.fullyIgnoredPlaylistIds] } },
+        ],
+      }
+      : baseQuery;
+
+    const pageSize = Math.max(100, Math.min(10000, options?.limit ?? 4000));
+    const recentPlays = await db
+      .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+      .find(query)
+      .sort({ playedAt: 1 })
+      .limit(pageSize + 1)
+      .toArray();
+
+    const visibleRecentPlays = recentPlays.slice(0, pageSize);
+    const filteredRecentPlays = filterData
+      ? visibleRecentPlays.filter((play) => !shouldIgnoreRecentPlayByRules(play, filterData))
+      : visibleRecentPlays;
+
+    return {
+      recentPlays: filteredRecentPlays,
+      hasMore: recentPlays.length > pageSize,
+      nextCursor: visibleRecentPlays.at(-1)?.playedAt ?? null,
+    };
+  } catch {
+    return {
+      recentPlays: [] as StoredRecentPlay[],
+      hasMore: false,
+      nextCursor: null as string | null,
+    };
+  }
+}
+
 function filterRecentPlaysForTopRange(recentPlays: StoredRecentPlay[], range: TopListRange, from?: string, to?: string) {
   const window = getWindow(range, from, to);
 
@@ -1597,6 +1666,7 @@ async function readStoredAllTimeTopListAggregate(spotifyUserId: string) {
     lastProcessedPlayedAt: [artistsDoc.lastProcessedPlayedAt, tracksDoc.lastProcessedPlayedAt, albumsDoc.lastProcessedPlayedAt]
       .sort()
       .at(-1) ?? "",
+    buildComplete: Boolean(artistsDoc.buildComplete && tracksDoc.buildComplete && albumsDoc.buildComplete),
     artists: artistsDoc.entries,
     tracks: tracksDoc.entries,
     albums: albumsDoc.entries,
@@ -1607,6 +1677,7 @@ async function writeStoredAllTimeTopListAggregate(
   spotifyUserId: string,
   aggregate: {
     lastProcessedPlayedAt: string;
+    buildComplete?: boolean;
     artists: AllTimeArtistAggregateEntry[];
     tracks: AllTimeTrackAggregateEntry[];
     albums: AllTimeAlbumAggregateEntry[];
@@ -1632,6 +1703,7 @@ async function writeStoredAllTimeTopListAggregate(
             category: "artists",
             updatedAt,
             lastProcessedPlayedAt: aggregate.lastProcessedPlayedAt,
+            buildComplete: aggregate.buildComplete ?? false,
             entries: aggregate.artists,
           },
         },
@@ -1647,6 +1719,7 @@ async function writeStoredAllTimeTopListAggregate(
             category: "tracks",
             updatedAt,
             lastProcessedPlayedAt: aggregate.lastProcessedPlayedAt,
+            buildComplete: aggregate.buildComplete ?? false,
             entries: aggregate.tracks,
           },
         },
@@ -1662,6 +1735,7 @@ async function writeStoredAllTimeTopListAggregate(
             category: "albums",
             updatedAt,
             lastProcessedPlayedAt: aggregate.lastProcessedPlayedAt,
+            buildComplete: aggregate.buildComplete ?? false,
             entries: aggregate.albums,
           },
         },
@@ -1696,52 +1770,64 @@ export async function getStoredOrBuildIncrementalAllTimeTopLists(
 
   return getCachedValue(`top-list-all-time-aggregate:${spotifyUserId}`, TOP_LIST_HISTORY_TTL_MS, async () => {
     let aggregate = await readStoredAllTimeTopListAggregate(spotifyUserId);
-    let snapshots: SpotifyDashboardSnapshot[] = [];
+    if (!aggregate) {
+      aggregate = {
+        lastProcessedPlayedAt: "",
+        buildComplete: false,
+        artists: [],
+        tracks: [],
+        albums: [],
+      };
+    }
+
+    const startedAt = Date.now();
+    const maxRuntimeMs = 20_000;
+    const pageSize = 4_000;
     let recentPlaysForHydration: StoredRecentPlay[] = [];
 
-    if (!aggregate) {
-      const history = await getTopListHistoryData(spotifyUserId);
-      snapshots = history.snapshots;
-      recentPlaysForHydration = history.recentPlays;
+    while (Date.now() - startedAt < maxRuntimeMs) {
+      const page = await getRecentPlaysPageAscending(spotifyUserId, {
+        afterPlayedAt: aggregate.lastProcessedPlayedAt || undefined,
+        limit: pageSize,
+      });
 
-      const storedMetadata = buildTrackMetadataFromRecentPlays(history.recentPlays);
-      const canonicalRecentPlays = canonicalizeRecentPlays(history.recentPlays, history.snapshots, storedMetadata);
-      const artistMetadata = buildArtistMetadataFromSnapshots(history.snapshots);
-      const merged = mergeCanonicalPlaysIntoAllTimeAggregate(canonicalRecentPlays, [], [], [], artistMetadata);
+      if (page.recentPlays.length === 0) {
+        aggregate.buildComplete = true;
+        break;
+      }
+
+      recentPlaysForHydration = page.recentPlays;
+      const storedMetadata = buildTrackMetadataFromRecentPlays(page.recentPlays);
+      const canonicalRecentPlays = canonicalizeRecentPlays(
+        page.recentPlays,
+        [],
+        storedMetadata,
+        buildAggregateSeedMapsFromTrackEntries(aggregate.tracks),
+      );
+      const artistMetadata = buildArtistMetadataFromAggregateEntries(aggregate.artists);
+      const merged = mergeCanonicalPlaysIntoAllTimeAggregate(
+        canonicalRecentPlays,
+        aggregate.artists,
+        aggregate.tracks,
+        aggregate.albums,
+        artistMetadata,
+      );
 
       aggregate = {
         ...merged,
-        lastProcessedPlayedAt: history.recentPlays[0]?.playedAt ?? "",
+        lastProcessedPlayedAt: page.nextCursor ?? aggregate.lastProcessedPlayedAt,
+        buildComplete: !page.hasMore,
       };
-    } else if (aggregate.lastProcessedPlayedAt) {
-      const newRecentPlays = await getRecentPlaysAfter(spotifyUserId, aggregate.lastProcessedPlayedAt);
-      if (newRecentPlays.length > 0) {
-        recentPlaysForHydration = newRecentPlays;
-        const storedMetadata = buildTrackMetadataFromRecentPlays(newRecentPlays);
-        const canonicalRecentPlays = canonicalizeRecentPlays(
-          newRecentPlays,
-          [],
-          storedMetadata,
-          buildAggregateSeedMapsFromTrackEntries(aggregate.tracks),
-        );
-        const artistMetadata = buildArtistMetadataFromAggregateEntries(aggregate.artists);
-        const merged = mergeCanonicalPlaysIntoAllTimeAggregate(
-          canonicalRecentPlays,
-          aggregate.artists,
-          aggregate.tracks,
-          aggregate.albums,
-          artistMetadata,
-        );
-        aggregate = {
-          ...merged,
-          lastProcessedPlayedAt: newRecentPlays.at(-1)?.playedAt ?? aggregate.lastProcessedPlayedAt,
-        };
+
+      await writeStoredAllTimeTopListAggregate(spotifyUserId, aggregate);
+
+      if (!page.hasMore) {
+        break;
       }
     }
 
-    snapshots = snapshots.length > 0 ? snapshots : await getHistoricalSnapshots(spotifyUserId, "all");
     const topLists = materializeAllTimeTopListsFromAggregate(aggregate, boundedLimit);
-    const hydrated = await hydrateTopListsTrackMetadata(topLists, recentPlaysForHydration, snapshots, accessToken, options);
+    const hydrated = await hydrateTopListsTrackMetadata(topLists, recentPlaysForHydration, [], accessToken, options);
 
     const topTrackById = new Map(hydrated.tracks.map((track) => [track.id, track]));
     const albumImageByKey = new Map(hydrated.albums.map((album) => [`${album.name}::${album.artist}`.toLowerCase(), album.imageUrl]));
