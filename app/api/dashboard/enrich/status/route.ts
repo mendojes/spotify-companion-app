@@ -24,5 +24,6 @@ export async function GET() {
     artistBackfillError: connectedUser?.artistMetadataBackfillError,
     artistBackfillCount: connectedUser?.artistMetadataBackfillCount,
     artistBackfillDetail: connectedUser?.artistMetadataBackfillDetail,
+    artistBackfillStep: connectedUser?.artistMetadataBackfillStep,
   });
 }

@@ -30,20 +30,22 @@ export type ConnectedUser = {
   lastSnapshotStatus?: "success" | "error";
   lastSnapshotError?: string;
   lastRecentSyncAt?: string;
-  dashboardEnrichmentStatus?: "pending" | "running" | "success" | "error";
+  dashboardEnrichmentStatus?: "pending" | "running" | "paused" | "success" | "error";
   dashboardEnrichmentRange?: "week" | "month" | "all";
   dashboardEnrichmentStartedAt?: string;
   dashboardEnrichmentFinishedAt?: string;
   dashboardEnrichmentError?: string;
   dashboardEnrichmentDetail?: string;
   dashboardEnrichmentStep?: string;
-  artistMetadataBackfillStatus?: "idle" | "pending" | "running" | "success" | "error";
+  dashboardEnrichmentCheckpoint?: string;
+  artistMetadataBackfillStatus?: "idle" | "pending" | "running" | "paused" | "success" | "error";
   artistMetadataBackfillStartedAt?: string;
   artistMetadataBackfillFinishedAt?: string;
   artistMetadataBackfillError?: string;
   artistMetadataBackfillCount?: number;
   artistMetadataBackfillDetail?: string;
   artistMetadataBackfillStep?: string;
+  artistMetadataBackfillCheckpoint?: string;
 };
 
 export type CommunityUserProfile = {
@@ -241,12 +243,13 @@ export async function markConnectedUserRecentSync(spotifyUserId: string) {
 
 export async function markConnectedUserDashboardEnrichmentStatus(
   spotifyUserId: string,
-  status: "pending" | "running" | "success" | "error",
+  status: "pending" | "running" | "paused" | "success" | "error",
   options?: {
     range?: "week" | "month" | "all";
     errorMessage?: string;
     detail?: string;
     step?: string;
+    checkpoint?: string | null;
   },
 ) {
   if (!hasMongoConfig()) {
@@ -261,7 +264,7 @@ export async function markConnectedUserDashboardEnrichmentStatus(
   const now = new Date().toISOString();
   const existing = await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).findOne(
     { spotifyUserId },
-    { projection: { dashboardEnrichmentStatus: 1, dashboardEnrichmentStartedAt: 1, dashboardEnrichmentStep: 1, dashboardEnrichmentDetail: 1, dashboardEnrichmentRange: 1 } },
+    { projection: { dashboardEnrichmentStatus: 1, dashboardEnrichmentStartedAt: 1, dashboardEnrichmentStep: 1, dashboardEnrichmentDetail: 1, dashboardEnrichmentRange: 1, dashboardEnrichmentCheckpoint: 1 } },
   );
   await db.collection<ConnectedUser>(CONNECTED_USERS_COLLECTION).updateOne(
     { spotifyUserId },
@@ -272,8 +275,12 @@ export async function markConnectedUserDashboardEnrichmentStatus(
         dashboardEnrichmentError: options?.errorMessage,
         dashboardEnrichmentDetail: options?.detail ?? existing?.dashboardEnrichmentDetail,
         dashboardEnrichmentStep: options?.step ?? existing?.dashboardEnrichmentStep,
+        dashboardEnrichmentCheckpoint:
+          options?.checkpoint === null
+            ? undefined
+            : options?.checkpoint ?? existing?.dashboardEnrichmentCheckpoint,
         dashboardEnrichmentStartedAt:
-          status === "running"
+          status === "running" || status === "paused"
             ? (existing?.dashboardEnrichmentStatus === "running" ? existing.dashboardEnrichmentStartedAt : now)
             : undefined,
         dashboardEnrichmentFinishedAt: status === "success" || status === "error" ? now : undefined,
@@ -285,12 +292,13 @@ export async function markConnectedUserDashboardEnrichmentStatus(
 
 export async function markConnectedUserArtistMetadataBackfillStatus(
   spotifyUserId: string,
-  status: "idle" | "pending" | "running" | "success" | "error",
+  status: "idle" | "pending" | "running" | "paused" | "success" | "error",
   options?: {
     errorMessage?: string;
     backfilledCount?: number;
     detail?: string;
     step?: string;
+    checkpoint?: string | null;
   },
 ) {
   if (!hasMongoConfig()) {
@@ -312,6 +320,7 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
         artistMetadataBackfillCount: 1,
         artistMetadataBackfillDetail: 1,
         artistMetadataBackfillStep: 1,
+        artistMetadataBackfillCheckpoint: 1,
       },
     },
   );
@@ -324,8 +333,12 @@ export async function markConnectedUserArtistMetadataBackfillStatus(
         artistMetadataBackfillCount: options?.backfilledCount ?? existing?.artistMetadataBackfillCount,
         artistMetadataBackfillDetail: options?.detail ?? existing?.artistMetadataBackfillDetail,
         artistMetadataBackfillStep: options?.step ?? existing?.artistMetadataBackfillStep,
+        artistMetadataBackfillCheckpoint:
+          options?.checkpoint === null
+            ? undefined
+            : options?.checkpoint ?? existing?.artistMetadataBackfillCheckpoint,
         artistMetadataBackfillStartedAt:
-          status === "running"
+          status === "running" || status === "paused"
             ? (existing?.artistMetadataBackfillStatus === "running" ? existing.artistMetadataBackfillStartedAt : now)
             : undefined,
         artistMetadataBackfillFinishedAt: status === "success" || status === "error" ? now : undefined,

@@ -61,6 +61,7 @@ export type LastFmNormalizationResult = {
   deletedDuplicatePlayCount: number;
   timedOutTrackGroups: number;
   stoppedEarly: boolean;
+  processedNameKeys: string[];
 };
 
 export type LastFmImportPayload = {
@@ -832,6 +833,7 @@ export async function normalizeImportedLastFmScrobbles(
     onProgress?: (detail: string) => void | Promise<void>;
     perTrackTimeoutMs?: number;
     maxRuntimeMs?: number;
+    excludeNameKeys?: string[];
   },
 ): Promise<LastFmNormalizationResult> {
   if (!hasMongoConfig()) {
@@ -844,6 +846,7 @@ export async function normalizeImportedLastFmScrobbles(
       deletedDuplicatePlayCount: 0,
       timedOutTrackGroups: 0,
       stoppedEarly: false,
+      processedNameKeys: [],
     };
   }
 
@@ -858,6 +861,7 @@ export async function normalizeImportedLastFmScrobbles(
       deletedDuplicatePlayCount: 0,
       timedOutTrackGroups: 0,
       stoppedEarly: false,
+      processedNameKeys: [],
     };
   }
 
@@ -872,6 +876,7 @@ export async function normalizeImportedLastFmScrobbles(
       deletedDuplicatePlayCount: 0,
       timedOutTrackGroups: 0,
       stoppedEarly: false,
+      processedNameKeys: [],
     };
   }
 
@@ -889,12 +894,16 @@ export async function normalizeImportedLastFmScrobbles(
     .limit(Math.max(50, options?.limitDistinctTracks ? options.limitDistinctTracks * 40 : 10000))
     .toArray();
 
+  const excludedNameKeys = new Set(options?.excludeNameKeys ?? []);
   const groupedCandidates = [...new Map(
     unresolvedPlays.map((play) => [
       buildNameKey(play.trackName, play.artistName, play.albumName),
       play,
     ]),
-  ).values()].slice(0, options?.limitDistinctTracks ?? 250);
+  ).entries()]
+    .filter(([nameKey]) => !excludedNameKeys.has(nameKey))
+    .map(([, play]) => play)
+    .slice(0, options?.limitDistinctTracks ?? 250);
 
   const perTrackTimeoutMs = Math.max(1000, options?.perTrackTimeoutMs ?? 6000);
   const maxRuntimeMs = Math.max(5000, options?.maxRuntimeMs ?? 45000);
@@ -906,6 +915,7 @@ export async function normalizeImportedLastFmScrobbles(
   let deletedDuplicatePlayCount = 0;
   let timedOutTrackGroups = 0;
   let stoppedEarly = false;
+  const processedNameKeys: string[] = [];
 
   for (let index = 0; index < groupedCandidates.length; index += 1) {
     const candidate = groupedCandidates[index];
@@ -926,6 +936,7 @@ export async function normalizeImportedLastFmScrobbles(
       new Promise<typeof NORMALIZATION_TIMEOUT>((resolve) => setTimeout(() => resolve(NORMALIZATION_TIMEOUT), perTrackTimeoutMs)),
     ]);
     processedTrackGroups += 1;
+    processedNameKeys.push(buildNameKey(candidate.trackName, candidate.artistName, candidate.albumName));
     if (metadata === NORMALIZATION_TIMEOUT) {
       timedOutTrackGroups += 1;
       unresolvedTrackGroups += 1;
@@ -1023,6 +1034,7 @@ export async function normalizeImportedLastFmScrobbles(
     deletedDuplicatePlayCount,
     timedOutTrackGroups,
     stoppedEarly,
+    processedNameKeys,
   };
 }
 

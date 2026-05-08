@@ -8,8 +8,8 @@ type DashboardDeepRefreshMonitorProps = {
   shouldStart: boolean;
 };
 
-type EnrichmentStatus = "idle" | "pending" | "running" | "success" | "error";
-type ArtistBackfillStatus = "idle" | "pending" | "running" | "success" | "error";
+type EnrichmentStatus = "idle" | "pending" | "running" | "paused" | "success" | "error";
+type ArtistBackfillStatus = "idle" | "pending" | "running" | "paused" | "success" | "error";
 
 function formatStatusTimestamp(value?: string | null) {
   if (!value) {
@@ -66,6 +66,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           artistBackfillError?: string | null;
           artistBackfillCount?: number | null;
           artistBackfillDetail?: string | null;
+          artistBackfillStep?: string | null;
           artistBackfillStartedAt?: string | null;
           artistBackfillFinishedAt?: string | null;
         };
@@ -89,6 +90,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         const shouldKickoffEnrich =
           !enrichStartedRef.current &&
           (data.artistBackfillStatus ?? "idle") !== "pending" &&
+          (data.artistBackfillStatus ?? "idle") !== "paused" &&
           (
             nextStatus === "pending" ||
             (shouldStart && nextStatus === "idle")
@@ -99,12 +101,13 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
             (
               nextStatus === "success" &&
               (
-                (data.artistBackfillStatus ?? "idle") === "pending" ||
-                (shouldStart && (data.artistBackfillStatus ?? "idle") === "idle")
-              )
-            ) ||
-            (
-              (data.artistBackfillStatus ?? "idle") === "pending" &&
+              (data.artistBackfillStatus ?? "idle") === "pending" ||
+              (data.artistBackfillStatus ?? "idle") === "paused" ||
+              (shouldStart && (data.artistBackfillStatus ?? "idle") === "idle")
+            )
+          ) ||
+          (
+              ((data.artistBackfillStatus ?? "idle") === "pending" || (data.artistBackfillStatus ?? "idle") === "paused") &&
               typeof data.artistBackfillDetail === "string" &&
               data.artistBackfillDetail.startsWith("Paused ")
             )
@@ -139,13 +142,19 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
         if (
           nextStatus === "pending" ||
           nextStatus === "running" ||
+          nextStatus === "paused" ||
           data.artistBackfillStatus === "pending" ||
           data.artistBackfillStatus === "running" ||
+          data.artistBackfillStatus === "paused" ||
           shouldKickoffEnrich ||
           shouldKickoffArtistBackfill
         ) {
           pollCount += 1;
-          const hasRunningWork = nextStatus === "running" || data.artistBackfillStatus === "running";
+          const hasRunningWork =
+            nextStatus === "running" ||
+            nextStatus === "paused" ||
+            data.artistBackfillStatus === "running" ||
+            data.artistBackfillStatus === "paused";
           const delayMs = hasRunningWork
             ? Math.min(15000, 5000 + pollCount * 1000)
             : 5000;
@@ -174,9 +183,11 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
   if (
     status !== "pending" &&
     status !== "running" &&
+    status !== "paused" &&
     status !== "error" &&
     artistBackfillStatus !== "pending" &&
     artistBackfillStatus !== "running" &&
+    artistBackfillStatus !== "paused" &&
     artistBackfillStatus !== "error" &&
     !artistBackfillRunning
   ) {
@@ -198,6 +209,8 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           ? `Artist metadata backfill finished with an error, so some artist images or genres may still be missing. ${artistBackfillError ?? ""}`.trim()
           : artistBackfillRunning || artistBackfillStatus === "running"
             ? "Deep dashboard refresh finished its cache rebuild and is now filling missing artist metadata. The page will update automatically when that finishes."
+            : artistBackfillStatus === "paused"
+              ? "Artist metadata backfill paused to avoid a timeout. Refresh again to continue from the saved checkpoint."
             : artistBackfillStatus === "pending"
               ? "Deep dashboard refresh finished its cache rebuild. Missing artist metadata is queued and should start shortly when the follow-up job begins."
             : artistBackfillStatus === "success"
