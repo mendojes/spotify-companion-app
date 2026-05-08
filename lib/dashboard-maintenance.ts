@@ -130,6 +130,14 @@ function normalizeText(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function isSyntheticLastFmTrackId(trackId?: string) {
+  return typeof trackId === "string" && /^lastfm:/i.test(trackId.trim());
+}
+
+function isUnresolvedImportedPlay(play: Pick<StoredRecentPlay, "sourceType" | "trackId">) {
+  return play.sourceType === "lastfm_import" && isSyntheticLastFmTrackId(play.trackId);
+}
+
 function toSafeTrackId(play: Pick<StoredRecentPlay, "trackId" | "trackName" | "artistName" | "albumName">) {
   if (play.trackId?.trim()) {
     return play.trackId.trim();
@@ -496,6 +504,23 @@ async function clearUserLibraryCollections(spotifyUserId: string, target: "track
   await Promise.all(ops);
 }
 
+async function purgeSyntheticLastFmTrackArtifacts(spotifyUserId: string) {
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return;
+  }
+
+  await Promise.all([
+    db.collection(USER_TRACK_LIBRARY_COLLECTION).deleteMany({
+      spotifyUserId,
+      trackId: { $regex: "^lastfm:" },
+    }),
+    db.collection(TRACK_METADATA_COLLECTION).deleteMany({
+      trackId: { $regex: "^lastfm:" },
+    }),
+  ]);
+}
+
 export async function syncUserLibraryFromRecentPlays(
   spotifyUserId: string,
   target: "tracks" | "artists" | "albums" | "all",
@@ -509,6 +534,10 @@ export async function syncUserLibraryFromRecentPlays(
   const db = await getDatabase({ forceRetry: true });
   if (!db) {
     return { partial: false, processedPlays: 0, lastProcessedPlayedAt: "", buildComplete: true };
+  }
+
+  if (target === "tracks" || target === "all") {
+    await purgeSyntheticLastFmTrackArtifacts(spotifyUserId);
   }
 
   const action = `library:${target}`;
@@ -556,16 +585,22 @@ export async function syncUserLibraryFromRecentPlays(
       return { partial: false, processedPlays, lastProcessedPlayedAt: cursor, buildComplete: true };
     }
 
-    await onProgress?.(`Processing ${target} library batch ending at ${plays[plays.length - 1]?.playedAt ?? "unknown time"}`);
-    const trackIds = [...new Set(plays.map((play) => toSafeTrackId(play)))];
+    const eligiblePlays = plays.filter((play) => !isUnresolvedImportedPlay(play));
+    const skippedImportedCount = plays.length - eligiblePlays.length;
+    await onProgress?.(
+      skippedImportedCount > 0
+        ? `Processing ${target} library batch ending at ${plays[plays.length - 1]?.playedAt ?? "unknown time"} while skipping ${skippedImportedCount} unresolved Last.fm imports`
+        : `Processing ${target} library batch ending at ${plays[plays.length - 1]?.playedAt ?? "unknown time"}`,
+    );
+    const trackIds = [...new Set(eligiblePlays.map((play) => toSafeTrackId(play)))];
     const metadataByTrackId = await getStoredTrackMetadataMap(trackIds);
     const bulkWrites: Promise<unknown>[] = [];
     if (target === "tracks" || target === "all") {
-      const trackOps = buildTrackBulkOps(spotifyUserId, plays, metadataByTrackId);
+      const trackOps = buildTrackBulkOps(spotifyUserId, eligiblePlays, metadataByTrackId);
       if (trackOps.length > 0) {
         bulkWrites.push(db.collection(USER_TRACK_LIBRARY_COLLECTION).bulkWrite(trackOps, { ordered: false }));
       }
-      await Promise.all(plays.slice(0, 25).map((play) => upsertTrackMetadataCacheEntry({
+      await Promise.all(eligiblePlays.slice(0, 25).map((play) => upsertTrackMetadataCacheEntry({
         trackId: toSafeTrackId(play),
         trackName: metadataByTrackId.get(toSafeTrackId(play))?.trackName ?? play.trackName,
         artistName: metadataByTrackId.get(toSafeTrackId(play))?.artistName ?? play.artistName,
@@ -578,13 +613,13 @@ export async function syncUserLibraryFromRecentPlays(
       }).catch(() => undefined)));
     }
     if (target === "artists" || target === "all") {
-      const artistOps = buildArtistBulkOps(spotifyUserId, plays);
+      const artistOps = buildArtistBulkOps(spotifyUserId, eligiblePlays);
       if (artistOps.length > 0) {
         bulkWrites.push(db.collection(USER_ARTIST_LIBRARY_COLLECTION).bulkWrite(artistOps, { ordered: false }));
       }
     }
     if (target === "albums" || target === "all") {
-      const albumOps = buildAlbumBulkOps(spotifyUserId, plays, metadataByTrackId);
+      const albumOps = buildAlbumBulkOps(spotifyUserId, eligiblePlays, metadataByTrackId);
       if (albumOps.length > 0) {
         bulkWrites.push(db.collection(USER_ALBUM_LIBRARY_COLLECTION).bulkWrite(albumOps, { ordered: false }));
         await upsertAlbumMetadataEntries(albumOps.map((op) => ({
@@ -605,7 +640,7 @@ export async function syncUserLibraryFromRecentPlays(
     }
     await Promise.all(bulkWrites);
 
-    processedPlays += plays.length;
+    processedPlays += eligiblePlays.length;
     cursor = plays[plays.length - 1]?.playedAt ?? cursor;
     await writeUserLibraryState(spotifyUserId, action, {
       mode,
@@ -720,6 +755,7 @@ async function findCachedTrackByNames(
       spotifyUserId,
       trackName: play.trackName,
       artistName: play.artistName,
+      trackId: { $not: /^lastfm:/i },
     })
     .sort({ totalPlayCount: -1, lastPlayedAt: -1 })
     .limit(1)
@@ -729,7 +765,9 @@ async function findCachedTrackByNames(
   }
 
   const globalTracks = await db.collection<{ trackId: string; trackName: string; artistName: string; albumId?: string; albumName: string; artistNames?: string[]; artistIds?: string[]; imageUrl?: string; durationMs?: number }>(TRACK_METADATA_COLLECTION)
-    .find({})
+    .find({
+      trackId: { $not: /^lastfm:/i },
+    })
     .toArray();
 
   return globalTracks.find((track) =>

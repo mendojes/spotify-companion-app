@@ -41,9 +41,9 @@ function describeMaintenanceAction(action: MaintenanceAction) {
     case "normalize-lastfm-imports":
       return "Normalizing imported Last.fm scrobbles";
     case "refresh-track-library-full":
-      return "Fully rebuilding permanent track metadata and counts";
+      return "Fully rebuilding permanent track metadata and counts while skipping unresolved Last.fm imports";
     case "refresh-track-library-incremental":
-      return "Incrementally updating permanent track metadata and counts";
+      return "Incrementally updating permanent track metadata and counts while skipping unresolved Last.fm imports";
     case "refresh-artist-library-full":
       return "Fully rebuilding permanent artist metadata and counts";
     case "refresh-artist-library-incremental":
