@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthorizedSession, isSessionRefreshFailure, requireSpotifySession } from "@/lib/auth";
+import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import {
   markConnectedUserArtistMetadataBackfillStatus,
   markConnectedUserDashboardEnrichmentStatus,
@@ -31,7 +31,13 @@ async function getCsvTextFromRequest(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await requireSpotifySession("/settings");
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!hasSpotifyConnection(session)) {
+    return NextResponse.json({ error: "Spotify connection required." }, { status: 403 });
+  }
 
   let authorizedSession;
 
@@ -98,7 +104,13 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
-  const session = await requireSpotifySession("/settings");
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!hasSpotifyConnection(session)) {
+    return NextResponse.json({ error: "Spotify connection required." }, { status: 403 });
+  }
 
   let authorizedSession;
 
