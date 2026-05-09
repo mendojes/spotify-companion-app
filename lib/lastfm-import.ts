@@ -417,11 +417,16 @@ function applyMetadataCandidate(play: ParsedLastFmPlay, candidate?: TrackMetadat
 }
 
 function buildSpotifySearchQueries(play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">) {
-  return [
+  const queries = [
     `track:${play.trackName} artist:${play.artistName} album:${play.albumName}`,
     `"${play.trackName}" "${play.artistName}" "${play.albumName}"`,
     `${play.trackName} ${play.artistName} ${play.albumName}`,
+    `track:${play.trackName} artist:${play.artistName}`,
+    `"${play.trackName}" "${play.artistName}"`,
+    `${play.trackName} ${play.artistName}`,
   ];
+
+  return [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
 }
 
 function pickBestSpotifySearchTrack(
@@ -458,11 +463,18 @@ function pickBestSpotifySearchTrack(
   }
 
   const hasStrongTrackMatch = best.trackScore >= 0.9;
-  const hasStrongArtistMatch = best.artistScore >= 0.6;
+  const hasStrongArtistMatch = best.artistScore >= 0.58;
+  const hasReasonableAlbumMatch = best.albumScore >= 0.2;
   const hasStrongAlbumMatch = best.albumScore >= 0.45;
-  const hasStrongOverallMatch = best.totalScore >= 0.78;
+  const hasStrongOverallMatch = best.totalScore >= 0.74;
+  const hasVeryStrongTrackArtistMatch = best.trackScore >= 0.96 && best.artistScore >= 0.72;
 
-  return hasStrongTrackMatch && hasStrongArtistMatch && hasStrongAlbumMatch && hasStrongOverallMatch
+  return (
+    hasStrongTrackMatch &&
+    hasStrongArtistMatch &&
+    hasStrongOverallMatch &&
+    (hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch)
+  )
     ? best.track
     : undefined;
 }
