@@ -276,6 +276,23 @@ export async function spotifyFetchOptional<T>(path: string, accessToken: string)
   return response.json() as Promise<T>;
 }
 
+export async function spotifyFetchResponse(
+  path: string,
+  accessToken: string,
+  options?: { allowRetry?: boolean; timeoutMs?: number },
+) {
+  return spotifyRequest(
+    path,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    options?.allowRetry ?? true,
+    options?.timeoutMs,
+  );
+}
+
 export async function getSpotifyProfile(accessToken: string) {
   return spotifyFetch<SpotifyProfile>("/me", accessToken);
 }

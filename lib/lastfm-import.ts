@@ -4,7 +4,7 @@ import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCa
 import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
 import { invalidateDashboardSnapshotCaches } from "@/lib/spotify-dashboard";
 import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCache } from "@/lib/spotify-playlists";
-import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
+import { getSpotifyClientCredentialsToken, spotifyFetch, spotifyFetchResponse } from "@/lib/spotify";
 import { invalidateTopListHistoryCache, resetStoredAllTimeTopListAggregate } from "@/lib/spotify-toplists";
 import { TRACK_METADATA_COLLECTION, upsertStoredTrackMetadataFromRecentPlays } from "@/lib/track-metadata-cache";
 import { SpotifyRecentlyPlayedItem, SpotifyTrack, StoredRecentPlay } from "@/lib/types";
@@ -46,6 +46,7 @@ type SpotifySearchDebugResult = {
   reason: string;
   queriesTried: number;
   hadAnyResults: boolean;
+  usedClientCredentialsFallback?: boolean;
   bestTrackLabel?: string;
   trackScore?: number;
   artistScore?: number;
@@ -547,6 +548,52 @@ async function searchSpotifyTrackMetadataForStoredPlay(
   let hadAnyResults = false;
   let queriesTried = 0;
   const startedAt = Date.now();
+  let clientCredentialsToken: string | null | undefined;
+
+  async function runSearchQuery(token: string, query: string, timeoutMs: number) {
+    try {
+      const response = await spotifyFetchResponse(
+        `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
+        token,
+        {
+          allowRetry: false,
+          timeoutMs,
+        },
+      );
+
+      if (!response.ok) {
+        return {
+          ok: false as const,
+          status: response.status,
+          items: [] as SpotifyTrack[],
+        };
+      }
+
+      const payload = await response.json() as SpotifySearchTracksResponse;
+      return {
+        ok: true as const,
+        status: response.status,
+        items: payload.tracks?.items ?? [],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (message.includes("aborted") || message.includes("timeout")) {
+        return {
+          ok: false as const,
+          status: 0,
+          items: [] as SpotifyTrack[],
+          timeout: true,
+        };
+      }
+
+      return {
+        ok: false as const,
+        status: 0,
+        items: [] as SpotifyTrack[],
+        errorMessage: error instanceof Error ? error.message : "spotify_search_failed",
+      };
+    }
+  }
 
   for (const query of buildSpotifySearchQueries(play)) {
     const elapsedMs = Date.now() - startedAt;
@@ -560,21 +607,37 @@ async function searchSpotifyTrackMetadataForStoredPlay(
     }
 
     queriesTried += 1;
-    const response = await spotifyFetch<SpotifySearchTracksResponse>(
-      `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
-      accessToken,
-      {
-        allowRetry: false,
-        timeoutMs: Math.max(600, Math.min(1500, remainingMs)),
-      },
-    ).catch((error) => {
-      const message = error instanceof Error ? error.message.toLowerCase() : "";
-      if (message.includes("aborted") || message.includes("timeout")) {
-        return null;
+    const perQueryTimeoutMs = Math.max(600, Math.min(1500, remainingMs));
+    let searchAttempt = await runSearchQuery(accessToken, query, perQueryTimeoutMs);
+    let usedClientCredentialsFallback = false;
+
+    if (!searchAttempt.ok && !searchAttempt.timeout && (searchAttempt.status === 401 || searchAttempt.status === 403 || searchAttempt.status === 429 || searchAttempt.status === 0)) {
+      if (clientCredentialsToken === undefined) {
+        clientCredentialsToken = await getSpotifyClientCredentialsToken().catch(() => null);
       }
-      return null;
-    });
-    const items = response?.tracks?.items ?? [];
+
+      if (clientCredentialsToken) {
+        usedClientCredentialsFallback = true;
+        searchAttempt = await runSearchQuery(clientCredentialsToken, query, perQueryTimeoutMs);
+      }
+    }
+
+    if (!searchAttempt.ok) {
+      const failure: SpotifySearchDebugResult = {
+        reason: searchAttempt.timeout
+          ? "timeout"
+          : searchAttempt.status
+            ? `spotify_status_${searchAttempt.status}`
+            : "spotify_request_failed",
+        queriesTried,
+        hadAnyResults,
+        usedClientCredentialsFallback,
+      };
+      bestFailure = bestFailure ?? failure;
+      continue;
+    }
+
+    const items = searchAttempt.items;
     hadAnyResults = hadAnyResults || items.length > 0;
     const evaluation = evaluateSpotifySearchTrackCandidates(items, play);
     if (evaluation.matchedTrack) {
@@ -583,6 +646,7 @@ async function searchSpotifyTrackMetadataForStoredPlay(
         reason: "matched",
         queriesTried,
         hadAnyResults: true,
+        usedClientCredentialsFallback,
         bestTrackLabel: `${evaluation.matchedTrack.name} / ${evaluation.matchedTrack.artists.map((artist) => artist.name).join(", ")} / ${evaluation.matchedTrack.album.name}`,
         trackScore: evaluation.trackScore,
         artistScore: evaluation.artistScore,
@@ -595,6 +659,7 @@ async function searchSpotifyTrackMetadataForStoredPlay(
       reason: evaluation.rejectionReason,
       queriesTried,
       hadAnyResults,
+      usedClientCredentialsFallback,
       bestTrackLabel: evaluation.bestTrack
         ? `${evaluation.bestTrack.name} / ${evaluation.bestTrack.artists.map((artist) => artist.name).join(", ")} / ${evaluation.bestTrack.album.name}`
         : undefined,
@@ -1763,7 +1828,8 @@ export async function normalizeImportedLastFmScrobbles(
       if (failureSamples.length < 8) {
         const bestLabel = searchResult.bestTrackLabel ? ` best=${searchResult.bestTrackLabel}` : "";
         const scoreLabel = typeof searchResult.totalScore === "number" ? ` score=${searchResult.totalScore.toFixed(2)}` : "";
-        failureSamples.push(`${candidate.trackName} / ${candidate.artistName} / ${candidate.albumName} -> ${failureReason}${scoreLabel}${bestLabel}`);
+        const fallbackLabel = searchResult.usedClientCredentialsFallback ? " fallback=client_credentials" : "";
+        failureSamples.push(`${candidate.trackName} / ${candidate.artistName} / ${candidate.albumName} -> ${failureReason}${scoreLabel}${fallbackLabel}${bestLabel}`);
       }
       await options?.onCheckpoint?.({
         processedNameKeys: [...processedNameKeys],
