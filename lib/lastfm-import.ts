@@ -156,6 +156,52 @@ function normalizeText(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function normalizeLooseText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[“”"'"`´’]/g, "")
+    .replace(/[()[\]{}]/g, " ")
+    .replace(/[\/\\|:_\-–—,.;!?]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function tokenizeLooseText(value: string) {
+  return normalizeLooseText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function computeTokenOverlapScore(left: string, right: string) {
+  const leftTokens = tokenizeLooseText(left);
+  const rightTokens = tokenizeLooseText(right);
+  if (leftTokens.length === 0 || rightTokens.length === 0) {
+    return 0;
+  }
+
+  const rightSet = new Set(rightTokens);
+  const matched = leftTokens.filter((token) => rightSet.has(token)).length;
+  return matched / Math.max(leftTokens.length, rightTokens.length);
+}
+
+function computeLooseFieldScore(left: string, right: string) {
+  const normalizedLeft = normalizeLooseText(left);
+  const normalizedRight = normalizeLooseText(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return 0;
+  }
+  if (normalizedLeft === normalizedRight) {
+    return 1;
+  }
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) {
+    return 0.92;
+  }
+  return computeTokenOverlapScore(normalizedLeft, normalizedRight);
+}
+
 function buildTrackArtistKey(trackName: string, artistName: string) {
   return `${normalizeText(trackName)}::${normalizeText(artistName)}`;
 }
@@ -374,6 +420,7 @@ function buildSpotifySearchQueries(play: Pick<StoredRecentPlay, "trackName" | "a
   return [
     `track:${play.trackName} artist:${play.artistName} album:${play.albumName}`,
     `"${play.trackName}" "${play.artistName}" "${play.albumName}"`,
+    `${play.trackName} ${play.artistName} ${play.albumName}`,
   ];
 }
 
@@ -385,17 +432,39 @@ function pickBestSpotifySearchTrack(
     return undefined;
   }
 
-  const exactTrackName = normalizeText(play.trackName);
-  const exactArtistName = normalizeText(play.artistName);
-  const exactAlbumName = normalizeText(play.albumName);
+  const ranked = items
+    .map((track) => {
+      const trackScore = computeLooseFieldScore(track.name, play.trackName);
+      const artistScore = Math.max(
+        0,
+        ...track.artists.map((artist) => computeLooseFieldScore(artist.name, play.artistName)),
+      );
+      const albumScore = computeLooseFieldScore(track.album.name, play.albumName);
+      const totalScore = trackScore * 0.5 + artistScore * 0.3 + albumScore * 0.2;
 
-  return (
-    items.find((track) =>
-      normalizeText(track.name) === exactTrackName &&
-      normalizeText(track.album.name) === exactAlbumName &&
-      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
-    )
-  );
+      return {
+        track,
+        trackScore,
+        artistScore,
+        albumScore,
+        totalScore,
+      };
+    })
+    .sort((left, right) => right.totalScore - left.totalScore);
+
+  const best = ranked[0];
+  if (!best) {
+    return undefined;
+  }
+
+  const hasStrongTrackMatch = best.trackScore >= 0.9;
+  const hasStrongArtistMatch = best.artistScore >= 0.6;
+  const hasStrongAlbumMatch = best.albumScore >= 0.45;
+  const hasStrongOverallMatch = best.totalScore >= 0.78;
+
+  return hasStrongTrackMatch && hasStrongArtistMatch && hasStrongAlbumMatch && hasStrongOverallMatch
+    ? best.track
+    : undefined;
 }
 
 async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastFmPlay) {
