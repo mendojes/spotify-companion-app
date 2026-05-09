@@ -33,6 +33,7 @@ export type MaintenanceAction =
   | "rebuild-top-list-caches"
   | "backfill-artist-metadata"
   | "delete-lastfm-imports"
+  | "delete-non-spotify-track-metadata"
   | "normalize-lastfm-imports"
   | "refresh-track-library-full"
   | "refresh-track-library-incremental"
@@ -129,6 +130,10 @@ export type MaintenanceHistoryEntry = {
 
 function normalizeText(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function isSpotifyTrackId(trackId?: string) {
+  return typeof trackId === "string" && /^[A-Za-z0-9]{22}$/.test(trackId.trim());
 }
 
 function isSyntheticLastFmTrackId(trackId?: string) {
@@ -970,6 +975,35 @@ export async function runDashboardMaintenanceAction(
     const result = await deleteImportedLastFmScrobbles(spotifyUserId);
     await refreshLastFmImportCaches(spotifyUserId, accessToken).catch(() => undefined);
     return { partial: false, ...result };
+  }
+
+  if (action === "delete-non-spotify-track-metadata") {
+    if (!hasMongoConfig()) {
+      return { partial: false, deletedCount: 0 };
+    }
+
+    const db = await getDatabase({ forceRetry: true });
+    if (!db) {
+      return { partial: false, deletedCount: 0 };
+    }
+
+    await onProgress?.("Deleting non-Spotify track metadata records from the permanent track cache");
+    const allTrackMetadata = await db
+      .collection<{ trackId?: string }>(TRACK_METADATA_COLLECTION)
+      .find({}, { projection: { trackId: 1 } })
+      .toArray();
+    const nonSpotifyTrackIds = allTrackMetadata
+      .map((record) => record.trackId?.trim())
+      .filter((trackId): trackId is string => Boolean(trackId) && !isSpotifyTrackId(trackId));
+
+    if (nonSpotifyTrackIds.length === 0) {
+      return { partial: false, deletedCount: 0 };
+    }
+
+    const result = await db.collection(TRACK_METADATA_COLLECTION).deleteMany({
+      trackId: { $in: nonSpotifyTrackIds },
+    });
+    return { partial: false, deletedCount: result.deletedCount ?? 0 };
   }
 
   if (action === "normalize-lastfm-imports") {
