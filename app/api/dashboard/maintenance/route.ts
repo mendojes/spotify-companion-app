@@ -136,17 +136,27 @@ export async function POST(request: NextRequest) {
     const successDetail = result && typeof result === "object" && "partial" in result && result.partial
       ? `${baseDetail} saved a partial batch. Run it again to continue from the smaller remaining set.`
       : `${baseDetail} finished successfully.`;
+    const debugSuffix =
+      action === "normalize-lastfm-imports" || action === "retry-unresolved-lastfm-imports"
+        ? (() => {
+          const debugSummary = result && typeof result === "object" && "result" in result && result.result && typeof result.result === "object" && "debugSummary" in result.result
+            ? result.result.debugSummary
+            : undefined;
+          return typeof debugSummary === "string" && debugSummary.trim().length > 0 ? `\n${debugSummary}` : "";
+        })()
+        : "";
+    const persistedSuccessDetail = `${successDetail}${debugSuffix}`;
 
     if (action === "normalize-lastfm-imports" || action === "retry-unresolved-lastfm-imports") {
       await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "success", {
-        detail: successDetail,
+        detail: persistedSuccessDetail,
         step: action,
         checkpoint: null,
       }).catch(() => undefined);
     } else {
       await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
         range: "week",
-        detail: successDetail,
+        detail: persistedSuccessDetail,
         step: action,
         checkpoint: null,
       }).catch(() => undefined);
@@ -155,7 +165,7 @@ export async function POST(request: NextRequest) {
       authorizedSession.spotifyUserId,
       action,
       "success",
-      successDetail,
+      persistedSuccessDetail,
       {
         partial: Boolean(result && typeof result === "object" && "partial" in result && result.partial),
         startedAt,

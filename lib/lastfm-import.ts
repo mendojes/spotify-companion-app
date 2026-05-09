@@ -43,6 +43,18 @@ type SpotifySearchTracksResponse = {
   };
 };
 
+type SpotifySearchDebugResult = {
+  metadata?: TrackMetadataCandidate;
+  reason: string;
+  queriesTried: number;
+  hadAnyResults: boolean;
+  bestTrackLabel?: string;
+  trackScore?: number;
+  artistScore?: number;
+  albumScore?: number;
+  totalScore?: number;
+};
+
 type ParsedCsvRow = Record<string, string>;
 
 type ParsedLastFmPlay = StoredRecentPlay & {
@@ -70,6 +82,7 @@ export type LastFmNormalizationResult = {
   timedOutTrackGroups: number;
   stoppedEarly: boolean;
   processedNameKeys: string[];
+  debugSummary?: string;
 };
 
 export type UnresolvedImportedLastFmGroup = {
@@ -429,12 +442,20 @@ function buildSpotifySearchQueries(play: Pick<StoredRecentPlay, "trackName" | "a
   return [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
 }
 
-function pickBestSpotifySearchTrack(
+function evaluateSpotifySearchTrackCandidates(
   items: SpotifyTrack[],
   play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">,
 ) {
   if (items.length === 0) {
-    return undefined;
+    return {
+      matchedTrack: undefined,
+      bestTrack: undefined,
+      rejectionReason: "no_results",
+      trackScore: 0,
+      artistScore: 0,
+      albumScore: 0,
+      totalScore: 0,
+    };
   }
 
   const ranked = items
@@ -459,7 +480,15 @@ function pickBestSpotifySearchTrack(
 
   const best = ranked[0];
   if (!best) {
-    return undefined;
+    return {
+      matchedTrack: undefined,
+      bestTrack: undefined,
+      rejectionReason: "no_results",
+      trackScore: 0,
+      artistScore: 0,
+      albumScore: 0,
+      totalScore: 0,
+    };
   }
 
   const hasStrongTrackMatch = best.trackScore >= 0.9;
@@ -469,14 +498,30 @@ function pickBestSpotifySearchTrack(
   const hasStrongOverallMatch = best.totalScore >= 0.74;
   const hasVeryStrongTrackArtistMatch = best.trackScore >= 0.96 && best.artistScore >= 0.72;
 
-  return (
+  const matched =
     hasStrongTrackMatch &&
     hasStrongArtistMatch &&
     hasStrongOverallMatch &&
-    (hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch)
-  )
-    ? best.track
-    : undefined;
+    (hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch);
+
+  let rejectionReason = "weak_overall_match";
+  if (!hasStrongTrackMatch) {
+    rejectionReason = "weak_track_match";
+  } else if (!hasStrongArtistMatch) {
+    rejectionReason = "weak_artist_match";
+  } else if (!(hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch)) {
+    rejectionReason = "weak_album_match";
+  }
+
+  return {
+    matchedTrack: matched ? best.track : undefined,
+    bestTrack: best.track,
+    rejectionReason,
+    trackScore: best.trackScore,
+    artistScore: best.artistScore,
+    albumScore: best.albumScore,
+    totalScore: best.totalScore,
+  };
 }
 
 async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastFmPlay) {
@@ -486,9 +531,9 @@ async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastF
       accessToken,
     ).catch(() => null);
     const items = response?.tracks?.items ?? [];
-    const preferred = pickBestSpotifySearchTrack(items, play);
-    if (preferred) {
-      return toMetadataCandidateFromSpotifyTrack(preferred);
+    const evaluation = evaluateSpotifySearchTrackCandidates(items, play);
+    if (evaluation.matchedTrack) {
+      return toMetadataCandidateFromSpotifyTrack(evaluation.matchedTrack);
     }
   }
 
@@ -498,20 +543,57 @@ async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastF
 async function searchSpotifyTrackMetadataForStoredPlay(
   accessToken: string,
   play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">,
-) {
+): Promise<SpotifySearchDebugResult> {
+  let bestFailure: SpotifySearchDebugResult | undefined;
+  let hadAnyResults = false;
+  let queriesTried = 0;
+
   for (const query of buildSpotifySearchQueries(play)) {
+    queriesTried += 1;
     const response = await spotifyFetch<SpotifySearchTracksResponse>(
       `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
       accessToken,
     ).catch(() => null);
     const items = response?.tracks?.items ?? [];
-    const preferred = pickBestSpotifySearchTrack(items, play);
-    if (preferred) {
-      return toMetadataCandidateFromSpotifyTrack(preferred);
+    hadAnyResults = hadAnyResults || items.length > 0;
+    const evaluation = evaluateSpotifySearchTrackCandidates(items, play);
+    if (evaluation.matchedTrack) {
+      return {
+        metadata: toMetadataCandidateFromSpotifyTrack(evaluation.matchedTrack),
+        reason: "matched",
+        queriesTried,
+        hadAnyResults: true,
+        bestTrackLabel: `${evaluation.matchedTrack.name} / ${evaluation.matchedTrack.artists.map((artist) => artist.name).join(", ")} / ${evaluation.matchedTrack.album.name}`,
+        trackScore: evaluation.trackScore,
+        artistScore: evaluation.artistScore,
+        albumScore: evaluation.albumScore,
+        totalScore: evaluation.totalScore,
+      };
+    }
+
+    const failure: SpotifySearchDebugResult = {
+      reason: evaluation.rejectionReason,
+      queriesTried,
+      hadAnyResults,
+      bestTrackLabel: evaluation.bestTrack
+        ? `${evaluation.bestTrack.name} / ${evaluation.bestTrack.artists.map((artist) => artist.name).join(", ")} / ${evaluation.bestTrack.album.name}`
+        : undefined,
+      trackScore: evaluation.trackScore,
+      artistScore: evaluation.artistScore,
+      albumScore: evaluation.albumScore,
+      totalScore: evaluation.totalScore,
+    };
+
+    if (!bestFailure || (failure.totalScore ?? 0) > (bestFailure.totalScore ?? 0)) {
+      bestFailure = failure;
     }
   }
 
-  return undefined;
+  return bestFailure ?? {
+    reason: "no_results",
+    queriesTried,
+    hadAnyResults,
+  };
 }
 
 async function getSpotifyTrackMetadataById(accessToken: string, rawSpotifyTrackIdOrLink: string) {
@@ -1279,6 +1361,7 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
   if (!metadata.trackId) {
     throw new Error("Could not load that Spotify track.");
   }
+  const resolvedTrackId = metadata.trackId;
 
   const matchingImportedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
     .find({
@@ -1295,7 +1378,7 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
       matchedPlayCount: 0,
       updatedPlayCount: 0,
       deletedDuplicatePlayCount: 0,
-      trackId: metadata.trackId,
+      trackId: resolvedTrackId,
     };
   }
 
@@ -1325,7 +1408,7 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
 
     const resolvedPlay: StoredRecentPlay = {
       ...play,
-      trackId: metadata.trackId ?? play.trackId,
+      trackId: resolvedTrackId,
       trackName: metadata.trackName || play.trackName,
       artistName: metadata.artistName || play.artistName,
       artistNames: metadata.artistNames?.length ? metadata.artistNames : play.artistNames,
@@ -1386,7 +1469,7 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
     matchedPlayCount: matchingImportedPlays.length,
     updatedPlayCount,
     deletedDuplicatePlayCount,
-    trackId: metadata.trackId,
+      trackId: resolvedTrackId,
   };
 }
 
@@ -1593,6 +1676,8 @@ export async function normalizeImportedLastFmScrobbles(
   let timedOutTrackGroups = 0;
   let stoppedEarly = false;
   const processedNameKeys: string[] = [];
+  const failureReasonCounts = new Map<string, number>();
+  const failureSamples: string[] = [];
 
   for (let index = 0; index < groupedCandidates.length; index += 1) {
     const candidate = groupedCandidates[index];
@@ -1609,7 +1694,7 @@ export async function normalizeImportedLastFmScrobbles(
       `Resolving imported Last.fm tracks to Spotify metadata (${index + 1}/${groupedCandidates.length})`,
     );
 
-    const metadata = await Promise.race<TrackMetadataCandidate | typeof NORMALIZATION_TIMEOUT | undefined>([
+    const searchResult = await Promise.race<SpotifySearchDebugResult | typeof NORMALIZATION_TIMEOUT>([
       searchSpotifyTrackMetadataForStoredPlay(spotifyToken, candidate),
       new Promise<typeof NORMALIZATION_TIMEOUT>((resolve) => setTimeout(() => resolve(NORMALIZATION_TIMEOUT), perTrackTimeoutMs)),
     ]);
@@ -1632,9 +1717,13 @@ export async function normalizeImportedLastFmScrobbles(
         },
       },
     ).catch(() => undefined);
-    if (metadata === NORMALIZATION_TIMEOUT) {
+    if (searchResult === NORMALIZATION_TIMEOUT) {
       timedOutTrackGroups += 1;
       unresolvedTrackGroups += 1;
+      failureReasonCounts.set("timeout", (failureReasonCounts.get("timeout") ?? 0) + 1);
+      if (failureSamples.length < 8) {
+        failureSamples.push(`${candidate.trackName} / ${candidate.artistName} / ${candidate.albumName} -> timeout`);
+      }
       await options?.onCheckpoint?.({
         processedNameKeys: [...processedNameKeys],
         processedTrackGroups,
@@ -1650,8 +1739,15 @@ export async function normalizeImportedLastFmScrobbles(
       );
       continue;
     }
-    if (!metadata?.trackId) {
+    if (!searchResult.metadata?.trackId) {
       unresolvedTrackGroups += 1;
+      const failureReason = searchResult.reason || "unknown_failure";
+      failureReasonCounts.set(failureReason, (failureReasonCounts.get(failureReason) ?? 0) + 1);
+      if (failureSamples.length < 8) {
+        const bestLabel = searchResult.bestTrackLabel ? ` best=${searchResult.bestTrackLabel}` : "";
+        const scoreLabel = typeof searchResult.totalScore === "number" ? ` score=${searchResult.totalScore.toFixed(2)}` : "";
+        failureSamples.push(`${candidate.trackName} / ${candidate.artistName} / ${candidate.albumName} -> ${failureReason}${scoreLabel}${bestLabel}`);
+      }
       await options?.onCheckpoint?.({
         processedNameKeys: [...processedNameKeys],
         processedTrackGroups,
@@ -1664,8 +1760,12 @@ export async function normalizeImportedLastFmScrobbles(
       });
       continue;
     }
-    if (!isSpotifyTrackId(metadata.trackId)) {
+    if (!isSpotifyTrackId(searchResult.metadata.trackId)) {
       unresolvedTrackGroups += 1;
+      failureReasonCounts.set("non_spotify_match", (failureReasonCounts.get("non_spotify_match") ?? 0) + 1);
+      if (failureSamples.length < 8) {
+        failureSamples.push(`${candidate.trackName} / ${candidate.artistName} / ${candidate.albumName} -> non_spotify_match`);
+      }
       await options?.onCheckpoint?.({
         processedNameKeys: [...processedNameKeys],
         processedTrackGroups,
@@ -1678,7 +1778,8 @@ export async function normalizeImportedLastFmScrobbles(
       });
       continue;
     }
-    const resolvedTrackId = metadata.trackId;
+    const metadata = searchResult.metadata;
+    const resolvedTrackId = metadata.trackId as string;
 
     matchedTrackGroups += 1;
     const matchingImportedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
@@ -1779,6 +1880,16 @@ export async function normalizeImportedLastFmScrobbles(
     timedOutTrackGroups,
     stoppedEarly,
     processedNameKeys,
+    debugSummary: [
+      `Processed ${processedTrackGroups}/${groupedCandidates.length} groups.`,
+      `Matched: ${matchedTrackGroups}. Unresolved: ${unresolvedTrackGroups}. Timed out: ${timedOutTrackGroups}.`,
+      failureReasonCounts.size > 0
+        ? `Failure reasons: ${[...failureReasonCounts.entries()].map(([reason, count]) => `${reason}=${count}`).join(", ")}`
+        : "Failure reasons: none recorded.",
+      failureSamples.length > 0
+        ? `Sample failures:\n- ${failureSamples.join("\n- ")}`
+        : "Sample failures: none recorded.",
+    ].join("\n"),
   };
 }
 

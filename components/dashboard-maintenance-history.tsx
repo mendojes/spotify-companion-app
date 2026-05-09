@@ -38,7 +38,7 @@ export async function DashboardMaintenanceHistory({ spotifyUserId }: { spotifyUs
                 {entry.partial ? `${entry.status} partial` : entry.status}
               </span>
             </div>
-            <p className="mt-2 text-sm text-[var(--theme-text)]">{entry.detail}</p>
+            <p className="mt-2 whitespace-pre-line text-sm text-[var(--theme-text)]">{entry.detail}</p>
             <p className="mt-3 text-xs uppercase tracking-[0.12em] text-[var(--theme-muted)]">
               Started: {formatTimestamp(entry.startedAt)}
             </p>
