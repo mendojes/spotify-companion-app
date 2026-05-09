@@ -101,6 +101,12 @@ try {
     db
       .collection(TRACK_METADATA_COLLECTION)
       .createIndex({ trackId: 1 }, { unique: true }),
+    db
+      .collection(TRACK_METADATA_COLLECTION)
+      .createIndex({ normalizedTrackArtistKey: 1 }),
+    db
+      .collection(TRACK_METADATA_COLLECTION)
+      .createIndex({ normalizedNameKey: 1 }),
 
     db
       .collection(ALBUM_METADATA_COLLECTION)
@@ -109,6 +115,12 @@ try {
     db
       .collection(USER_TRACK_LIBRARY_COLLECTION)
       .createIndex({ spotifyUserId: 1, trackId: 1 }, { unique: true }),
+    db
+      .collection(USER_TRACK_LIBRARY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, normalizedTrackArtistKey: 1 }),
+    db
+      .collection(USER_TRACK_LIBRARY_COLLECTION)
+      .createIndex({ spotifyUserId: 1, normalizedNameKey: 1 }),
     db
       .collection(USER_TRACK_LIBRARY_COLLECTION)
       .createIndex({ spotifyUserId: 1, totalPlayCount: -1, lastPlayedAt: -1 }),

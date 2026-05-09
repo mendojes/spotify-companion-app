@@ -7,6 +7,8 @@ export type StoredTrackMetadata = {
   trackId: string;
   trackName: string;
   artistName: string;
+  normalizedTrackArtistKey?: string;
+  normalizedNameKey?: string;
   artistNames?: string[];
   artistIds?: string[];
   albumId?: string;
@@ -15,6 +17,18 @@ export type StoredTrackMetadata = {
   imageUrl?: string;
   updatedAt: string;
 };
+
+function normalizeText(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function buildNormalizedTrackArtistKey(trackName: string, artistName: string) {
+  return `${normalizeText(trackName)}::${normalizeText(artistName)}`;
+}
+
+function buildNormalizedNameKey(trackName: string, artistName: string, albumName: string) {
+  return `${normalizeText(trackName)}::${normalizeText(artistName)}::${normalizeText(albumName)}`;
+}
 
 function getMetadataQualityScore(candidate: Omit<StoredTrackMetadata, "updatedAt">) {
   return [
@@ -45,6 +59,8 @@ function chooseBetterTrackMetadata(
     trackId: current.trackId,
     trackName: current.trackName || candidate.trackName,
     artistName: current.artistName || candidate.artistName,
+    normalizedTrackArtistKey: current.normalizedTrackArtistKey || candidate.normalizedTrackArtistKey,
+    normalizedNameKey: current.normalizedNameKey || candidate.normalizedNameKey,
     artistNames: current.artistNames?.length ? current.artistNames : candidate.artistNames,
     artistIds: current.artistIds?.length ? current.artistIds : candidate.artistIds,
     albumId: current.albumId ?? candidate.albumId,
@@ -63,6 +79,8 @@ function toTrackMetadataFromStoredPlay(play: StoredRecentPlay): Omit<StoredTrack
     trackId: play.trackId,
     trackName: play.trackName,
     artistName: play.artistName,
+    normalizedTrackArtistKey: buildNormalizedTrackArtistKey(play.trackName, play.artistName),
+    normalizedNameKey: buildNormalizedNameKey(play.trackName, play.artistName, play.albumName),
     artistNames: play.artistNames,
     artistIds: play.artistIds,
     albumId: undefined,
@@ -81,6 +99,8 @@ export function toTrackMetadataFromSpotifyTrack(track: SpotifyTrack): Omit<Store
     trackId: track.id,
     trackName: track.name,
     artistName: track.artists.map((artist) => artist.name).join(", "),
+    normalizedTrackArtistKey: buildNormalizedTrackArtistKey(track.name, track.artists.map((artist) => artist.name).join(", ")),
+    normalizedNameKey: buildNormalizedNameKey(track.name, track.artists.map((artist) => artist.name).join(", "), track.album.name),
     artistNames: track.artists.map((artist) => artist.name),
     artistIds: track.artists.map((artist) => artist.id).filter((id): id is string => Boolean(id)),
     albumId: track.album.id,

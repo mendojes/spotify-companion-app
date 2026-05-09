@@ -51,6 +51,8 @@ type UserTrackLibraryDoc = {
   trackId: string;
   trackName: string;
   artistName: string;
+  normalizedTrackArtistKey?: string;
+  normalizedNameKey?: string;
   artistNames?: string[];
   artistIds?: string[];
   albumId?: string;
@@ -241,6 +243,8 @@ async function upsertTrackMetadataCacheEntry(record: Omit<UserTrackLibraryDoc, "
         trackId: record.trackId,
         trackName: record.trackName,
         artistName: record.artistName,
+        normalizedTrackArtistKey: record.normalizedTrackArtistKey,
+        normalizedNameKey: record.normalizedNameKey,
         artistNames: record.artistNames,
         artistIds: record.artistIds,
         albumId: record.albumId,
@@ -269,6 +273,8 @@ function buildTrackBulkOps(
       trackId,
       trackName: metadata?.trackName ?? play.trackName,
       artistName: metadata?.artistName ?? play.artistName,
+      normalizedTrackArtistKey: `${normalizeText(metadata?.trackName ?? play.trackName)}::${normalizeText(metadata?.artistName ?? play.artistName)}`,
+      normalizedNameKey: `${normalizeText(metadata?.trackName ?? play.trackName)}::${normalizeText(metadata?.artistName ?? play.artistName)}::${normalizeText(metadata?.albumName ?? play.albumName)}`,
       artistNames: metadata?.artistNames ?? play.artistNames,
       artistIds: metadata?.artistIds ?? play.artistIds,
       albumId: metadata?.albumId,
@@ -289,6 +295,8 @@ function buildTrackBulkOps(
         $set: {
           trackName: record.trackName,
           artistName: record.artistName,
+          normalizedTrackArtistKey: record.normalizedTrackArtistKey,
+          normalizedNameKey: record.normalizedNameKey,
           artistNames: record.artistNames,
           artistIds: record.artistIds,
           albumId: record.albumId,
@@ -610,6 +618,8 @@ export async function syncUserLibraryFromRecentPlays(
         trackId: toSafeTrackId(play),
         trackName: metadataByTrackId.get(toSafeTrackId(play))?.trackName ?? play.trackName,
         artistName: metadataByTrackId.get(toSafeTrackId(play))?.artistName ?? play.artistName,
+        normalizedTrackArtistKey: `${normalizeText(metadataByTrackId.get(toSafeTrackId(play))?.trackName ?? play.trackName)}::${normalizeText(metadataByTrackId.get(toSafeTrackId(play))?.artistName ?? play.artistName)}`,
+        normalizedNameKey: `${normalizeText(metadataByTrackId.get(toSafeTrackId(play))?.trackName ?? play.trackName)}::${normalizeText(metadataByTrackId.get(toSafeTrackId(play))?.artistName ?? play.artistName)}::${normalizeText(metadataByTrackId.get(toSafeTrackId(play))?.albumName ?? play.albumName)}`,
         artistNames: metadataByTrackId.get(toSafeTrackId(play))?.artistNames ?? play.artistNames,
         artistIds: metadataByTrackId.get(toSafeTrackId(play))?.artistIds ?? play.artistIds,
         albumId: metadataByTrackId.get(toSafeTrackId(play))?.albumId,
@@ -759,8 +769,7 @@ async function findCachedTrackByNames(
   const recentTrack = await db.collection<UserTrackLibraryDoc>(USER_TRACK_LIBRARY_COLLECTION)
     .find({
       spotifyUserId,
-      trackName: play.trackName,
-      artistName: play.artistName,
+      normalizedTrackArtistKey: `${normalizedTrack}::${normalizedArtist}`,
       trackId: { $not: /^lastfm:/i },
     })
     .sort({ totalPlayCount: -1, lastPlayedAt: -1 })
@@ -770,19 +779,20 @@ async function findCachedTrackByNames(
     return recentTrack[0];
   }
 
-  const globalTracks = await db.collection<{ trackId: string; trackName: string; artistName: string; albumId?: string; albumName: string; artistNames?: string[]; artistIds?: string[]; imageUrl?: string; durationMs?: number }>(TRACK_METADATA_COLLECTION)
+  const globalTracks = await db.collection<{ trackId: string; trackName: string; artistName: string; normalizedTrackArtistKey?: string; normalizedNameKey?: string; albumId?: string; albumName: string; artistNames?: string[]; artistIds?: string[]; imageUrl?: string; durationMs?: number }>(TRACK_METADATA_COLLECTION)
     .find({
       trackId: { $not: /^lastfm:/i },
+      $or: [
+        { normalizedNameKey: `${normalizedTrack}::${normalizedArtist}::${normalizedAlbum}` },
+        { normalizedTrackArtistKey: `${normalizedTrack}::${normalizedArtist}` },
+      ],
     })
     .toArray();
 
   return globalTracks.find((track) =>
-    normalizeText(track.trackName) === normalizedTrack &&
-    normalizeText(track.artistName) === normalizedArtist &&
-    normalizeText(track.albumName) === normalizedAlbum,
+    track.normalizedNameKey === `${normalizedTrack}::${normalizedArtist}::${normalizedAlbum}`,
   ) ?? globalTracks.find((track) =>
-    normalizeText(track.trackName) === normalizedTrack &&
-    normalizeText(track.artistName) === normalizedArtist,
+    track.normalizedTrackArtistKey === `${normalizedTrack}::${normalizedArtist}`,
   ) ?? null;
 }
 

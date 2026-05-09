@@ -29,6 +29,8 @@ type TrackMetadataCandidate = {
   trackId?: string;
   trackName: string;
   artistName: string;
+  normalizedTrackArtistKey?: string;
+  normalizedNameKey?: string;
   artistNames?: string[];
   artistIds?: string[];
   albumName?: string;
@@ -186,6 +188,8 @@ function toMetadataCandidateFromStoredPlay(play: StoredRecentPlay): TrackMetadat
     trackId: play.trackId,
     trackName: play.trackName,
     artistName: play.artistName,
+    normalizedTrackArtistKey: buildTrackArtistKey(play.trackName, play.artistName),
+    normalizedNameKey: buildNameKey(play.trackName, play.artistName, play.albumName),
     artistNames: play.artistNames,
     artistIds: play.artistIds,
     albumName: play.albumName,
@@ -195,10 +199,13 @@ function toMetadataCandidateFromStoredPlay(play: StoredRecentPlay): TrackMetadat
 }
 
 function toMetadataCandidateFromSpotifyTrack(track: SpotifyTrack): TrackMetadataCandidate {
+  const joinedArtistName = track.artists.map((artist) => artist.name).join(", ");
   return {
     trackId: track.id,
     trackName: track.name,
-    artistName: track.artists.map((artist) => artist.name).join(", "),
+    artistName: joinedArtistName,
+    normalizedTrackArtistKey: buildTrackArtistKey(track.name, joinedArtistName),
+    normalizedNameKey: buildNameKey(track.name, joinedArtistName, track.album.name),
     artistNames: track.artists.map((artist) => artist.name),
     artistIds: track.artists.map((artist) => artist.id).filter((id): id is string => Boolean(id)),
     albumName: track.album.name,
@@ -277,6 +284,8 @@ async function getCachedMetadataCandidates(
         trackId: string;
         trackName: string;
         artistName: string;
+        normalizedTrackArtistKey?: string;
+        normalizedNameKey?: string;
         artistNames?: string[];
         artistIds?: string[];
         albumId?: string;
@@ -288,7 +297,7 @@ async function getCachedMetadataCandidates(
         spotifyUserId,
         $or: [
           ...uniqueTrackIds.map((trackId) => ({ trackId })),
-          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ trackName, artistName })),
+          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ normalizedTrackArtistKey: buildTrackArtistKey(trackName, artistName) })),
         ],
       })
       .sort({ totalPlayCount: -1, lastPlayedAt: -1 })
@@ -299,6 +308,8 @@ async function getCachedMetadataCandidates(
         trackId: string;
         trackName: string;
         artistName: string;
+        normalizedTrackArtistKey?: string;
+        normalizedNameKey?: string;
         artistNames?: string[];
         artistIds?: string[];
         albumId?: string;
@@ -309,7 +320,7 @@ async function getCachedMetadataCandidates(
       .find({
         $or: [
           ...uniqueTrackIds.map((trackId) => ({ trackId })),
-          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ trackName, artistName })),
+          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ normalizedTrackArtistKey: buildTrackArtistKey(trackName, artistName) })),
         ],
       })
       .limit(250)
@@ -787,6 +798,8 @@ async function upsertPermanentLibrariesFromImportedPlays(
     trackId: string;
     trackName: string;
     artistName: string;
+    normalizedTrackArtistKey?: string;
+    normalizedNameKey?: string;
     artistNames?: string[];
     artistIds?: string[];
     albumName: string;
@@ -821,6 +834,8 @@ async function upsertPermanentLibrariesFromImportedPlays(
       trackId: play.trackId,
       trackName: play.trackName,
       artistName: play.artistName,
+      normalizedTrackArtistKey: buildTrackArtistKey(play.trackName, play.artistName),
+      normalizedNameKey: buildNameKey(play.trackName, play.artistName, play.albumName),
       artistNames: play.artistNames,
       artistIds: play.artistIds,
       albumName: play.albumName,
@@ -864,6 +879,8 @@ async function upsertPermanentLibrariesFromImportedPlays(
         $set: {
           trackName: record.trackName,
           artistName: record.artistName,
+          normalizedTrackArtistKey: record.normalizedTrackArtistKey,
+          normalizedNameKey: record.normalizedNameKey,
           artistNames: record.artistNames,
           artistIds: record.artistIds,
           albumName: record.albumName,
