@@ -8,7 +8,7 @@ import {
   writeStoredTopListsSectionEntry,
 } from "@/lib/dashboard-section-cache";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
-import { deleteImportedLastFmScrobbles, normalizeImportedLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
+import { deleteImportedLastFmScrobbles, deleteUnresolvedImportedLastFmScrobbles, normalizeImportedLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
 import { getStoredTrackMetadataMap, TRACK_METADATA_COLLECTION } from "@/lib/track-metadata-cache";
 import { TopListsData, StoredRecentPlay } from "@/lib/types";
 
@@ -32,6 +32,7 @@ export type MaintenanceAction =
   | "rebuild-top-list-caches"
   | "backfill-artist-metadata"
   | "delete-lastfm-imports"
+  | "delete-unresolved-lastfm-imports"
   | "delete-non-spotify-track-metadata"
   | "normalize-lastfm-imports"
   | "retry-unresolved-lastfm-imports"
@@ -143,7 +144,7 @@ function isSyntheticLastFmTrackId(trackId?: string) {
 }
 
 function isUnresolvedImportedPlay(play: Pick<StoredRecentPlay, "sourceType" | "trackId">) {
-  return play.sourceType === "lastfm_import" && isSyntheticLastFmTrackId(play.trackId);
+  return play.sourceType === "lastfm_import" && !isSpotifyTrackId(play.trackId);
 }
 
 function toSafeTrackId(play: Pick<StoredRecentPlay, "trackId" | "trackName" | "artistName" | "albumName">) {
@@ -527,10 +528,16 @@ async function purgeSyntheticLastFmTrackArtifacts(spotifyUserId: string) {
   await Promise.all([
     db.collection(USER_TRACK_LIBRARY_COLLECTION).deleteMany({
       spotifyUserId,
-      trackId: { $regex: "^lastfm:" },
+      $or: [
+        { trackId: { $regex: "^lastfm:" } },
+        { trackId: { $regex: "^local:" } },
+      ],
     }),
     db.collection(TRACK_METADATA_COLLECTION).deleteMany({
-      trackId: { $regex: "^lastfm:" },
+      $or: [
+        { trackId: { $regex: "^lastfm:" } },
+        { trackId: { $regex: "^local:" } },
+      ],
     }),
   ]);
 }
@@ -917,6 +924,11 @@ export async function runDashboardMaintenanceAction(
   if (action === "delete-lastfm-imports") {
     const result = await deleteImportedLastFmScrobbles(spotifyUserId);
     await refreshLastFmImportCaches(spotifyUserId, accessToken).catch(() => undefined);
+    return { partial: false, ...result };
+  }
+
+  if (action === "delete-unresolved-lastfm-imports") {
+    const result = await deleteUnresolvedImportedLastFmScrobbles(spotifyUserId);
     return { partial: false, ...result };
   }
 

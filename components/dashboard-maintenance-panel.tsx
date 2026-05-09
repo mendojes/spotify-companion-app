@@ -19,6 +19,7 @@ const BUTTONS: MaintenanceButton[] = [
   { action: "rebuild-top-list-caches", label: "Top Lists Cache", description: "Rebuild cached week, month, and year top lists only.", lane: "dashboard" },
   { action: "backfill-artist-metadata", label: "Artist Metadata", description: "Fetch missing permanent artist metadata and images.", lane: "dashboard" },
   { action: "delete-lastfm-imports", label: "Delete Last.fm Imports", description: "Remove imported Last.fm plays and reset the permanent-library footprint they created.", lane: "dashboard" },
+  { action: "delete-unresolved-lastfm-imports", label: "Delete Unresolved Last.fm", description: "Remove only imported Last.fm plays that are still unresolved and still using synthetic Last.fm ids.", lane: "dashboard" },
   { action: "delete-non-spotify-track-metadata", label: "Delete Non-Spotify Track Metadata", description: "Remove any permanent track-metadata entries whose track id is not a real Spotify track id.", lane: "dashboard" },
   { action: "refresh-track-library-full", label: "Track Library Full", description: "Full rebuild of permanent track metadata and all-time counts, while skipping unresolved Last.fm imports.", lane: "dashboard" },
   { action: "refresh-track-library-incremental", label: "Track Library Incremental", description: "Only add plays after the stored track-library checkpoint, while skipping unresolved Last.fm imports.", lane: "dashboard" },

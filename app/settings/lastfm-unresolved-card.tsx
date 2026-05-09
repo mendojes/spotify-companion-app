@@ -31,7 +31,7 @@ export function LastFmUnresolvedCard({ unresolvedGroups, saved }: LastFmUnresolv
       <div className="space-y-2">
         <p className="font-display text-2xl uppercase tracking-[0.08em] text-[var(--theme-title)]">Unresolved Last.fm imports</p>
         <p className="max-w-3xl text-sm leading-7 text-[var(--theme-body)]">
-          These imported scrobbles are still using synthetic Last.fm ids because we have not matched them to a real Spotify track yet. You can retry them from the dashboard maintenance panel, or manually paste a Spotify track link here.
+          These imported scrobbles are still using synthetic ids because we have not matched them to a real Spotify track yet. You can retry them from the dashboard maintenance panel, or manually paste a Spotify track link here.
         </p>
         <p className="text-sm text-[var(--theme-muted)]">
           {totalCount} unresolved track group{totalCount === 1 ? "" : "s"} total.

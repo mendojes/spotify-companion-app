@@ -17,6 +17,7 @@ function isMaintenanceAction(value: string): value is MaintenanceAction {
     "rebuild-top-list-caches",
     "backfill-artist-metadata",
     "delete-lastfm-imports",
+    "delete-unresolved-lastfm-imports",
     "delete-non-spotify-track-metadata",
     "normalize-lastfm-imports",
     "retry-unresolved-lastfm-imports",
@@ -43,6 +44,8 @@ function describeMaintenanceAction(action: MaintenanceAction) {
       return "Backfilling artist metadata";
     case "delete-lastfm-imports":
       return "Deleting imported Last.fm plays and resetting their permanent-library footprint";
+    case "delete-unresolved-lastfm-imports":
+      return "Deleting only unresolved imported Last.fm plays that still use synthetic Last.fm ids";
     case "delete-non-spotify-track-metadata":
       return "Deleting non-Spotify records from the permanent track metadata cache";
     case "normalize-lastfm-imports":

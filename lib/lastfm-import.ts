@@ -163,6 +163,10 @@ function buildNameKey(trackName: string, artistName: string, albumName: string) 
   return `${normalizeText(trackName)}::${normalizeText(artistName)}::${normalizeText(albumName)}`;
 }
 
+function isSpotifyTrackId(trackId?: string) {
+  return typeof trackId === "string" && /^[A-Za-z0-9]{22}$/.test(trackId.trim());
+}
+
 function toArtistKeys(play: Pick<StoredRecentPlay, "artistIds" | "artistNames" | "artistName">) {
   const ids = play.artistIds ?? [];
   const names = play.artistNames?.length ? play.artistNames : play.artistName.split(/,\s*/).filter(Boolean);
@@ -1109,7 +1113,12 @@ export async function listUnresolvedImportedLastFmGroups(
       $match: {
         spotifyUserId,
         sourceType: LASTFM_IMPORT_SOURCE_TYPE,
-        trackId: { $regex: "^lastfm:" },
+        $or: [
+          { trackId: { $regex: "^lastfm:" } },
+          { trackId: { $regex: "^local:" } },
+          { trackId: { $exists: false } },
+          { trackId: "" },
+        ],
       },
     },
     {
@@ -1193,7 +1202,6 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
     .find({
       spotifyUserId,
       sourceType: LASTFM_IMPORT_SOURCE_TYPE,
-      trackId: { $regex: "^lastfm:" },
       trackName: group.trackName,
       artistName: group.artistName,
       albumName: group.albumName,
@@ -1278,7 +1286,7 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
   const staleSyntheticTrackIds = [...new Set(
     matchingImportedPlays
       .map((play) => play.trackId)
-      .filter((trackId): trackId is string => Boolean(trackId) && /^lastfm:/i.test(trackId)),
+      .filter((trackId): trackId is string => Boolean(trackId) && (/^lastfm:/i.test(trackId) || /^local:/i.test(trackId))),
   )];
   if (staleSyntheticTrackIds.length > 0) {
     await db.collection(TRACK_METADATA_COLLECTION).deleteMany({
@@ -1338,6 +1346,60 @@ export async function deleteImportedLastFmScrobbles(spotifyUserId: string) {
   return {
     deletedCount: result.deletedCount ?? 0,
     resetLibraries: true,
+  };
+}
+
+export async function deleteUnresolvedImportedLastFmScrobbles(spotifyUserId: string) {
+  if (!hasMongoConfig()) {
+    return { deletedCount: 0 };
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return { deletedCount: 0 };
+  }
+
+  const unresolvedImportedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      spotifyUserId,
+      sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+      $or: [
+        { trackId: { $regex: "^lastfm:" } },
+        { trackId: { $regex: "^local:" } },
+        { trackId: { $exists: false } },
+        { trackId: "" },
+      ],
+    })
+    .project({ trackId: 1 })
+    .toArray();
+
+  const syntheticTrackIds = [...new Set(
+    unresolvedImportedPlays
+      .map((play) => play.trackId)
+      .filter((trackId): trackId is string => Boolean(trackId) && (/^lastfm:/i.test(trackId) || /^local:/i.test(trackId))),
+  )];
+
+  const result = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).deleteMany({
+    spotifyUserId,
+    sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+    $or: [
+      { trackId: { $regex: "^lastfm:" } },
+      { trackId: { $regex: "^local:" } },
+      { trackId: { $exists: false } },
+      { trackId: "" },
+    ],
+  });
+
+  if (syntheticTrackIds.length > 0) {
+    await db.collection(TRACK_METADATA_COLLECTION).deleteMany({
+      trackId: { $in: syntheticTrackIds },
+    }).catch(() => undefined);
+  }
+
+  await invalidateLastFmImportCaches(spotifyUserId).catch(() => undefined);
+
+  return {
+    deletedCount: result.deletedCount ?? 0,
   };
 }
 
@@ -1412,6 +1474,9 @@ export async function normalizeImportedLastFmScrobbles(
       sourceType: LASTFM_IMPORT_SOURCE_TYPE,
       $or: [
         { trackId: { $regex: "^lastfm:" } },
+        { trackId: { $regex: "^local:" } },
+        { trackId: { $exists: false } },
+        { trackId: "" },
         { imageUrl: { $exists: false } },
         { artistIds: { $exists: false } },
       ],
@@ -1482,6 +1547,20 @@ export async function normalizeImportedLastFmScrobbles(
       continue;
     }
     if (!metadata?.trackId) {
+      unresolvedTrackGroups += 1;
+      await options?.onCheckpoint?.({
+        processedNameKeys: [...processedNameKeys],
+        processedTrackGroups,
+        totalTrackGroups: groupedCandidates.length,
+        matchedTrackGroups,
+        unresolvedTrackGroups,
+        updatedPlayCount,
+        deletedDuplicatePlayCount,
+        timedOutTrackGroups,
+      });
+      continue;
+    }
+    if (!isSpotifyTrackId(metadata.trackId)) {
       unresolvedTrackGroups += 1;
       await options?.onCheckpoint?.({
         processedNameKeys: [...processedNameKeys],
