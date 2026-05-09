@@ -10,8 +10,7 @@ import {
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
 import { deleteImportedLastFmScrobbles, normalizeImportedLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
 import { getStoredTrackMetadataMap, TRACK_METADATA_COLLECTION } from "@/lib/track-metadata-cache";
-import { spotifyFetch } from "@/lib/spotify";
-import { TopListsData, StoredRecentPlay, SpotifyTrack } from "@/lib/types";
+import { TopListsData, StoredRecentPlay } from "@/lib/types";
 
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const USER_TRACK_LIBRARY_COLLECTION = "spotify_user_track_library";
@@ -771,7 +770,7 @@ async function findCachedTrackByNames(
     .find({
       spotifyUserId,
       normalizedTrackArtistKey: `${normalizedTrack}::${normalizedArtist}`,
-      trackId: { $not: /^lastfm:/i },
+      trackId: { $regex: "^[A-Za-z0-9]{22}$" },
     })
     .sort({ totalPlayCount: -1, lastPlayedAt: -1 })
     .limit(1)
@@ -782,7 +781,7 @@ async function findCachedTrackByNames(
 
   const globalTracks = await db.collection<{ trackId: string; trackName: string; artistName: string; normalizedTrackArtistKey?: string; normalizedNameKey?: string; albumId?: string; albumName: string; artistNames?: string[]; artistIds?: string[]; imageUrl?: string; durationMs?: number }>(TRACK_METADATA_COLLECTION)
     .find({
-      trackId: { $not: /^lastfm:/i },
+      trackId: { $regex: "^[A-Za-z0-9]{22}$" },
       $or: [
         { normalizedNameKey: `${normalizedTrack}::${normalizedArtist}::${normalizedAlbum}` },
         { normalizedTrackArtistKey: `${normalizedTrack}::${normalizedArtist}` },
@@ -795,36 +794,6 @@ async function findCachedTrackByNames(
   ) ?? globalTracks.find((track) =>
     track.normalizedTrackArtistKey === `${normalizedTrack}::${normalizedArtist}`,
   ) ?? null;
-}
-
-type SpotifySearchTracksResponse = {
-  tracks?: {
-    items: SpotifyTrack[];
-  };
-};
-
-async function searchSpotifyTrackMetadata(accessToken: string, play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">) {
-  const query = `track:${play.trackName} artist:${play.artistName} album:${play.albumName}`;
-  const response = await spotifyFetch<SpotifySearchTracksResponse>(
-    `/search?type=track&limit=5&q=${encodeURIComponent(query)}`,
-    accessToken,
-  ).catch(() => null);
-
-  const track = response?.tracks?.items?.[0];
-  if (!track?.id) {
-    return null;
-  }
-
-  return {
-    trackId: track.id,
-    trackName: track.name,
-    artistName: track.artists.map((artist) => artist.name).join(", "),
-    artistNames: track.artists.map((artist) => artist.name),
-    artistIds: track.artists.map((artist) => artist.id).filter((value): value is string => Boolean(value)),
-    albumName: track.album.name,
-    durationMs: track.duration_ms,
-    imageUrl: track.album.images?.[0]?.url,
-  };
 }
 
 export async function normalizeImportedLastFmWithPermanentCache(
@@ -848,7 +817,19 @@ export async function normalizeImportedLastFmWithPermanentCache(
     for (const play of unresolvedSeedPlays) {
       await onProgress?.(`Checking permanent libraries for ${play.trackName}`);
       const cached = await findCachedTrackByNames(spotifyUserId, play);
-      if (!cached) {
+      if (!cached || !isSpotifyTrackId(cached.trackId)) {
+        continue;
+      }
+
+      const conflictingResolvedPlay = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).findOne({
+        spotifyUserId,
+        playedAt: play.playedAt,
+        trackId: cached.trackId,
+      });
+
+      if (conflictingResolvedPlay && String(conflictingResolvedPlay._id) !== String(play._id)) {
+        await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).deleteOne({ _id: play._id });
+        preResolvedCount += 1;
         continue;
       }
 
@@ -886,61 +867,12 @@ export async function normalizeImportedLastFmWithPermanentCache(
     }
   }
 
-  const normalization = await normalizeImportedLastFmScrobbles(spotifyUserId, accessToken, {
+  return normalizeImportedLastFmScrobbles(spotifyUserId, accessToken, {
     limitDistinctTracks: 40,
     perTrackTimeoutMs: 2500,
     maxRuntimeMs: 20_000,
     onProgress,
   });
-
-  const freshDb = await getDatabase({ forceRetry: true });
-  if (!freshDb) {
-    return normalization;
-  }
-
-  const unresolved = await freshDb.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
-    .find({
-      spotifyUserId,
-      sourceType: "lastfm_import",
-      trackId: { $regex: "^lastfm:" },
-    })
-    .sort({ playedAt: -1 })
-    .limit(40)
-    .toArray();
-
-  let updatedFallbackCount = 0;
-  for (const play of unresolved) {
-    if (Date.now() % 1_000_000 === -1) {
-      break;
-    }
-    await onProgress?.(`Matching imported scrobble ${play.trackName} by cache or Spotify search`);
-    const cached = await findCachedTrackByNames(spotifyUserId, play);
-    const matched = cached ?? await searchSpotifyTrackMetadata(accessToken, play).catch(() => null);
-    const finalTrackId = matched?.trackId ?? `local:${createHash("sha1").update(`${play.trackName}::${play.artistName}::${play.albumName}`).digest("hex").slice(0, 24)}`;
-    const finalRecord = {
-      trackId: finalTrackId,
-      trackName: matched?.trackName ?? play.trackName,
-      artistName: matched?.artistName ?? play.artistName,
-      artistNames: matched?.artistNames ?? play.artistNames,
-      artistIds: matched?.artistIds ?? play.artistIds,
-      albumName: matched?.albumName ?? play.albumName,
-      durationMs: matched?.durationMs ?? play.durationMs,
-      imageUrl: matched?.imageUrl ?? play.imageUrl,
-    };
-    await freshDb.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).updateOne(
-      { _id: play._id },
-      {
-        $set: finalRecord,
-      },
-    );
-    await upsertTrackMetadataCacheEntry(finalRecord).catch(() => undefined);
-    updatedFallbackCount += 1;
-  }
-
-  return {
-    ...normalization,
-    updatedPlayCount: normalization.updatedPlayCount + updatedFallbackCount,
-  };
 }
 
 export async function runDashboardMaintenanceAction(
