@@ -47,6 +47,7 @@ type SpotifySearchDebugResult = {
   queriesTried: number;
   hadAnyResults: boolean;
   usedClientCredentialsFallback?: boolean;
+  retryAfterSeconds?: number;
   bestTrackLabel?: string;
   trackScore?: number;
   artistScore?: number;
@@ -178,6 +179,10 @@ function normalizeLooseText(value: string) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function tokenizeLooseText(value: string) {
@@ -524,7 +529,7 @@ function evaluateSpotifySearchTrackCandidates(
 }
 
 async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastFmPlay) {
-  for (const query of buildSpotifySearchQueries(play)) {
+  for (const query of buildSpotifySearchQueries(play).slice(0, 3)) {
     const response = await spotifyFetch<SpotifySearchTracksResponse>(
       `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
       accessToken,
@@ -565,6 +570,7 @@ async function searchSpotifyTrackMetadataForStoredPlay(
         return {
           ok: false as const,
           status: response.status,
+          retryAfterSeconds: Number(response.headers.get("retry-after") ?? ""),
           items: [] as SpotifyTrack[],
         };
       }
@@ -632,6 +638,7 @@ async function searchSpotifyTrackMetadataForStoredPlay(
         queriesTried,
         hadAnyResults,
         usedClientCredentialsFallback,
+        retryAfterSeconds: searchAttempt.retryAfterSeconds,
       };
       bestFailure = bestFailure ?? failure;
       continue;
@@ -660,6 +667,7 @@ async function searchSpotifyTrackMetadataForStoredPlay(
       queriesTried,
       hadAnyResults,
       usedClientCredentialsFallback,
+      retryAfterSeconds: undefined,
       bestTrackLabel: evaluation.bestTrack
         ? `${evaluation.bestTrack.name} / ${evaluation.bestTrack.artists.map((artist) => artist.name).join(", ")} / ${evaluation.bestTrack.album.name}`
         : undefined,
@@ -1763,6 +1771,8 @@ export async function normalizeImportedLastFmScrobbles(
   const processedNameKeys: string[] = [];
   const failureReasonCounts = new Map<string, number>();
   const failureSamples: string[] = [];
+  let sawRateLimit = false;
+  let retryAfterSeconds: number | undefined;
 
   for (let index = 0; index < groupedCandidates.length; index += 1) {
     const candidate = groupedCandidates[index];
@@ -1825,11 +1835,18 @@ export async function normalizeImportedLastFmScrobbles(
       unresolvedTrackGroups += 1;
       const failureReason = searchResult.reason || "unknown_failure";
       failureReasonCounts.set(failureReason, (failureReasonCounts.get(failureReason) ?? 0) + 1);
+      if (failureReason === "spotify_status_429") {
+        sawRateLimit = true;
+        retryAfterSeconds = searchResult.retryAfterSeconds;
+      }
       if (failureSamples.length < 8) {
         const bestLabel = searchResult.bestTrackLabel ? ` best=${searchResult.bestTrackLabel}` : "";
         const scoreLabel = typeof searchResult.totalScore === "number" ? ` score=${searchResult.totalScore.toFixed(2)}` : "";
         const fallbackLabel = searchResult.usedClientCredentialsFallback ? " fallback=client_credentials" : "";
-        failureSamples.push(`${candidate.trackName} / ${candidate.artistName} / ${candidate.albumName} -> ${failureReason}${scoreLabel}${fallbackLabel}${bestLabel}`);
+        const retryLabel = typeof searchResult.retryAfterSeconds === "number" && Number.isFinite(searchResult.retryAfterSeconds)
+          ? ` retry_after=${searchResult.retryAfterSeconds}s`
+          : "";
+        failureSamples.push(`${candidate.trackName} / ${candidate.artistName} / ${candidate.albumName} -> ${failureReason}${scoreLabel}${fallbackLabel}${retryLabel}${bestLabel}`);
       }
       await options?.onCheckpoint?.({
         processedNameKeys: [...processedNameKeys],
@@ -1841,6 +1858,18 @@ export async function normalizeImportedLastFmScrobbles(
         deletedDuplicatePlayCount,
         timedOutTrackGroups,
       });
+      if (failureReason === "spotify_status_429") {
+        stoppedEarly = true;
+        await options?.onProgress?.(
+          typeof searchResult.retryAfterSeconds === "number" && Number.isFinite(searchResult.retryAfterSeconds)
+            ? `Spotify search rate limited this pass. Wait about ${searchResult.retryAfterSeconds} second${searchResult.retryAfterSeconds === 1 ? "" : "s"} before running Retry Unresolved Last.fm again.`
+            : "Spotify search rate limited this pass. Wait a moment before running Retry Unresolved Last.fm again.",
+        );
+        if (typeof searchResult.retryAfterSeconds === "number" && Number.isFinite(searchResult.retryAfterSeconds) && searchResult.retryAfterSeconds <= 3) {
+          await wait(searchResult.retryAfterSeconds * 1000);
+        }
+        break;
+      }
       continue;
     }
     if (!isSpotifyTrackId(searchResult.metadata.trackId)) {
@@ -1969,6 +1998,9 @@ export async function normalizeImportedLastFmScrobbles(
       failureReasonCounts.size > 0
         ? `Failure reasons: ${[...failureReasonCounts.entries()].map(([reason, count]) => `${reason}=${count}`).join(", ")}`
         : "Failure reasons: none recorded.",
+      sawRateLimit
+        ? `Spotify rate limit hit${typeof retryAfterSeconds === "number" && Number.isFinite(retryAfterSeconds) ? ` (retry-after ${retryAfterSeconds}s)` : ""}.`
+        : "Spotify rate limit hit: no.",
       failureSamples.length > 0
         ? `Sample failures:\n- ${failureSamples.join("\n- ")}`
         : "Sample failures: none recorded.",

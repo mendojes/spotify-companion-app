@@ -880,7 +880,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
   }
 
   return normalizeImportedLastFmScrobbles(spotifyUserId, accessToken, {
-    limitDistinctTracks: 40,
+    limitDistinctTracks: 12,
     perTrackTimeoutMs: 2500,
     maxRuntimeMs: 20_000,
     onProgress,
