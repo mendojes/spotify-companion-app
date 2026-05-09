@@ -75,13 +75,13 @@ function getRetryDelayMs(response: Response, attempt: number) {
   return Math.min(400 * Math.pow(2, attempt), MAX_SPOTIFY_RETRY_DELAY_MS);
 }
 
-async function spotifyRequest(pathOrUrl: string, init: RequestInit, allowRetry: boolean) {
+async function spotifyRequest(pathOrUrl: string, init: RequestInit, allowRetry: boolean, timeoutMs?: number) {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${spotifyApiBase}${pathOrUrl}`;
 
   for (let attempt = 0; attempt <= MAX_SPOTIFY_RETRIES; attempt += 1) {
     const response = await fetch(url, {
       ...init,
-      signal: init.signal ?? AbortSignal.timeout(SPOTIFY_FETCH_TIMEOUT_MS),
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs ?? SPOTIFY_FETCH_TIMEOUT_MS),
       cache: "no-store",
     });
 
@@ -238,7 +238,7 @@ export async function getSpotifyClientCredentialsToken() {
 export async function spotifyFetch<T>(
   path: string,
   accessToken: string,
-  options?: { allowRetry?: boolean },
+  options?: { allowRetry?: boolean; timeoutMs?: number },
 ): Promise<T> {
   const response = await spotifyRequest(
     path,
@@ -248,6 +248,7 @@ export async function spotifyFetch<T>(
       },
     },
     options?.allowRetry ?? true,
+    options?.timeoutMs,
   );
 
   if (!response.ok) {

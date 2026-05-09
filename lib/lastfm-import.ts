@@ -22,8 +22,6 @@ const LASTFM_IMPORT_SOURCE_TYPE = "lastfm_import";
 const DEFAULT_DUPLICATE_WINDOW_MS = 1000 * 60 * 7;
 const MIN_DUPLICATE_WINDOW_MS = 1000 * 60 * 3;
 const MAX_DUPLICATE_WINDOW_MS = 1000 * 60 * 15;
-const NORMALIZATION_TIMEOUT = Symbol("lastfm-normalization-timeout");
-
 type TrackMetadataCandidate = {
   trackId?: string;
   trackName: string;
@@ -543,17 +541,39 @@ async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastF
 async function searchSpotifyTrackMetadataForStoredPlay(
   accessToken: string,
   play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">,
+  maxSearchTimeMs = 2500,
 ): Promise<SpotifySearchDebugResult> {
   let bestFailure: SpotifySearchDebugResult | undefined;
   let hadAnyResults = false;
   let queriesTried = 0;
+  const startedAt = Date.now();
 
   for (const query of buildSpotifySearchQueries(play)) {
+    const elapsedMs = Date.now() - startedAt;
+    const remainingMs = maxSearchTimeMs - elapsedMs;
+    if (remainingMs <= 250) {
+      return bestFailure ?? {
+        reason: "timeout",
+        queriesTried,
+        hadAnyResults,
+      };
+    }
+
     queriesTried += 1;
     const response = await spotifyFetch<SpotifySearchTracksResponse>(
       `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
       accessToken,
-    ).catch(() => null);
+      {
+        allowRetry: false,
+        timeoutMs: Math.max(600, Math.min(1500, remainingMs)),
+      },
+    ).catch((error) => {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (message.includes("aborted") || message.includes("timeout")) {
+        return null;
+      }
+      return null;
+    });
     const items = response?.tracks?.items ?? [];
     hadAnyResults = hadAnyResults || items.length > 0;
     const evaluation = evaluateSpotifySearchTrackCandidates(items, play);
@@ -590,7 +610,7 @@ async function searchSpotifyTrackMetadataForStoredPlay(
   }
 
   return bestFailure ?? {
-    reason: "no_results",
+    reason: hadAnyResults ? "weak_overall_match" : "no_results",
     queriesTried,
     hadAnyResults,
   };
@@ -1694,10 +1714,7 @@ export async function normalizeImportedLastFmScrobbles(
       `Resolving imported Last.fm tracks to Spotify metadata (${index + 1}/${groupedCandidates.length})`,
     );
 
-    const searchResult = await Promise.race<SpotifySearchDebugResult | typeof NORMALIZATION_TIMEOUT>([
-      searchSpotifyTrackMetadataForStoredPlay(spotifyToken, candidate),
-      new Promise<typeof NORMALIZATION_TIMEOUT>((resolve) => setTimeout(() => resolve(NORMALIZATION_TIMEOUT), perTrackTimeoutMs)),
-    ]);
+    const searchResult = await searchSpotifyTrackMetadataForStoredPlay(spotifyToken, candidate, perTrackTimeoutMs);
     processedTrackGroups += 1;
     processedNameKeys.push(buildNameKey(candidate.trackName, candidate.artistName, candidate.albumName));
     await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).updateMany(
@@ -1717,7 +1734,7 @@ export async function normalizeImportedLastFmScrobbles(
         },
       },
     ).catch(() => undefined);
-    if (searchResult === NORMALIZATION_TIMEOUT) {
+    if (searchResult.reason === "timeout") {
       timedOutTrackGroups += 1;
       unresolvedTrackGroups += 1;
       failureReasonCounts.set("timeout", (failureReasonCounts.get("timeout") ?? 0) + 1);
