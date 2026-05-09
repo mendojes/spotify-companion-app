@@ -7,7 +7,7 @@ import { invalidateDashboardPlaylistPreviewCache, invalidatePlaylistInsightsCach
 import { getSpotifyClientCredentialsToken, spotifyFetch } from "@/lib/spotify";
 import { invalidateTopListHistoryCache, resetStoredAllTimeTopListAggregate } from "@/lib/spotify-toplists";
 import { TRACK_METADATA_COLLECTION, upsertStoredTrackMetadataFromRecentPlays } from "@/lib/track-metadata-cache";
-import { SpotifyDashboardSnapshot, SpotifyRecentlyPlayedItem, SpotifyTrack, StoredRecentPlay } from "@/lib/types";
+import { SpotifyRecentlyPlayedItem, SpotifyTrack, StoredRecentPlay } from "@/lib/types";
 
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
@@ -17,12 +17,11 @@ const USER_ALBUM_LIBRARY_COLLECTION = "spotify_user_album_library";
 const USER_LIBRARY_STATE_COLLECTION = "spotify_user_library_state";
 const ALL_TIME_TOP_LISTS_STATE_COLLECTION = "dashboard_all_time_top_lists_state";
 const ALBUM_METADATA_COLLECTION = "spotify_album_metadata";
-const IMPORT_BATCH_SIZE = 150;
+const IMPORT_BATCH_SIZE = 50;
 const LASTFM_IMPORT_SOURCE_TYPE = "lastfm_import";
 const DEFAULT_DUPLICATE_WINDOW_MS = 1000 * 60 * 7;
 const MIN_DUPLICATE_WINDOW_MS = 1000 * 60 * 3;
 const MAX_DUPLICATE_WINDOW_MS = 1000 * 60 * 15;
-const SNAPSHOT_CACHE_SCAN_LIMIT = 8;
 const NORMALIZATION_TIMEOUT = Symbol("lastfm-normalization-timeout");
 
 type TrackMetadataCandidate = {
@@ -214,15 +213,6 @@ function toMetadataCandidateFromSpotifyTrack(track: SpotifyTrack): TrackMetadata
   };
 }
 
-function collectSnapshotTrackCandidates(snapshot: SpotifyDashboardSnapshot) {
-  return [
-    ...snapshot.recent.map((item) => item.track),
-    ...snapshot.topTracks,
-    ...(snapshot.mediumTermTopTracks ?? []),
-    ...(snapshot.longTermTopTracks ?? []),
-  ];
-}
-
 function getMetadataQualityScore(candidate: TrackMetadataCandidate) {
   return [
     candidate.trackId ? 8 : 0,
@@ -278,7 +268,7 @@ async function getCachedMetadataCandidates(
   ).values()];
   const uniqueTrackIds = [...new Set(plays.map((play) => play.trackId).filter((trackId) => !trackId.startsWith("lastfm:")))];
 
-  const [libraryCandidates, globalTrackCacheCandidates, recentPlayCandidates, snapshots] = await Promise.all([
+  const [libraryCandidates, globalTrackCacheCandidates] = await Promise.all([
     db
       .collection<{
         trackId: string;
@@ -325,32 +315,11 @@ async function getCachedMetadataCandidates(
       })
       .limit(250)
       .toArray(),
-    db
-      .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
-      .find({
-        spotifyUserId,
-        $or: [
-          ...uniqueTrackIds.map((trackId) => ({ trackId })),
-          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ trackName, artistName })),
-        ],
-      })
-      .sort({ playedAt: -1 })
-      .limit(250)
-      .toArray(),
-    db
-      .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
-      .find({ spotifyUserId })
-      .sort({ fetchedAt: -1 })
-      .limit(SNAPSHOT_CACHE_SCAN_LIMIT)
-      .toArray(),
   ]);
 
-  const snapshotCandidates = snapshots.flatMap((snapshot) => collectSnapshotTrackCandidates(snapshot).slice(0, 40).map(toMetadataCandidateFromSpotifyTrack));
   return [
     ...libraryCandidates.map((candidate) => ({ ...candidate })),
     ...globalTrackCacheCandidates.map((candidate) => ({ ...candidate })),
-    ...recentPlayCandidates.map(toMetadataCandidateFromStoredPlay),
-    ...snapshotCandidates,
   ];
 }
 

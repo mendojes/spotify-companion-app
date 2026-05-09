@@ -12,7 +12,7 @@ type ImportSummary = {
   batchCount: number;
 };
 
-const CLIENT_IMPORT_CHUNK_SIZE = 300;
+const CLIENT_IMPORT_CHUNK_SIZE = 100;
 
 function parseJsonSafely(rawText: string) {
   if (!rawText) {
