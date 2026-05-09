@@ -181,7 +181,7 @@ export function LastFmImportCard() {
           Upload a Last.fm CSV export to backfill your stored listening history. Listening Lore skips duplicate plays by matching timestamps against track ids when available, or track and artist names when they are not.
         </p>
         <p className="max-w-3xl text-sm leading-7 text-[var(--theme-body)]">
-          Imports run in batches and then rebuild the cached dashboard stats and analysis from the updated history.
+          Imports run in batches and save normalized plays as they go. After the import finishes, use the dashboard maintenance buttons to rebuild whichever permanent libraries or caches you want next.
         </p>
       </div>
 

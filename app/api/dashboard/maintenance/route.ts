@@ -19,6 +19,7 @@ function isMaintenanceAction(value: string): value is MaintenanceAction {
     "delete-lastfm-imports",
     "delete-non-spotify-track-metadata",
     "normalize-lastfm-imports",
+    "retry-unresolved-lastfm-imports",
     "refresh-track-library-full",
     "refresh-track-library-incremental",
     "refresh-artist-library-full",
@@ -46,6 +47,8 @@ function describeMaintenanceAction(action: MaintenanceAction) {
       return "Deleting non-Spotify records from the permanent track metadata cache";
     case "normalize-lastfm-imports":
       return "Normalizing imported Last.fm scrobbles";
+    case "retry-unresolved-lastfm-imports":
+      return "Retrying unresolved imported Last.fm scrobbles against permanent cache and Spotify";
     case "refresh-track-library-full":
       return "Fully rebuilding permanent track metadata and counts while skipping unresolved Last.fm imports";
     case "refresh-track-library-incremental":
@@ -85,7 +88,7 @@ export async function POST(request: NextRequest) {
     const baseDetail = describeMaintenanceAction(action);
     const startedAt = new Date().toISOString();
 
-    if (action === "normalize-lastfm-imports") {
+    if (action === "normalize-lastfm-imports" || action === "retry-unresolved-lastfm-imports") {
       await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "running", {
         detail: baseDetail,
         step: action,
@@ -112,7 +115,7 @@ export async function POST(request: NextRequest) {
       authorizedSession.spotifyUserId,
       authorizedSession.accessToken,
       async (detail) => {
-        if (action === "normalize-lastfm-imports") {
+        if (action === "normalize-lastfm-imports" || action === "retry-unresolved-lastfm-imports") {
           await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "running", {
             detail,
             step: action,
@@ -131,7 +134,7 @@ export async function POST(request: NextRequest) {
       ? `${baseDetail} saved a partial batch. Run it again to continue from the smaller remaining set.`
       : `${baseDetail} finished successfully.`;
 
-    if (action === "normalize-lastfm-imports") {
+    if (action === "normalize-lastfm-imports" || action === "retry-unresolved-lastfm-imports") {
       await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "success", {
         detail: successDetail,
         step: action,
@@ -170,7 +173,7 @@ export async function POST(request: NextRequest) {
         "error",
         message,
       ).catch(() => undefined);
-      if (action === "normalize-lastfm-imports") {
+      if (action === "normalize-lastfm-imports" || action === "retry-unresolved-lastfm-imports") {
         await markConnectedUserArtistMetadataBackfillStatus(session.spotifyUserId, "error", {
           errorMessage: message,
           detail: `Maintenance action failed: ${action}`,

@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { hasSpotifyConnection, isAdminSession, requireSession } from "@/lib/auth";
 import { getConnectedUser, getDefaultPrivacySettings, listAllConnectedUsers } from "@/lib/connected-users";
+import { listUnresolvedImportedLastFmGroups } from "@/lib/lastfm-import";
 import { listLocalAccounts } from "@/lib/local-accounts";
 import { getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
 import { IgnoredPlaylistPicker } from "./ignored-playlist-picker";
 import { LastFmImportCard } from "./lastfm-import-card";
+import { LastFmUnresolvedCard } from "./lastfm-unresolved-card";
 
 type SettingsPageProps = {
-  searchParams: Promise<{ saved?: string }>;
+  searchParams: Promise<{ saved?: string; unresolvedPage?: string }>;
 };
 
 function ToggleRow({
@@ -39,7 +41,7 @@ function ToggleRow({
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const session = await requireSession();
-  const { saved } = await searchParams;
+  const { saved, unresolvedPage } = await searchParams;
   const adminSession = isAdminSession(session);
   const spotifyConnected = hasSpotifyConnection(session);
 
@@ -176,6 +178,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   const connectedUser = await getConnectedUser(session.spotifyUserId);
   const privacy = connectedUser?.privacy ?? getDefaultPrivacySettings();
+  const unresolvedGroups = await listUnresolvedImportedLastFmGroups(
+    session.spotifyUserId,
+    Number(unresolvedPage ?? "1") || 1,
+    10,
+  );
   const initialModesByPlaylistId = Object.fromEntries(
     (connectedUser?.ignoredPlaylists ?? []).map((rule) => [rule.playlistId, rule.mode]),
   );
@@ -257,6 +264,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </form>
 
         <LastFmImportCard />
+        <LastFmUnresolvedCard unresolvedGroups={unresolvedGroups} saved={saved} />
       </div>
     </main>
   );

@@ -71,6 +71,22 @@ export type LastFmNormalizationResult = {
   processedNameKeys: string[];
 };
 
+export type UnresolvedImportedLastFmGroup = {
+  trackName: string;
+  artistName: string;
+  albumName: string;
+  playCount: number;
+  earliestPlayedAt: string;
+  latestPlayedAt: string;
+};
+
+export type ResolveImportedLastFmGroupResult = {
+  matchedPlayCount: number;
+  updatedPlayCount: number;
+  deletedDuplicatePlayCount: number;
+  trackId: string;
+};
+
 export type LastFmImportPayload = {
   csvText: string;
   spotifyUserId: string;
@@ -410,6 +426,16 @@ async function searchSpotifyTrackMetadataForStoredPlay(
   }
 
   return undefined;
+}
+
+async function getSpotifyTrackMetadataById(accessToken: string, rawSpotifyTrackIdOrLink: string) {
+  const spotifyTrackId = parseSpotifyTrackId(rawSpotifyTrackIdOrLink);
+  if (!spotifyTrackId) {
+    throw new Error("Enter a valid Spotify track link or URI.");
+  }
+
+  const track = await spotifyFetch<SpotifyTrack>(`/tracks/${encodeURIComponent(spotifyTrackId)}`, accessToken);
+  return toMetadataCandidateFromSpotifyTrack(track);
 }
 
 async function hydrateImportedPlayMetadata(
@@ -1043,6 +1069,231 @@ export async function importLastFmScrobbles(csvText: string, spotifyUserId: stri
 
 export async function importLastFmScrobbleChunk(payload: LastFmImportPayload) {
   return importLastFmScrobbles(payload.csvText, payload.spotifyUserId);
+}
+
+export async function listUnresolvedImportedLastFmGroups(
+  spotifyUserId: string,
+  page = 1,
+  pageSize = 12,
+) {
+  if (!hasMongoConfig()) {
+    return {
+      items: [] as UnresolvedImportedLastFmGroup[],
+      totalCount: 0,
+      page,
+      pageSize,
+      totalPages: 0,
+    };
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return {
+      items: [] as UnresolvedImportedLastFmGroup[],
+      totalCount: 0,
+      page,
+      pageSize,
+      totalPages: 0,
+    };
+  }
+
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.max(1, Math.min(50, pageSize));
+  const skip = (safePage - 1) * safePageSize;
+
+  const [result] = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).aggregate<{
+    items: UnresolvedImportedLastFmGroup[];
+    total: Array<{ count: number }>;
+  }>([
+    {
+      $match: {
+        spotifyUserId,
+        sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+        trackId: { $regex: "^lastfm:" },
+      },
+    },
+    {
+      $group: {
+        _id: {
+          trackName: "$trackName",
+          artistName: "$artistName",
+          albumName: "$albumName",
+        },
+        playCount: { $sum: 1 },
+        earliestPlayedAt: { $min: "$playedAt" },
+        latestPlayedAt: { $max: "$playedAt" },
+      },
+    },
+    {
+      $facet: {
+        items: [
+          { $sort: { latestPlayedAt: -1, playCount: -1 } },
+          { $skip: skip },
+          { $limit: safePageSize },
+          {
+            $project: {
+              _id: 0,
+              trackName: "$_id.trackName",
+              artistName: "$_id.artistName",
+              albumName: "$_id.albumName",
+              playCount: 1,
+              earliestPlayedAt: 1,
+              latestPlayedAt: 1,
+            },
+          },
+        ],
+        total: [
+          { $count: "count" },
+        ],
+      },
+    },
+  ]).toArray();
+
+  const totalCount = result?.total?.[0]?.count ?? 0;
+  return {
+    items: result?.items ?? [],
+    totalCount,
+    page: safePage,
+    pageSize: safePageSize,
+    totalPages: totalCount > 0 ? Math.ceil(totalCount / safePageSize) : 0,
+  };
+}
+
+export async function resolveImportedLastFmGroupWithSpotifyTrack(
+  spotifyUserId: string,
+  group: Pick<UnresolvedImportedLastFmGroup, "trackName" | "artistName" | "albumName">,
+  rawSpotifyTrackIdOrLink: string,
+  accessToken: string,
+): Promise<ResolveImportedLastFmGroupResult> {
+  if (!hasMongoConfig()) {
+    return {
+      matchedPlayCount: 0,
+      updatedPlayCount: 0,
+      deletedDuplicatePlayCount: 0,
+      trackId: "",
+    };
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return {
+      matchedPlayCount: 0,
+      updatedPlayCount: 0,
+      deletedDuplicatePlayCount: 0,
+      trackId: "",
+    };
+  }
+
+  const metadata = await getSpotifyTrackMetadataById(accessToken, rawSpotifyTrackIdOrLink);
+  if (!metadata.trackId) {
+    throw new Error("Could not load that Spotify track.");
+  }
+
+  const matchingImportedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      spotifyUserId,
+      sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+      trackId: { $regex: "^lastfm:" },
+      trackName: group.trackName,
+      artistName: group.artistName,
+      albumName: group.albumName,
+    })
+    .toArray();
+
+  if (matchingImportedPlays.length === 0) {
+    return {
+      matchedPlayCount: 0,
+      updatedPlayCount: 0,
+      deletedDuplicatePlayCount: 0,
+      trackId: metadata.trackId,
+    };
+  }
+
+  const existingResolvedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      spotifyUserId,
+      trackId: metadata.trackId,
+      playedAt: { $in: matchingImportedPlays.map((play) => play.playedAt) },
+    })
+    .toArray();
+  const existingByPlayedAt = new Map(existingResolvedPlays.map((play) => [play.playedAt, play]));
+
+  let updatedPlayCount = 0;
+  let deletedDuplicatePlayCount = 0;
+  const resolvedPlaysForMetadata: StoredRecentPlay[] = [];
+
+  const bulkOps = matchingImportedPlays.map((play) => {
+    const conflictingPlay = existingByPlayedAt.get(play.playedAt);
+    if (conflictingPlay && String(conflictingPlay._id) !== String(play._id)) {
+      deletedDuplicatePlayCount += 1;
+      return {
+        deleteOne: {
+          filter: { _id: play._id },
+        },
+      };
+    }
+
+    const resolvedPlay: StoredRecentPlay = {
+      ...play,
+      trackId: metadata.trackId ?? play.trackId,
+      trackName: metadata.trackName || play.trackName,
+      artistName: metadata.artistName || play.artistName,
+      artistNames: metadata.artistNames?.length ? metadata.artistNames : play.artistNames,
+      artistIds: metadata.artistIds?.length ? metadata.artistIds : play.artistIds,
+      albumName: metadata.albumName || play.albumName,
+      durationMs: metadata.durationMs ?? play.durationMs,
+      imageUrl: metadata.imageUrl ?? play.imageUrl,
+    };
+
+    resolvedPlaysForMetadata.push(resolvedPlay);
+    updatedPlayCount += 1;
+
+    return {
+      updateOne: {
+        filter: { _id: play._id },
+        update: {
+          $set: {
+            trackId: resolvedPlay.trackId,
+            trackName: resolvedPlay.trackName,
+            artistName: resolvedPlay.artistName,
+            artistNames: resolvedPlay.artistNames,
+            artistIds: resolvedPlay.artistIds,
+            albumName: resolvedPlay.albumName,
+            durationMs: resolvedPlay.durationMs,
+            imageUrl: resolvedPlay.imageUrl,
+          },
+        },
+      },
+    };
+  });
+
+  if (bulkOps.length > 0) {
+    await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).bulkWrite(bulkOps, { ordered: false });
+  }
+
+  if (resolvedPlaysForMetadata.length > 0) {
+    await upsertStoredTrackMetadataFromRecentPlays(resolvedPlaysForMetadata).catch(() => undefined);
+  }
+
+  const staleSyntheticTrackIds = [...new Set(
+    matchingImportedPlays
+      .map((play) => play.trackId)
+      .filter((trackId): trackId is string => Boolean(trackId) && /^lastfm:/i.test(trackId)),
+  )];
+  if (staleSyntheticTrackIds.length > 0) {
+    await db.collection(TRACK_METADATA_COLLECTION).deleteMany({
+      trackId: { $in: staleSyntheticTrackIds },
+    }).catch(() => undefined);
+  }
+
+  await invalidateLastFmImportCaches(spotifyUserId).catch(() => undefined);
+
+  return {
+    matchedPlayCount: matchingImportedPlays.length,
+    updatedPlayCount,
+    deletedDuplicatePlayCount,
+    trackId: metadata.trackId,
+  };
 }
 
 export async function deleteImportedLastFmScrobbles(spotifyUserId: string) {

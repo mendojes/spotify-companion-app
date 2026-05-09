@@ -35,6 +35,7 @@ export type MaintenanceAction =
   | "delete-lastfm-imports"
   | "delete-non-spotify-track-metadata"
   | "normalize-lastfm-imports"
+  | "retry-unresolved-lastfm-imports"
   | "refresh-track-library-full"
   | "refresh-track-library-incremental"
   | "refresh-artist-library-full"
@@ -1017,6 +1018,11 @@ export async function runDashboardMaintenanceAction(
   }
 
   if (action === "normalize-lastfm-imports") {
+    const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress);
+    return { partial: Boolean(result.stoppedEarly), result };
+  }
+
+  if (action === "retry-unresolved-lastfm-imports") {
     const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress);
     return { partial: Boolean(result.stoppedEarly), result };
   }

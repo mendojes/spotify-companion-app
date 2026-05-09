@@ -282,7 +282,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
               headers: {
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ action: "normalize-lastfm-imports" }),
+              body: JSON.stringify({ action: "retry-unresolved-lastfm-imports" }),
             })
               .catch(() => undefined)
               .finally(() => {
@@ -293,7 +293,7 @@ export function DashboardDeepRefreshMonitor({ range, shouldStart }: DashboardDee
           }}
           className="rounded-full border border-[rgba(57,18,98,0.18)] bg-white/[0.18] px-4 py-2 text-xs uppercase tracking-[0.16em] text-[var(--theme-text)] transition hover:border-gold/25 hover:text-gold disabled:opacity-50"
         >
-          {runningBackfillOnly ? "Normalizing Last.fm..." : "Normalize Last.fm"}
+          {runningBackfillOnly ? "Retrying Last.fm..." : "Retry Unresolved Last.fm"}
         </button>
         <button
           type="button"

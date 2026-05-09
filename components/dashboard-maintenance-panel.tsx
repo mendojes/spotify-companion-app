@@ -26,7 +26,7 @@ const BUTTONS: MaintenanceButton[] = [
   { action: "refresh-artist-library-incremental", label: "Artist Library Incremental", description: "Only add plays after the stored artist-library checkpoint.", lane: "dashboard" },
   { action: "refresh-album-library-full", label: "Album Library Full", description: "Full rebuild of permanent album metadata and counts.", lane: "dashboard" },
   { action: "refresh-album-library-incremental", label: "Album Library Incremental", description: "Only add plays after the stored album-library checkpoint.", lane: "dashboard" },
-  { action: "normalize-lastfm-imports", label: "Normalize Last.fm", description: "Match imported scrobbles against cached tracks or Spotify so later library rebuilds can merge them cleanly.", lane: "backfill" },
+  { action: "retry-unresolved-lastfm-imports", label: "Retry Unresolved Last.fm", description: "Retry only the imported scrobbles that are still unresolved and still using synthetic Last.fm ids.", lane: "backfill" },
   { action: "refresh-all-time-full", label: "All-Time Full", description: "Fully rebuild all-time top lists from permanent libraries.", lane: "dashboard" },
   { action: "refresh-all-time-incremental", label: "All-Time Incremental", description: "Update all-time top lists using only plays after the last stored checkpoint.", lane: "dashboard" },
 ];

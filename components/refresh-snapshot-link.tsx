@@ -67,7 +67,7 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ action: "normalize-lastfm-imports" }),
+        body: JSON.stringify({ action: "retry-unresolved-lastfm-imports" }),
       });
       router.refresh();
     } finally {
@@ -84,7 +84,7 @@ export function RefreshSnapshotLink({ href }: RefreshSnapshotLinkProps) {
         className="pixel-chip inline-flex min-h-11 items-center gap-2 px-3 text-xs text-[var(--theme-text)] transition hover:text-[#2d0d46] disabled:cursor-wait disabled:opacity-80 sm:px-4 sm:text-sm"
       >
         <Wand2 className={`h-4 w-4 ${isRunningBackfill ? "animate-pulse" : ""}`} />
-        {isRunningBackfill ? "Normalizing Last.fm" : "Normalize Last.fm"}
+        {isRunningBackfill ? "Retrying Last.fm" : "Retry Unresolved Last.fm"}
       </button>
       <button
         type="button"
