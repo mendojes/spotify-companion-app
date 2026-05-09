@@ -814,9 +814,14 @@ export async function normalizeImportedLastFmWithPermanentCache(
       .find({
         spotifyUserId,
         sourceType: "lastfm_import",
-        trackId: { $regex: "^lastfm:" },
+        $or: [
+          { trackId: { $regex: "^lastfm:" } },
+          { trackId: { $regex: "^local:" } },
+          { trackId: { $exists: false } },
+          { trackId: "" },
+        ],
       })
-      .sort({ playedAt: -1 })
+      .sort({ lastfmResolutionAttemptedAt: 1, playedAt: -1 })
       .limit(80)
       .toArray();
 

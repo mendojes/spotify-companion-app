@@ -1,3 +1,4 @@
+import type { AnyBulkWriteOperation } from "mongodb";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
 import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
@@ -1230,7 +1231,7 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
   let deletedDuplicatePlayCount = 0;
   const resolvedPlaysForMetadata: StoredRecentPlay[] = [];
 
-  const bulkOps = matchingImportedPlays.map((play) => {
+  const bulkOps: AnyBulkWriteOperation<StoredRecentPlay>[] = matchingImportedPlays.map((play) => {
     const conflictingPlay = existingByPlayedAt.get(play.playedAt);
     if (conflictingPlay && String(conflictingPlay._id) !== String(play._id)) {
       deletedDuplicatePlayCount += 1;
@@ -1269,6 +1270,10 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
             albumName: resolvedPlay.albumName,
             durationMs: resolvedPlay.durationMs,
             imageUrl: resolvedPlay.imageUrl,
+          },
+          $unset: {
+            lastfmResolutionAttemptedAt: "",
+            lastfmResolutionAttemptCount: "",
           },
         },
       },
@@ -1481,7 +1486,7 @@ export async function normalizeImportedLastFmScrobbles(
         { artistIds: { $exists: false } },
       ],
     })
-    .sort({ playedAt: -1 })
+    .sort({ lastfmResolutionAttemptedAt: 1, playedAt: -1 })
     .limit(Math.max(50, options?.limitDistinctTracks ? options.limitDistinctTracks * 40 : 10000))
     .toArray();
 
@@ -1510,6 +1515,7 @@ export async function normalizeImportedLastFmScrobbles(
 
   for (let index = 0; index < groupedCandidates.length; index += 1) {
     const candidate = groupedCandidates[index];
+    const attemptTimestamp = new Date().toISOString();
     if (Date.now() - startedAt >= maxRuntimeMs) {
       stoppedEarly = true;
       await options?.onProgress?.(
@@ -1528,6 +1534,23 @@ export async function normalizeImportedLastFmScrobbles(
     ]);
     processedTrackGroups += 1;
     processedNameKeys.push(buildNameKey(candidate.trackName, candidate.artistName, candidate.albumName));
+    await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).updateMany(
+      {
+        spotifyUserId,
+        sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+        trackName: candidate.trackName,
+        artistName: candidate.artistName,
+        albumName: candidate.albumName,
+      },
+      {
+        $set: {
+          lastfmResolutionAttemptedAt: attemptTimestamp,
+        },
+        $inc: {
+          lastfmResolutionAttemptCount: 1,
+        },
+      },
+    ).catch(() => undefined);
     if (metadata === NORMALIZATION_TIMEOUT) {
       timedOutTrackGroups += 1;
       unresolvedTrackGroups += 1;
@@ -1601,7 +1624,7 @@ export async function normalizeImportedLastFmScrobbles(
       .toArray();
     const existingByPlayedAt = new Map(existingResolvedPlays.map((play) => [play.playedAt, play]));
 
-    const bulkOps = matchingImportedPlays.map((play) => {
+    const bulkOps: AnyBulkWriteOperation<StoredRecentPlay>[] = matchingImportedPlays.map((play) => {
       const conflictingPlay = existingByPlayedAt.get(play.playedAt);
       if (conflictingPlay && String(conflictingPlay._id) !== String(play._id)) {
         deletedDuplicatePlayCount += 1;
@@ -1626,6 +1649,10 @@ export async function normalizeImportedLastFmScrobbles(
               albumName: metadata.albumName ?? play.albumName,
               durationMs: metadata.durationMs ?? play.durationMs,
               imageUrl: metadata.imageUrl ?? play.imageUrl,
+            },
+            $unset: {
+              lastfmResolutionAttemptedAt: "",
+              lastfmResolutionAttemptCount: "",
             },
           },
         },

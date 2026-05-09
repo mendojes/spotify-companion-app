@@ -341,6 +341,8 @@ export type StoredRecentPlay = {
   playlistId?: string;
   playlistName?: string;
   sourceType?: string;
+  lastfmResolutionAttemptedAt?: string;
+  lastfmResolutionAttemptCount?: number;
 };
 
 export type SpotifySavedTrackItem = {
