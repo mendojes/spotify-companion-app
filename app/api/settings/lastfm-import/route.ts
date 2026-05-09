@@ -6,7 +6,7 @@ import {
   markConnectedUserRecentSync,
   touchConnectedUser,
 } from "@/lib/connected-users";
-import { deleteImportedLastFmScrobbles, importLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
+import { deleteImportedLastFmScrobbles, importLastFmScrobbles, invalidateLastFmImportCaches, refreshLastFmImportCaches } from "@/lib/lastfm-import";
 
 function isMongoTimeoutError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -83,16 +83,22 @@ export async function POST(request: Request) {
     const shouldFinalize = !isChunkedJsonRequest || Boolean(requestPayload?.finalize);
 
     if (shouldFinalize) {
-      await refreshLastFmImportCaches(authorizedSession.spotifyUserId, authorizedSession.accessToken);
+      await invalidateLastFmImportCaches(authorizedSession.spotifyUserId);
       await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "success", {
         range: "all",
+        detail: "Last.fm import finished. Cached dashboard sections were invalidated; run the dashboard maintenance steps you want next.",
       }).catch(() => undefined);
       await markConnectedUserArtistMetadataBackfillStatus(authorizedSession.spotifyUserId, "success", {
         backfilledCount: result.importedCount,
+        detail: "Last.fm import finished. Imported plays are saved and normalized; run the manual maintenance refreshes you want next.",
       }).catch(() => undefined);
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...result,
+      finalized: shouldFinalize,
+      cacheRefreshDeferred: shouldFinalize,
+    });
   } catch (error) {
     const message = isMongoTimeoutError(error)
       ? "Mongo timed out during this batch. Earlier import batches were already saved, so you can run the import again and it will continue from the smaller remaining set."

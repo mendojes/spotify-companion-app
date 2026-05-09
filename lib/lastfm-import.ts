@@ -1377,3 +1377,13 @@ export async function refreshLastFmImportCaches(spotifyUserId: string, accessTok
     writeStoredDashboardSectionCache(spotifyUserId, accessToken).catch(() => undefined),
   ]);
 }
+
+export async function invalidateLastFmImportCaches(spotifyUserId: string) {
+  invalidateDashboardSnapshotCaches(spotifyUserId);
+  invalidateTopListHistoryCache(spotifyUserId);
+  invalidateDashboardPlaylistPreviewCache(spotifyUserId);
+  invalidatePlaylistInsightsCache(spotifyUserId);
+  invalidateDashboardOverviewRuntimeCache(spotifyUserId);
+  invalidateDashboardSectionRuntimeCache(spotifyUserId);
+  await resetStoredAllTimeTopListAggregate(spotifyUserId).catch(() => undefined);
+}

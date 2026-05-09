@@ -10,6 +10,7 @@ type ImportSummary = {
   duplicateCount: number;
   skippedRows: number;
   batchCount: number;
+  cacheRefreshDeferred?: boolean;
 };
 
 const CLIENT_IMPORT_CHUNK_SIZE = 100;
@@ -120,6 +121,7 @@ export function LastFmImportCard() {
         totals.duplicateCount += Number(payload?.duplicateCount ?? 0);
         totals.skippedRows += Number(payload?.skippedRows ?? 0);
         totals.batchCount += Number(payload?.batchCount ?? 0);
+        totals.cacheRefreshDeferred = totals.cacheRefreshDeferred || Boolean(payload?.cacheRefreshDeferred);
       }
 
       setSummary(totals);
@@ -237,6 +239,7 @@ export function LastFmImportCard() {
       {summary ? (
         <div className="rounded-[24px] border-[3px] border-[rgba(44,12,70,0.18)] bg-white/[0.42] px-4 py-4 text-sm leading-7 text-[var(--theme-body)]">
           Imported {summary.importedCount} plays from {summary.parsedRows} parsed rows. Skipped {summary.duplicateCount} duplicates and {summary.skippedRows} incomplete rows across {summary.batchCount} batch{summary.batchCount === 1 ? "" : "es"}.
+          {summary.cacheRefreshDeferred ? " The import is saved; use the dashboard maintenance buttons to rebuild whichever caches you want next." : ""}
         </div>
       ) : null}
     </section>
