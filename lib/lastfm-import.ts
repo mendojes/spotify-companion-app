@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
 import { invalidateDashboardSectionRuntimeCache, writeStoredDashboardSectionCache } from "@/lib/dashboard-section-cache";
@@ -323,20 +322,8 @@ async function getCachedMetadataCandidates(
   ];
 }
 
-function buildLocalTrackId(play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">) {
-  return `local:${createHash("sha1").update(`${play.trackName}::${play.artistName}::${play.albumName}`).digest("hex").slice(0, 24)}`;
-}
-
 function finalizeImportedPlay(play: ParsedLastFmPlay, candidate?: TrackMetadataCandidate) {
-  const hydrated = applyMetadataCandidate(play, candidate);
-  if (!hydrated.trackId.startsWith("lastfm:")) {
-    return hydrated;
-  }
-
-  return {
-    ...hydrated,
-    trackId: buildLocalTrackId(hydrated),
-  };
+  return applyMetadataCandidate(play, candidate);
 }
 
 function applyMetadataCandidate(play: ParsedLastFmPlay, candidate?: TrackMetadataCandidate) {
@@ -362,14 +349,17 @@ function applyMetadataCandidate(play: ParsedLastFmPlay, candidate?: TrackMetadat
   };
 }
 
-async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastFmPlay) {
-  const query = `track:${play.trackName} artist:${play.artistName} album:${play.albumName}`;
-  const response = await spotifyFetch<SpotifySearchTracksResponse>(
-    `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
-    accessToken,
-  ).catch(() => null);
-  const items = response?.tracks?.items ?? [];
+function buildSpotifySearchQueries(play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">) {
+  return [
+    `track:${play.trackName} artist:${play.artistName} album:${play.albumName}`,
+    `"${play.trackName}" "${play.artistName}" "${play.albumName}"`,
+  ];
+}
 
+function pickBestSpotifySearchTrack(
+  items: SpotifyTrack[],
+  play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">,
+) {
   if (items.length === 0) {
     return undefined;
   }
@@ -377,58 +367,49 @@ async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastF
   const exactTrackName = normalizeText(play.trackName);
   const exactArtistName = normalizeText(play.artistName);
   const exactAlbumName = normalizeText(play.albumName);
-  const preferred =
+
+  return (
     items.find((track) =>
       normalizeText(track.name) === exactTrackName &&
       normalizeText(track.album.name) === exactAlbumName &&
       track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
-    ) ??
-    items.find((track) =>
-      normalizeText(track.name) === exactTrackName &&
-      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
-    ) ??
-    items.find((track) =>
-      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
-    ) ??
-    items[0];
+    )
+  );
+}
 
-  return preferred ? toMetadataCandidateFromSpotifyTrack(preferred) : undefined;
+async function searchSpotifyTrackMetadata(accessToken: string, play: ParsedLastFmPlay) {
+  for (const query of buildSpotifySearchQueries(play)) {
+    const response = await spotifyFetch<SpotifySearchTracksResponse>(
+      `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
+      accessToken,
+    ).catch(() => null);
+    const items = response?.tracks?.items ?? [];
+    const preferred = pickBestSpotifySearchTrack(items, play);
+    if (preferred) {
+      return toMetadataCandidateFromSpotifyTrack(preferred);
+    }
+  }
+
+  return undefined;
 }
 
 async function searchSpotifyTrackMetadataForStoredPlay(
   accessToken: string,
   play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">,
 ) {
-  const query = `track:${play.trackName} artist:${play.artistName} album:${play.albumName}`;
-  const response = await spotifyFetch<SpotifySearchTracksResponse>(
-    `/search?type=track&limit=5&q=${encodeURIComponent(query)}`,
-    accessToken,
-  ).catch(() => null);
-  const items = response?.tracks?.items ?? [];
-
-  if (items.length === 0) {
-    return undefined;
+  for (const query of buildSpotifySearchQueries(play)) {
+    const response = await spotifyFetch<SpotifySearchTracksResponse>(
+      `/search?type=track&limit=10&q=${encodeURIComponent(query)}`,
+      accessToken,
+    ).catch(() => null);
+    const items = response?.tracks?.items ?? [];
+    const preferred = pickBestSpotifySearchTrack(items, play);
+    if (preferred) {
+      return toMetadataCandidateFromSpotifyTrack(preferred);
+    }
   }
 
-  const exactTrackName = normalizeText(play.trackName);
-  const exactArtistName = normalizeText(play.artistName);
-  const exactAlbumName = normalizeText(play.albumName);
-  const preferred =
-    items.find((track) =>
-      normalizeText(track.name) === exactTrackName &&
-      normalizeText(track.album.name) === exactAlbumName &&
-      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
-    ) ??
-    items.find((track) =>
-      normalizeText(track.name) === exactTrackName &&
-      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
-    ) ??
-    items.find((track) =>
-      track.artists.some((artist) => normalizeText(artist.name) === exactArtistName),
-    ) ??
-    items[0];
-
-  return preferred ? toMetadataCandidateFromSpotifyTrack(preferred) : undefined;
+  return undefined;
 }
 
 async function hydrateImportedPlayMetadata(
