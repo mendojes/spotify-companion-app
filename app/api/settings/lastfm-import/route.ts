@@ -8,6 +8,11 @@ import {
 } from "@/lib/connected-users";
 import { deleteImportedLastFmScrobbles, importLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
 
+function isMongoTimeoutError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.toLowerCase().includes("27017 timed out") || message.toLowerCase().includes("mongonetworktimeouterror");
+}
+
 async function getCsvTextFromRequest(request: Request) {
   const contentType = request.headers.get("content-type") ?? "";
 
@@ -89,7 +94,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not import Last.fm history.";
+    const message = isMongoTimeoutError(error)
+      ? "Mongo timed out during this batch. Earlier import batches were already saved, so you can run the import again and it will continue from the smaller remaining set."
+      : error instanceof Error
+        ? error.message
+        : "Could not import Last.fm history.";
 
     await markConnectedUserDashboardEnrichmentStatus(authorizedSession.spotifyUserId, "error", {
       range: "all",

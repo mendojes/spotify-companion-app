@@ -17,12 +17,12 @@ const USER_ALBUM_LIBRARY_COLLECTION = "spotify_user_album_library";
 const USER_LIBRARY_STATE_COLLECTION = "spotify_user_library_state";
 const ALL_TIME_TOP_LISTS_STATE_COLLECTION = "dashboard_all_time_top_lists_state";
 const ALBUM_METADATA_COLLECTION = "spotify_album_metadata";
-const IMPORT_BATCH_SIZE = 500;
+const IMPORT_BATCH_SIZE = 150;
 const LASTFM_IMPORT_SOURCE_TYPE = "lastfm_import";
 const DEFAULT_DUPLICATE_WINDOW_MS = 1000 * 60 * 7;
 const MIN_DUPLICATE_WINDOW_MS = 1000 * 60 * 3;
 const MAX_DUPLICATE_WINDOW_MS = 1000 * 60 * 15;
-const SNAPSHOT_CACHE_SCAN_LIMIT = 60;
+const SNAPSHOT_CACHE_SCAN_LIMIT = 8;
 const NORMALIZATION_TIMEOUT = Symbol("lastfm-normalization-timeout");
 
 type TrackMetadataCandidate = {
@@ -292,7 +292,7 @@ async function getCachedMetadataCandidates(
         ],
       })
       .sort({ totalPlayCount: -1, lastPlayedAt: -1 })
-      .limit(1000)
+      .limit(250)
       .toArray(),
     db
       .collection<{
@@ -312,7 +312,7 @@ async function getCachedMetadataCandidates(
           ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({ trackName, artistName })),
         ],
       })
-      .limit(1000)
+      .limit(250)
       .toArray(),
     db
       .collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
@@ -324,7 +324,7 @@ async function getCachedMetadataCandidates(
         ],
       })
       .sort({ playedAt: -1 })
-      .limit(1000)
+      .limit(250)
       .toArray(),
     db
       .collection<SpotifyDashboardSnapshot>(SNAPSHOT_HISTORY_COLLECTION)
@@ -334,7 +334,7 @@ async function getCachedMetadataCandidates(
       .toArray(),
   ]);
 
-  const snapshotCandidates = snapshots.flatMap((snapshot) => collectSnapshotTrackCandidates(snapshot).map(toMetadataCandidateFromSpotifyTrack));
+  const snapshotCandidates = snapshots.flatMap((snapshot) => collectSnapshotTrackCandidates(snapshot).slice(0, 40).map(toMetadataCandidateFromSpotifyTrack));
   return [
     ...libraryCandidates.map((candidate) => ({ ...candidate })),
     ...globalTrackCacheCandidates.map((candidate) => ({ ...candidate })),
