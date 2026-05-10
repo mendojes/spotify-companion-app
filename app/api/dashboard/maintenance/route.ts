@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
 import {
   MaintenanceAction,
+  RetryUnresolvedBatchProfile,
   writeMaintenanceHistoryEntry,
   runDashboardMaintenanceAction,
 } from "@/lib/dashboard-maintenance";
@@ -71,6 +72,21 @@ function describeMaintenanceAction(action: MaintenanceAction) {
   }
 }
 
+function isRetryUnresolvedBatchProfile(value: unknown): value is RetryUnresolvedBatchProfile {
+  return value === "conservative" || value === "balanced" || value === "aggressive";
+}
+
+function formatRetryProfileLabel(profile: RetryUnresolvedBatchProfile) {
+  switch (profile) {
+    case "conservative":
+      return "Conservative";
+    case "aggressive":
+      return "Aggressive";
+    default:
+      return "Balanced";
+  }
+}
+
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) {
@@ -82,13 +98,16 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const action = typeof body?.action === "string" && isMaintenanceAction(body.action) ? body.action : null;
+  const retryProfile = isRetryUnresolvedBatchProfile(body?.retryProfile) ? body.retryProfile : "balanced";
   if (!action) {
     return NextResponse.json({ error: "Invalid maintenance action." }, { status: 400 });
   }
 
   try {
     const authorizedSession = await getAuthorizedSession(session);
-    const baseDetail = describeMaintenanceAction(action);
+    const baseDetail = action === "retry-unresolved-lastfm-imports"
+      ? `${describeMaintenanceAction(action)} (${formatRetryProfileLabel(retryProfile)})`
+      : describeMaintenanceAction(action);
     const startedAt = new Date().toISOString();
 
     if (action === "normalize-lastfm-imports" || action === "retry-unresolved-lastfm-imports") {
@@ -130,6 +149,9 @@ export async function POST(request: NextRequest) {
             step: action,
           }).catch(() => undefined);
         }
+      },
+      {
+        retryProfile,
       },
     );
 

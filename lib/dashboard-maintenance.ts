@@ -45,6 +45,8 @@ export type MaintenanceAction =
   | "refresh-all-time-full"
   | "refresh-all-time-incremental";
 
+export type RetryUnresolvedBatchProfile = "conservative" | "balanced" | "aggressive";
+
 type MaintenanceProgressReporter = (detail: string) => Promise<void> | void;
 
 type UserTrackLibraryDoc = {
@@ -807,7 +809,29 @@ export async function normalizeImportedLastFmWithPermanentCache(
   spotifyUserId: string,
   accessToken: string,
   onProgress?: MaintenanceProgressReporter,
+  profile: RetryUnresolvedBatchProfile = "balanced",
 ) {
+  const profileSettings = {
+    conservative: {
+      prepassPlayLimit: 120,
+      distinctTrackLimit: 25,
+      perTrackTimeoutMs: 2200,
+      maxRuntimeMs: 20_000,
+    },
+    balanced: {
+      prepassPlayLimit: 240,
+      distinctTrackLimit: 100,
+      perTrackTimeoutMs: 2500,
+      maxRuntimeMs: 45_000,
+    },
+    aggressive: {
+      prepassPlayLimit: 500,
+      distinctTrackLimit: 250,
+      perTrackTimeoutMs: 2800,
+      maxRuntimeMs: 90_000,
+    },
+  }[profile];
+
   const db = await getDatabase({ forceRetry: true });
   if (db) {
     const unresolvedSeedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
@@ -822,7 +846,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
         ],
       })
       .sort({ lastfmResolutionAttemptedAt: 1, playedAt: -1 })
-      .limit(240)
+      .limit(profileSettings.prepassPlayLimit)
       .toArray();
 
     let preResolvedCount = 0;
@@ -880,9 +904,9 @@ export async function normalizeImportedLastFmWithPermanentCache(
   }
 
   return normalizeImportedLastFmScrobbles(spotifyUserId, accessToken, {
-    limitDistinctTracks: 100,
-    perTrackTimeoutMs: 2500,
-    maxRuntimeMs: 45_000,
+    limitDistinctTracks: profileSettings.distinctTrackLimit,
+    perTrackTimeoutMs: profileSettings.perTrackTimeoutMs,
+    maxRuntimeMs: profileSettings.maxRuntimeMs,
     onProgress,
   });
 }
@@ -892,6 +916,9 @@ export async function runDashboardMaintenanceAction(
   spotifyUserId: string,
   accessToken: string,
   onProgress?: MaintenanceProgressReporter,
+  options?: {
+    retryProfile?: RetryUnresolvedBatchProfile;
+  },
 ) {
   if (action === "rebuild-playlist-cache") {
     await onProgress?.("Rebuilding playlist section cache");
@@ -967,12 +994,12 @@ export async function runDashboardMaintenanceAction(
   }
 
   if (action === "normalize-lastfm-imports") {
-    const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress);
+    const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress, options?.retryProfile ?? "balanced");
     return { partial: Boolean(result.stoppedEarly), result };
   }
 
   if (action === "retry-unresolved-lastfm-imports") {
-    const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress);
+    const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress, options?.retryProfile ?? "balanced");
     return { partial: Boolean(result.stoppedEarly), result };
   }
 

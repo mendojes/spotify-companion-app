@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { MaintenanceAction } from "@/lib/dashboard-maintenance";
+import type { MaintenanceAction, RetryUnresolvedBatchProfile } from "@/lib/dashboard-maintenance";
 
 const DASHBOARD_JOB_STARTED_EVENT = "soundscope:dashboard-job-started";
 
@@ -27,16 +27,26 @@ const BUTTONS: MaintenanceButton[] = [
   { action: "refresh-artist-library-incremental", label: "Artist Library Incremental", description: "Only add plays after the stored artist-library checkpoint.", lane: "dashboard" },
   { action: "refresh-album-library-full", label: "Album Library Full", description: "Full rebuild of permanent album metadata and counts.", lane: "dashboard" },
   { action: "refresh-album-library-incremental", label: "Album Library Incremental", description: "Only add plays after the stored album-library checkpoint.", lane: "dashboard" },
-  { action: "retry-unresolved-lastfm-imports", label: "Retry Unresolved Last.fm", description: "Retry only the imported scrobbles that are still unresolved and still using synthetic Last.fm ids.", lane: "backfill" },
   { action: "refresh-all-time-full", label: "All-Time Full", description: "Fully rebuild all-time top lists from permanent libraries.", lane: "dashboard" },
   { action: "refresh-all-time-incremental", label: "All-Time Incremental", description: "Update all-time top lists using only plays after the last stored checkpoint.", lane: "dashboard" },
+];
+
+const RETRY_PROFILES: Array<{
+  value: RetryUnresolvedBatchProfile;
+  label: string;
+  description: string;
+}> = [
+  { value: "conservative", label: "Conservative (25)", description: "Lowest Spotify search pressure. Best if rate limits are hitting often." },
+  { value: "balanced", label: "Balanced (100)", description: "Good default. Tries a much larger batch without being too aggressive." },
+  { value: "aggressive", label: "Aggressive (250)", description: "Largest retry pass. Fastest when Spotify is cooperating." },
 ];
 
 export function DashboardMaintenancePanel() {
   const router = useRouter();
   const [runningAction, setRunningAction] = useState<MaintenanceAction | null>(null);
+  const [retryProfile, setRetryProfile] = useState<RetryUnresolvedBatchProfile>("balanced");
 
-  async function runAction(button: MaintenanceButton) {
+  async function runAction(button: MaintenanceButton, extraBody?: Record<string, unknown>) {
     if (runningAction) {
       return;
     }
@@ -56,7 +66,7 @@ export function DashboardMaintenancePanel() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ action: button.action }),
+        body: JSON.stringify({ action: button.action, ...extraBody }),
       });
       router.refresh();
     } finally {
@@ -73,6 +83,46 @@ export function DashboardMaintenancePanel() {
         </div>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="rounded-[20px] border-[2px] border-[rgba(44,12,70,0.22)] bg-white/70 px-4 py-4 md:col-span-2 xl:col-span-3">
+          <p className="font-display text-sm uppercase tracking-[0.14em] text-[var(--theme-title)]">Retry Unresolved Last.fm</p>
+          <p className="mt-2 text-sm text-[var(--theme-text)]">
+            Choose how aggressively Listening Lore should search Spotify for unresolved imported tracks. Larger passes reduce clicks, but they can hit Spotify rate limits sooner.
+          </p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {RETRY_PROFILES.map((profile) => {
+              const isSelected = retryProfile === profile.value;
+              return (
+                <button
+                  key={profile.value}
+                  type="button"
+                  disabled={Boolean(runningAction)}
+                  onClick={() => {
+                    setRetryProfile(profile.value);
+                    void runAction(
+                      {
+                        action: "retry-unresolved-lastfm-imports",
+                        label: profile.label,
+                        description: profile.description,
+                        lane: "backfill",
+                      },
+                      { retryProfile: profile.value },
+                    );
+                  }}
+                  className={`rounded-[18px] border-[2px] px-4 py-4 text-left transition disabled:opacity-60 ${
+                    isSelected
+                      ? "border-[rgba(44,12,70,0.75)] bg-[rgba(255,236,245,0.9)]"
+                      : "border-[rgba(44,12,70,0.22)] bg-white/65 hover:border-[rgba(44,12,70,0.55)]"
+                  }`}
+                >
+                  <p className="font-display text-sm uppercase tracking-[0.14em] text-[var(--theme-title)]">
+                    {runningAction === "retry-unresolved-lastfm-imports" && isSelected ? `Running ${profile.label}` : profile.label}
+                  </p>
+                  <p className="mt-2 text-sm text-[var(--theme-text)]">{profile.description}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         {BUTTONS.map((button) => {
           const isRunning = runningAction === button.action;
           return (
