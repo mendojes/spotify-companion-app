@@ -231,6 +231,19 @@ function isSpotifyTrackId(trackId?: string) {
   return typeof trackId === "string" && /^[A-Za-z0-9]{22}$/.test(trackId.trim());
 }
 
+function buildUnresolvedImportedTrackMatch(spotifyUserId: string) {
+  return {
+    spotifyUserId,
+    sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+    $or: [
+      { trackId: { $regex: "^lastfm:" } },
+      { trackId: { $regex: "^local:" } },
+      { trackId: { $exists: false } },
+      { trackId: "" },
+    ] as Array<Record<string, unknown>>,
+  };
+}
+
 function toArtistKeys(play: Pick<StoredRecentPlay, "artistIds" | "artistNames" | "artistName">) {
   const ids = play.artistIds ?? [];
   const names = play.artistNames?.length ? play.artistNames : play.artistName.split(/,\s*/).filter(Boolean);
@@ -1626,16 +1639,7 @@ export async function deleteUnresolvedImportedLastFmScrobbles(spotifyUserId: str
   }
 
   const unresolvedImportedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
-    .find({
-      spotifyUserId,
-      sourceType: LASTFM_IMPORT_SOURCE_TYPE,
-      $or: [
-        { trackId: { $regex: "^lastfm:" } },
-        { trackId: { $regex: "^local:" } },
-        { trackId: { $exists: false } },
-        { trackId: "" },
-      ],
-    })
+    .find(buildUnresolvedImportedTrackMatch(spotifyUserId))
     .project({ trackId: 1 })
     .toArray();
 
@@ -1646,14 +1650,7 @@ export async function deleteUnresolvedImportedLastFmScrobbles(spotifyUserId: str
   )];
 
   const result = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).deleteMany({
-    spotifyUserId,
-    sourceType: LASTFM_IMPORT_SOURCE_TYPE,
-    $or: [
-      { trackId: { $regex: "^lastfm:" } },
-      { trackId: { $regex: "^local:" } },
-      { trackId: { $exists: false } },
-      { trackId: "" },
-    ],
+    ...buildUnresolvedImportedTrackMatch(spotifyUserId),
   });
 
   if (syntheticTrackIds.length > 0) {
@@ -1734,33 +1731,59 @@ export async function normalizeImportedLastFmScrobbles(
     };
   }
 
-  const unresolvedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
-    .find({
-      spotifyUserId,
-      sourceType: LASTFM_IMPORT_SOURCE_TYPE,
-      $or: [
-        { trackId: { $regex: "^lastfm:" } },
-        { trackId: { $regex: "^local:" } },
-        { trackId: { $exists: false } },
-        { trackId: "" },
-        { imageUrl: { $exists: false } },
-        { artistIds: { $exists: false } },
-      ],
-    })
-    .sort({ lastfmResolutionAttemptedAt: 1, playedAt: -1 })
-    .limit(Math.max(50, options?.limitDistinctTracks ? options.limitDistinctTracks * 40 : 10000))
-    .toArray();
-
   const excludedNameKeys = new Set(options?.excludeNameKeys ?? []);
-  const groupedCandidates = [...new Map(
-    unresolvedPlays.map((play) => [
-      buildNameKey(play.trackName, play.artistName, play.albumName),
-      play,
-    ]),
-  ).entries()]
-    .filter(([nameKey]) => !excludedNameKeys.has(nameKey))
-    .map(([, play]) => play)
-    .slice(0, options?.limitDistinctTracks ?? 250);
+  const groupedCandidates = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .aggregate<Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName"> & { lastfmResolutionAttemptedAt?: string; latestPlayedAt: string }>([
+      {
+        $match: {
+          ...buildUnresolvedImportedTrackMatch(spotifyUserId),
+          $or: [
+            { imageUrl: { $exists: false } },
+            { artistIds: { $exists: false } },
+            { trackId: { $regex: "^lastfm:" } },
+            { trackId: { $regex: "^local:" } },
+            { trackId: { $exists: false } },
+            { trackId: "" },
+          ],
+        },
+      },
+      {
+        $group: {
+          _id: {
+            trackName: "$trackName",
+            artistName: "$artistName",
+            albumName: "$albumName",
+          },
+          latestPlayedAt: { $max: "$playedAt" },
+          lastfmResolutionAttemptedAt: { $min: "$lastfmResolutionAttemptedAt" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          trackName: "$_id.trackName",
+          artistName: "$_id.artistName",
+          albumName: "$_id.albumName",
+          latestPlayedAt: 1,
+          lastfmResolutionAttemptedAt: 1,
+        },
+      },
+      {
+        $sort: {
+          lastfmResolutionAttemptedAt: 1,
+          latestPlayedAt: -1,
+        },
+      },
+      {
+        $limit: Math.max(50, options?.limitDistinctTracks ?? 250),
+      },
+    ])
+    .toArray()
+    .then((rows) =>
+      rows
+        .filter((row) => !excludedNameKeys.has(buildNameKey(row.trackName, row.artistName, row.albumName)))
+        .slice(0, options?.limitDistinctTracks ?? 250),
+    );
 
   const perTrackTimeoutMs = Math.max(1000, options?.perTrackTimeoutMs ?? 6000);
   const maxRuntimeMs = Math.max(5000, options?.maxRuntimeMs ?? 45000);
