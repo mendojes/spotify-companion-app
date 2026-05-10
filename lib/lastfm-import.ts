@@ -501,17 +501,21 @@ function evaluateSpotifySearchTrackCandidates(
   const hasStrongAlbumMatch = best.albumScore >= 0.45;
   const hasStrongOverallMatch = best.totalScore >= 0.74;
   const hasVeryStrongTrackArtistMatch = best.trackScore >= 0.96 && best.artistScore >= 0.72;
+  const hasVeryStrongTrackAlbumMatch = best.trackScore >= 0.95 && best.albumScore >= 0.8 && best.totalScore >= 0.68;
 
   const matched =
-    hasStrongTrackMatch &&
-    hasStrongArtistMatch &&
-    hasStrongOverallMatch &&
-    (hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch);
+    (
+      hasStrongTrackMatch &&
+      hasStrongArtistMatch &&
+      hasStrongOverallMatch &&
+      (hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch)
+    ) ||
+    hasVeryStrongTrackAlbumMatch;
 
   let rejectionReason = "weak_overall_match";
   if (!hasStrongTrackMatch) {
     rejectionReason = "weak_track_match";
-  } else if (!hasStrongArtistMatch) {
+  } else if (!hasStrongArtistMatch && !hasVeryStrongTrackAlbumMatch) {
     rejectionReason = "weak_artist_match";
   } else if (!(hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch)) {
     rejectionReason = "weak_album_match";

@@ -822,7 +822,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
         ],
       })
       .sort({ lastfmResolutionAttemptedAt: 1, playedAt: -1 })
-      .limit(80)
+      .limit(240)
       .toArray();
 
     let preResolvedCount = 0;
@@ -880,9 +880,9 @@ export async function normalizeImportedLastFmWithPermanentCache(
   }
 
   return normalizeImportedLastFmScrobbles(spotifyUserId, accessToken, {
-    limitDistinctTracks: 12,
+    limitDistinctTracks: 100,
     perTrackTimeoutMs: 2500,
-    maxRuntimeMs: 20_000,
+    maxRuntimeMs: 45_000,
     onProgress,
   });
 }
