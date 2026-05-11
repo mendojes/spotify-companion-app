@@ -73,11 +73,13 @@ function describeMaintenanceAction(action: MaintenanceAction) {
 }
 
 function isRetryUnresolvedBatchProfile(value: unknown): value is RetryUnresolvedBatchProfile {
-  return value === "conservative" || value === "balanced" || value === "aggressive" || value === "very-aggressive";
+  return value === "cache-only" || value === "conservative" || value === "balanced" || value === "aggressive" || value === "very-aggressive";
 }
 
 function formatRetryProfileLabel(profile: RetryUnresolvedBatchProfile) {
   switch (profile) {
+    case "cache-only":
+      return "Cache Only";
     case "conservative":
       return "Conservative";
     case "aggressive":

@@ -36,6 +36,7 @@ const RETRY_PROFILES: Array<{
   label: string;
   description: string;
 }> = [
+  { value: "cache-only", label: "Cache Only", description: "Checks permanent libraries and cached playlists only. Does not call Spotify search at all." },
   { value: "conservative", label: "Conservative (25)", description: "Lowest Spotify search pressure. Best if rate limits are hitting often." },
   { value: "balanced", label: "Balanced (100)", description: "Good default. Tries a much larger batch without being too aggressive." },
   { value: "aggressive", label: "Aggressive (250)", description: "Larger retry pass with light pacing between Spotify lookups. Better throughput without bursting quite as hard." },
@@ -89,7 +90,7 @@ export function DashboardMaintenancePanel() {
             <p className="mt-2 text-sm text-[var(--theme-text)]">
               Choose how aggressively Listening Lore should search Spotify for unresolved imported tracks. Larger passes reduce clicks, but they can hit Spotify rate limits sooner. The stronger modes now deliberately pace Spotify searches instead of blasting them back-to-back.
             </p>
-            <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-5">
             {RETRY_PROFILES.map((profile) => {
               const isSelected = retryProfile === profile.value;
               return (

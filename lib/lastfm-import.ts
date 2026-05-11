@@ -1748,6 +1748,7 @@ export async function normalizeImportedLastFmScrobbles(
     perTrackTimeoutMs?: number;
     maxRuntimeMs?: number;
     interTrackDelayMs?: number;
+    skipSpotifyLookup?: boolean;
     excludeNameKeys?: string[];
   },
 ): Promise<LastFmNormalizationResult> {
@@ -1845,9 +1846,31 @@ export async function normalizeImportedLastFmScrobbles(
     .toArray()
     .then((rows) =>
       rows
-        .filter((row) => !excludedNameKeys.has(buildNameKey(row.trackName, row.artistName, row.albumName)))
-        .slice(0, options?.limitDistinctTracks ?? 250),
-    );
+      .filter((row) => !excludedNameKeys.has(buildNameKey(row.trackName, row.artistName, row.albumName)))
+      .slice(0, options?.limitDistinctTracks ?? 250),
+  );
+
+  if (options?.skipSpotifyLookup) {
+    return {
+      scannedTrackGroups: groupedCandidates.length,
+      processedTrackGroups: 0,
+      matchedTrackGroups: 0,
+      unresolvedTrackGroups: groupedCandidates.length,
+      updatedPlayCount: 0,
+      deletedDuplicatePlayCount: 0,
+      timedOutTrackGroups: 0,
+      stoppedEarly: false,
+      processedNameKeys: [],
+      debugSummary: [
+        `Processed 0/${groupedCandidates.length} groups.`,
+        `Matched: 0. Unresolved: ${groupedCandidates.length}. Timed out: 0.`,
+        "Spotify lookup mode: disabled (cache-only pass).",
+        "Failure reasons: none recorded.",
+        "Spotify rate limit hit: no.",
+        "Sample failures: none recorded.",
+      ].join("\n"),
+    };
+  }
 
   const perTrackTimeoutMs = Math.max(1000, options?.perTrackTimeoutMs ?? 6000);
   const maxRuntimeMs = Math.max(5000, options?.maxRuntimeMs ?? 45000);

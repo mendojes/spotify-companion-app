@@ -46,7 +46,7 @@ export type MaintenanceAction =
   | "refresh-all-time-full"
   | "refresh-all-time-incremental";
 
-export type RetryUnresolvedBatchProfile = "conservative" | "balanced" | "aggressive" | "very-aggressive";
+export type RetryUnresolvedBatchProfile = "cache-only" | "conservative" | "balanced" | "aggressive" | "very-aggressive";
 
 type MaintenanceProgressReporter = (detail: string) => Promise<void> | void;
 
@@ -859,12 +859,21 @@ export async function normalizeImportedLastFmWithPermanentCache(
   profile: RetryUnresolvedBatchProfile = "balanced",
 ) {
   const profileSettings = {
+    "cache-only": {
+      prepassPlayLimit: 800,
+      distinctTrackLimit: 0,
+      perTrackTimeoutMs: 0,
+      maxRuntimeMs: 0,
+      interTrackDelayMs: 0,
+      skipSpotifyLookup: true,
+    },
     conservative: {
       prepassPlayLimit: 120,
       distinctTrackLimit: 25,
       perTrackTimeoutMs: 2200,
       maxRuntimeMs: 20_000,
       interTrackDelayMs: 0,
+      skipSpotifyLookup: false,
     },
     balanced: {
       prepassPlayLimit: 240,
@@ -872,6 +881,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
       perTrackTimeoutMs: 2500,
       maxRuntimeMs: 45_000,
       interTrackDelayMs: 0,
+      skipSpotifyLookup: false,
     },
     aggressive: {
       prepassPlayLimit: 500,
@@ -879,6 +889,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
       perTrackTimeoutMs: 2800,
       maxRuntimeMs: 180_000,
       interTrackDelayMs: 125,
+      skipSpotifyLookup: false,
     },
     "very-aggressive": {
       prepassPlayLimit: 1200,
@@ -886,9 +897,11 @@ export async function normalizeImportedLastFmWithPermanentCache(
       perTrackTimeoutMs: 3000,
       maxRuntimeMs: 240_000,
       interTrackDelayMs: 250,
+      skipSpotifyLookup: false,
     },
   }[profile];
 
+  let preResolvedCount = 0;
   const db = await getDatabase({ forceRetry: true });
   if (db) {
     const unresolvedSeedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
@@ -906,7 +919,6 @@ export async function normalizeImportedLastFmWithPermanentCache(
       .limit(profileSettings.prepassPlayLimit)
       .toArray();
 
-    let preResolvedCount = 0;
     for (const play of unresolvedSeedPlays) {
       await onProgress?.(`Checking permanent libraries for ${play.trackName}`);
       const cached = await findCachedTrackByNames(spotifyUserId, play);
@@ -960,13 +972,23 @@ export async function normalizeImportedLastFmWithPermanentCache(
     }
   }
 
-  return normalizeImportedLastFmScrobbles(spotifyUserId, accessToken, {
+  const result = await normalizeImportedLastFmScrobbles(spotifyUserId, accessToken, {
     limitDistinctTracks: profileSettings.distinctTrackLimit,
     perTrackTimeoutMs: profileSettings.perTrackTimeoutMs,
     maxRuntimeMs: profileSettings.maxRuntimeMs,
     interTrackDelayMs: profileSettings.interTrackDelayMs,
+    skipSpotifyLookup: profileSettings.skipSpotifyLookup,
     onProgress,
   });
+
+  if (preResolvedCount > 0) {
+    result.debugSummary = [
+      `Pre-resolved from permanent libraries / playlist cache: ${preResolvedCount}.`,
+      result.debugSummary ?? "",
+    ].filter(Boolean).join("\n");
+  }
+
+  return result;
 }
 
 export async function runDashboardMaintenanceAction(
