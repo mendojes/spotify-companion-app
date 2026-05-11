@@ -55,6 +55,19 @@ type SpotifySearchDebugResult = {
   totalScore?: number;
 };
 
+function parseSpotifyRetryAfterSeconds(rawValue: string | null) {
+  if (!rawValue) {
+    return undefined;
+  }
+
+  const numericValue = Number(rawValue);
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return undefined;
+  }
+
+  return numericValue > 1000 ? Math.ceil(numericValue / 1000) : numericValue;
+}
+
 type ParsedCsvRow = Record<string, string>;
 
 type ParsedLastFmPlay = StoredRecentPlay & {
@@ -596,7 +609,7 @@ async function searchSpotifyTrackMetadataForStoredPlay(
         return {
           ok: false as const,
           status: response.status,
-          retryAfterSeconds: Number(response.headers.get("retry-after") ?? ""),
+          retryAfterSeconds: parseSpotifyRetryAfterSeconds(response.headers.get("retry-after")),
           items: [] as SpotifyTrack[],
         };
       }
@@ -1693,6 +1706,7 @@ export async function normalizeImportedLastFmScrobbles(
     }) => void | Promise<void>;
     perTrackTimeoutMs?: number;
     maxRuntimeMs?: number;
+    interTrackDelayMs?: number;
     excludeNameKeys?: string[];
   },
 ): Promise<LastFmNormalizationResult> {
@@ -1796,6 +1810,7 @@ export async function normalizeImportedLastFmScrobbles(
 
   const perTrackTimeoutMs = Math.max(1000, options?.perTrackTimeoutMs ?? 6000);
   const maxRuntimeMs = Math.max(5000, options?.maxRuntimeMs ?? 45000);
+  const interTrackDelayMs = Math.max(0, options?.interTrackDelayMs ?? 0);
   const startedAt = Date.now();
   let processedTrackGroups = 0;
   let matchedTrackGroups = 0;
@@ -1812,6 +1827,10 @@ export async function normalizeImportedLastFmScrobbles(
   let retryAfterSeconds: number | undefined;
 
   for (let index = 0; index < groupedCandidates.length; index += 1) {
+    if (index > 0 && interTrackDelayMs > 0) {
+      await wait(interTrackDelayMs);
+    }
+
     const candidate = groupedCandidates[index];
     const attemptTimestamp = new Date().toISOString();
     if (Date.now() - startedAt >= maxRuntimeMs) {
@@ -2034,6 +2053,9 @@ export async function normalizeImportedLastFmScrobbles(
     debugSummary: [
       `Processed ${processedTrackGroups}/${groupedCandidates.length} groups.`,
       `Matched: ${matchedTrackGroups}. Unresolved: ${unresolvedTrackGroups}. Timed out: ${timedOutTrackGroups}.`,
+      interTrackDelayMs > 0
+        ? `Spotify pacing delay: ${interTrackDelayMs}ms between track-group searches.`
+        : "Spotify pacing delay: none.",
       stoppedEarly
         ? stopReason === "spotify_rate_limit"
           ? `Stopped early because Spotify rate limiting was hit after ${(Date.now() - startedAt) / 1000} seconds.`

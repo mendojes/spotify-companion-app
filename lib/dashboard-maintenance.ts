@@ -45,7 +45,7 @@ export type MaintenanceAction =
   | "refresh-all-time-full"
   | "refresh-all-time-incremental";
 
-export type RetryUnresolvedBatchProfile = "conservative" | "balanced" | "aggressive";
+export type RetryUnresolvedBatchProfile = "conservative" | "balanced" | "aggressive" | "very-aggressive";
 
 type MaintenanceProgressReporter = (detail: string) => Promise<void> | void;
 
@@ -817,18 +817,28 @@ export async function normalizeImportedLastFmWithPermanentCache(
       distinctTrackLimit: 25,
       perTrackTimeoutMs: 2200,
       maxRuntimeMs: 20_000,
+      interTrackDelayMs: 0,
     },
     balanced: {
       prepassPlayLimit: 240,
       distinctTrackLimit: 100,
       perTrackTimeoutMs: 2500,
       maxRuntimeMs: 45_000,
+      interTrackDelayMs: 0,
     },
     aggressive: {
       prepassPlayLimit: 500,
       distinctTrackLimit: 250,
       perTrackTimeoutMs: 2800,
       maxRuntimeMs: 180_000,
+      interTrackDelayMs: 125,
+    },
+    "very-aggressive": {
+      prepassPlayLimit: 1200,
+      distinctTrackLimit: 500,
+      perTrackTimeoutMs: 3000,
+      maxRuntimeMs: 240_000,
+      interTrackDelayMs: 250,
     },
   }[profile];
 
@@ -907,6 +917,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
     limitDistinctTracks: profileSettings.distinctTrackLimit,
     perTrackTimeoutMs: profileSettings.perTrackTimeoutMs,
     maxRuntimeMs: profileSettings.maxRuntimeMs,
+    interTrackDelayMs: profileSettings.interTrackDelayMs,
     onProgress,
   });
 }

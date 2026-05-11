@@ -38,7 +38,8 @@ const RETRY_PROFILES: Array<{
 }> = [
   { value: "conservative", label: "Conservative (25)", description: "Lowest Spotify search pressure. Best if rate limits are hitting often." },
   { value: "balanced", label: "Balanced (100)", description: "Good default. Tries a much larger batch without being too aggressive." },
-  { value: "aggressive", label: "Aggressive (250)", description: "Largest retry pass. Fastest when Spotify is cooperating." },
+  { value: "aggressive", label: "Aggressive (250)", description: "Larger retry pass with light pacing between Spotify lookups. Better throughput without bursting quite as hard." },
+  { value: "very-aggressive", label: "Very Aggressive (500)", description: "Biggest backlog-burn mode. Uses a much larger target batch, longer runtime, and deliberate pacing to squeeze more completed matches per click before rate limits hit." },
 ];
 
 export function DashboardMaintenancePanel() {
@@ -85,10 +86,10 @@ export function DashboardMaintenancePanel() {
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <div className="rounded-[20px] border-[2px] border-[rgba(44,12,70,0.22)] bg-white/70 px-4 py-4 md:col-span-2 xl:col-span-3">
           <p className="font-display text-sm uppercase tracking-[0.14em] text-[var(--theme-title)]">Retry Unresolved Last.fm</p>
-          <p className="mt-2 text-sm text-[var(--theme-text)]">
-            Choose how aggressively Listening Lore should search Spotify for unresolved imported tracks. Larger passes reduce clicks, but they can hit Spotify rate limits sooner.
-          </p>
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            <p className="mt-2 text-sm text-[var(--theme-text)]">
+              Choose how aggressively Listening Lore should search Spotify for unresolved imported tracks. Larger passes reduce clicks, but they can hit Spotify rate limits sooner. The stronger modes now deliberately pace Spotify searches instead of blasting them back-to-back.
+            </p>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
             {RETRY_PROFILES.map((profile) => {
               const isSelected = retryProfile === profile.value;
               return (
