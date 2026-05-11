@@ -1862,6 +1862,7 @@ export async function normalizeImportedLastFmScrobbles(
       stoppedEarly: false,
       processedNameKeys: [],
       debugSummary: [
+        `Scanned ${groupedCandidates.length} unresolved groups after cache prepass.`,
         `Processed 0/${groupedCandidates.length} groups.`,
         `Matched: 0. Unresolved: ${groupedCandidates.length}. Timed out: 0.`,
         "Spotify lookup mode: disabled (cache-only pass).",

@@ -860,8 +860,8 @@ export async function normalizeImportedLastFmWithPermanentCache(
 ) {
   const profileSettings = {
     "cache-only": {
-      prepassPlayLimit: 800,
-      distinctTrackLimit: 0,
+      prepassPlayLimit: 3000,
+      distinctTrackLimit: 3000,
       perTrackTimeoutMs: 0,
       maxRuntimeMs: 0,
       interTrackDelayMs: 0,

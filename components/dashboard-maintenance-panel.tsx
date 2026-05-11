@@ -36,7 +36,7 @@ const RETRY_PROFILES: Array<{
   label: string;
   description: string;
 }> = [
-  { value: "cache-only", label: "Cache Only", description: "Checks permanent libraries and cached playlists only. Does not call Spotify search at all." },
+  { value: "cache-only", label: "Cache Only (3000)", description: "Checks permanent libraries and cached playlists only. Does not call Spotify search at all, and scans a large unresolved batch locally." },
   { value: "conservative", label: "Conservative (25)", description: "Lowest Spotify search pressure. Best if rate limits are hitting often." },
   { value: "balanced", label: "Balanced (100)", description: "Good default. Tries a much larger batch without being too aggressive." },
   { value: "aggressive", label: "Aggressive (250)", description: "Larger retry pass with light pacing between Spotify lookups. Better throughput without bursting quite as hard." },
