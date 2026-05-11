@@ -828,7 +828,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
       prepassPlayLimit: 500,
       distinctTrackLimit: 250,
       perTrackTimeoutMs: 2800,
-      maxRuntimeMs: 90_000,
+      maxRuntimeMs: 180_000,
     },
   }[profile];
 

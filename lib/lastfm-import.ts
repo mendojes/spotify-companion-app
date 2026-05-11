@@ -85,6 +85,8 @@ export type LastFmNormalizationResult = {
   debugSummary?: string;
 };
 
+type LastFmNormalizationStopReason = "completed" | "runtime_budget" | "spotify_rate_limit";
+
 export type UnresolvedImportedLastFmGroup = {
   trackName: string;
   artistName: string;
@@ -190,6 +192,10 @@ function tokenizeLooseText(value: string) {
     .split(" ")
     .map((token) => token.trim())
     .filter(Boolean);
+}
+
+function containsNonLatinCharacters(value: string) {
+  return /[^\u0000-\u024f]/.test(value);
 }
 
 function computeTokenOverlapScore(left: string, right: string) {
@@ -515,6 +521,8 @@ function evaluateSpotifySearchTrackCandidates(
   const hasStrongOverallMatch = best.totalScore >= 0.74;
   const hasVeryStrongTrackArtistMatch = best.trackScore >= 0.96 && best.artistScore >= 0.72;
   const hasVeryStrongTrackAlbumMatch = best.trackScore >= 0.95 && best.albumScore >= 0.8 && best.totalScore >= 0.68;
+  const isNonLatinTrackQuery = containsNonLatinCharacters(play.trackName);
+  const hasExactNonLatinTrackFallback = isNonLatinTrackQuery && best.trackScore >= 0.99 && best.totalScore >= 0.48;
 
   const matched =
     (
@@ -523,12 +531,13 @@ function evaluateSpotifySearchTrackCandidates(
       hasStrongOverallMatch &&
       (hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch)
     ) ||
-    hasVeryStrongTrackAlbumMatch;
+    hasVeryStrongTrackAlbumMatch ||
+    hasExactNonLatinTrackFallback;
 
   let rejectionReason = "weak_overall_match";
   if (!hasStrongTrackMatch) {
     rejectionReason = "weak_track_match";
-  } else if (!hasStrongArtistMatch && !hasVeryStrongTrackAlbumMatch) {
+  } else if (!hasStrongArtistMatch && !hasVeryStrongTrackAlbumMatch && !hasExactNonLatinTrackFallback) {
     rejectionReason = "weak_artist_match";
   } else if (!(hasStrongAlbumMatch || hasReasonableAlbumMatch || hasVeryStrongTrackArtistMatch)) {
     rejectionReason = "weak_album_match";
@@ -1795,6 +1804,7 @@ export async function normalizeImportedLastFmScrobbles(
   let deletedDuplicatePlayCount = 0;
   let timedOutTrackGroups = 0;
   let stoppedEarly = false;
+  let stopReason: LastFmNormalizationStopReason = "completed";
   const processedNameKeys: string[] = [];
   const failureReasonCounts = new Map<string, number>();
   const failureSamples: string[] = [];
@@ -1806,6 +1816,7 @@ export async function normalizeImportedLastFmScrobbles(
     const attemptTimestamp = new Date().toISOString();
     if (Date.now() - startedAt >= maxRuntimeMs) {
       stoppedEarly = true;
+      stopReason = "runtime_budget";
       await options?.onProgress?.(
         `Paused imported-track normalization after ${processedTrackGroups}/${groupedCandidates.length} groups so refresh can finish. The next refresh will continue with remaining unresolved tracks.`,
       );
@@ -1887,6 +1898,7 @@ export async function normalizeImportedLastFmScrobbles(
       });
       if (failureReason === "spotify_status_429") {
         stoppedEarly = true;
+        stopReason = "spotify_rate_limit";
         await options?.onProgress?.(
           typeof searchResult.retryAfterSeconds === "number" && Number.isFinite(searchResult.retryAfterSeconds)
             ? `Spotify search rate limited this pass. Wait about ${searchResult.retryAfterSeconds} second${searchResult.retryAfterSeconds === 1 ? "" : "s"} before running Retry Unresolved Last.fm again.`
@@ -2022,6 +2034,11 @@ export async function normalizeImportedLastFmScrobbles(
     debugSummary: [
       `Processed ${processedTrackGroups}/${groupedCandidates.length} groups.`,
       `Matched: ${matchedTrackGroups}. Unresolved: ${unresolvedTrackGroups}. Timed out: ${timedOutTrackGroups}.`,
+      stoppedEarly
+        ? stopReason === "spotify_rate_limit"
+          ? `Stopped early because Spotify rate limiting was hit after ${(Date.now() - startedAt) / 1000} seconds.`
+          : `Stopped early because the runtime budget (${Math.round(maxRuntimeMs / 1000)}s) was reached after ${((Date.now() - startedAt) / 1000).toFixed(1)} seconds.`
+        : `Completed full retry pass in ${((Date.now() - startedAt) / 1000).toFixed(1)} seconds.`,
       failureReasonCounts.size > 0
         ? `Failure reasons: ${[...failureReasonCounts.entries()].map(([reason, count]) => `${reason}=${count}`).join(", ")}`
         : "Failure reasons: none recorded.",
