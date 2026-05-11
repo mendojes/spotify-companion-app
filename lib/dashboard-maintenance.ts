@@ -14,6 +14,7 @@ import { TopListsData, StoredRecentPlay } from "@/lib/types";
 
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const USER_TRACK_LIBRARY_COLLECTION = "spotify_user_track_library";
+const PLAYLIST_TRACK_CACHE_COLLECTION = "spotify_playlist_track_cache";
 const USER_ARTIST_LIBRARY_COLLECTION = "spotify_user_artist_library";
 const USER_ALBUM_LIBRARY_COLLECTION = "spotify_user_album_library";
 const USER_LIBRARY_STATE_COLLECTION = "spotify_user_library_state";
@@ -802,7 +803,53 @@ async function findCachedTrackByNames(
     track.normalizedNameKey === `${normalizedTrack}::${normalizedArtist}::${normalizedAlbum}`,
   ) ?? globalTracks.find((track) =>
     track.normalizedTrackArtistKey === `${normalizedTrack}::${normalizedArtist}`,
-  ) ?? null;
+  ) ?? await (async () => {
+    const playlistTracks = await db.collection<{
+      trackId?: string;
+      title?: string;
+      artistNames?: string[];
+      albumName?: string;
+      normalizedTrackArtistKey?: string;
+      normalizedNameKey?: string;
+      imageUrl?: string;
+      classification?: string;
+    }>(PLAYLIST_TRACK_CACHE_COLLECTION)
+      .find({
+        spotifyUserId,
+        classification: "analyzable",
+        $or: [
+          { normalizedNameKey: `${normalizedTrack}::${normalizedArtist}::${normalizedAlbum}` },
+          { normalizedTrackArtistKey: `${normalizedTrack}::${normalizedArtist}` },
+        ],
+        trackId: { $regex: "^[A-Za-z0-9]{22}$" },
+      })
+      .limit(25)
+      .toArray();
+
+    const exactPlaylistMatch = playlistTracks.find((track) =>
+      track.normalizedNameKey === `${normalizedTrack}::${normalizedArtist}::${normalizedAlbum}`,
+    ) ?? playlistTracks.find((track) =>
+      track.normalizedTrackArtistKey === `${normalizedTrack}::${normalizedArtist}`,
+    );
+
+    if (!exactPlaylistMatch?.trackId || !exactPlaylistMatch.title) {
+      return null;
+    }
+
+    return {
+      trackId: exactPlaylistMatch.trackId,
+      trackName: exactPlaylistMatch.title,
+      artistName: exactPlaylistMatch.artistNames?.join(", ") ?? play.artistName,
+      normalizedTrackArtistKey: exactPlaylistMatch.normalizedTrackArtistKey,
+      normalizedNameKey: exactPlaylistMatch.normalizedNameKey,
+      artistNames: exactPlaylistMatch.artistNames,
+      artistIds: undefined,
+      albumId: undefined,
+      albumName: exactPlaylistMatch.albumName ?? play.albumName,
+      imageUrl: exactPlaylistMatch.imageUrl,
+      durationMs: undefined,
+    };
+  })();
 }
 
 export async function normalizeImportedLastFmWithPermanentCache(

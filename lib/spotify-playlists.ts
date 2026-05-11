@@ -92,6 +92,8 @@ type StoredPlaylistTrackCacheItem = {
   title?: string;
   artistNames?: string[];
   albumName?: string;
+  normalizedTrackArtistKey?: string;
+  normalizedNameKey?: string;
   imageUrl?: string;
   classification?: "analyzable" | "local" | "unavailable" | "partial" | "unknown";
   reason?: string;
@@ -145,6 +147,14 @@ type StoredArtistMetadata = {
 
 function normalizeArtistCacheKey(value: string) {
   return value.trim().toLocaleLowerCase();
+}
+
+function normalizeText(value: string | undefined | null) {
+  return (value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function wait(ms: number) {
@@ -314,6 +324,7 @@ function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTr
   const rawTrack = item.track ?? item.item;
 
   if (isUsablePlaylistTrack(rawTrack)) {
+    const joinedArtistNames = rawTrack.artists.map((artist) => artist.name).filter(Boolean).join(", ");
     return {
       addedAt: item.added_at,
       addedById: item.added_by?.id,
@@ -322,6 +333,8 @@ function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTr
       title: rawTrack.name,
       artistNames: rawTrack.artists.map((artist) => artist.name).filter(Boolean),
       albumName: rawTrack.album?.name,
+      normalizedTrackArtistKey: `${normalizeText(rawTrack.name)}::${normalizeText(joinedArtistNames)}`,
+      normalizedNameKey: `${normalizeText(rawTrack.name)}::${normalizeText(joinedArtistNames)}::${normalizeText(rawTrack.album?.name ?? "")}`,
       imageUrl: rawTrack.album?.images?.[0]?.url,
       classification: "analyzable",
       reason: rawTrack.is_playable === false ? "Spotify marked this track as unavailable to play." : undefined,
@@ -341,20 +354,23 @@ function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTr
   }
 
   const candidate = rawTrack as Partial<SpotifyTrack> & { is_local?: boolean; is_playable?: boolean | null };
-  const artistNames = Array.isArray(candidate.artists)
-    ? candidate.artists.map((artist) => artist?.name).filter((name): name is string => Boolean(name))
-    : [];
-  const title = candidate.name?.trim() || (candidate.is_local ? "Local file" : "Unavailable track");
-  const albumName = candidate.album?.name?.trim() || "Unknown release";
-  const baseRecord = {
-    addedAt: item.added_at,
-    addedById: item.added_by?.id,
-    trackId: candidate.id,
-    title,
-    artistNames,
-    albumName,
-    imageUrl: candidate.album?.images?.[0]?.url,
-  } satisfies Omit<NormalizedStoredPlaylistTrackCacheRecord, "classification" | "reason" | "track">;
+    const artistNames = Array.isArray(candidate.artists)
+      ? candidate.artists.map((artist) => artist?.name).filter((name): name is string => Boolean(name))
+      : [];
+    const joinedArtistNames = artistNames.join(", ");
+    const title = candidate.name?.trim() || (candidate.is_local ? "Local file" : "Unavailable track");
+    const albumName = candidate.album?.name?.trim() || "Unknown release";
+    const baseRecord = {
+      addedAt: item.added_at,
+      addedById: item.added_by?.id,
+      trackId: candidate.id,
+      title,
+      artistNames,
+      albumName,
+      normalizedTrackArtistKey: `${normalizeText(title)}::${normalizeText(joinedArtistNames)}`,
+      normalizedNameKey: `${normalizeText(title)}::${normalizeText(joinedArtistNames)}::${normalizeText(albumName)}`,
+      imageUrl: candidate.album?.images?.[0]?.url,
+    } satisfies Omit<NormalizedStoredPlaylistTrackCacheRecord, "classification" | "reason" | "track">;
 
   if (candidate.is_local) {
     return {
@@ -380,14 +396,18 @@ function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTr
 }
 
 function normalizeStoredPlaylistTrackRecordFromTrack(trackItem: PlaylistTrackWithMeta): NormalizedStoredPlaylistTrackCacheRecord {
+  const artistNames = trackItem.track.artists.map((artist) => artist.name).filter(Boolean);
+  const joinedArtistNames = artistNames.join(", ");
   return {
     addedAt: trackItem.addedAt,
     addedById: trackItem.addedById,
     track: trackItem.track,
     trackId: trackItem.track.id,
     title: trackItem.track.name,
-    artistNames: trackItem.track.artists.map((artist) => artist.name).filter(Boolean),
+    artistNames,
     albumName: trackItem.track.album?.name,
+    normalizedTrackArtistKey: `${normalizeText(trackItem.track.name)}::${normalizeText(joinedArtistNames)}`,
+    normalizedNameKey: `${normalizeText(trackItem.track.name)}::${normalizeText(joinedArtistNames)}::${normalizeText(trackItem.track.album?.name ?? "")}`,
     imageUrl: trackItem.track.album?.images?.[0]?.url,
     classification: "analyzable",
   };

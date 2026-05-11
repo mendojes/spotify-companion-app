@@ -12,6 +12,7 @@ import { SpotifyRecentlyPlayedItem, SpotifyTrack, StoredRecentPlay } from "@/lib
 const RECENT_PLAYS_COLLECTION = "spotify_recent_plays";
 const SNAPSHOT_HISTORY_COLLECTION = "spotify_snapshots_history";
 const USER_TRACK_LIBRARY_COLLECTION = "spotify_user_track_library";
+const PLAYLIST_TRACK_CACHE_COLLECTION = "spotify_playlist_track_cache";
 const USER_ARTIST_LIBRARY_COLLECTION = "spotify_user_artist_library";
 const USER_ALBUM_LIBRARY_COLLECTION = "spotify_user_album_library";
 const USER_LIBRARY_STATE_COLLECTION = "spotify_user_library_state";
@@ -383,7 +384,7 @@ async function getCachedMetadataCandidates(
   ).values()];
   const uniqueTrackIds = [...new Set(plays.map((play) => play.trackId).filter((trackId) => !trackId.startsWith("lastfm:")))];
 
-  const [libraryCandidates, globalTrackCacheCandidates] = await Promise.all([
+  const [libraryCandidates, globalTrackCacheCandidates, playlistCacheCandidates] = await Promise.all([
     db
       .collection<{
         trackId: string;
@@ -430,11 +431,51 @@ async function getCachedMetadataCandidates(
       })
       .limit(250)
       .toArray(),
+    db
+      .collection<{
+        trackId?: string;
+        title?: string;
+        artistNames?: string[];
+        albumName?: string;
+        normalizedTrackArtistKey?: string;
+        normalizedNameKey?: string;
+        imageUrl?: string;
+        classification?: string;
+      }>(PLAYLIST_TRACK_CACHE_COLLECTION)
+      .find({
+        spotifyUserId,
+        classification: "analyzable",
+        $or: [
+          ...uniqueTrackIds.map((trackId) => ({ trackId })),
+          ...uniqueTrackArtistPairs.map(({ trackName, artistName }) => ({
+            normalizedTrackArtistKey: buildTrackArtistKey(trackName, artistName),
+          })),
+        ],
+      })
+      .limit(500)
+      .toArray(),
   ]);
 
   return [
     ...libraryCandidates.map((candidate) => ({ ...candidate })),
     ...globalTrackCacheCandidates.map((candidate) => ({ ...candidate })),
+    ...playlistCacheCandidates
+      .filter((candidate): candidate is typeof candidate & { trackId: string; title: string } => Boolean(candidate.trackId && candidate.title))
+      .map((candidate) => {
+        const joinedArtistName = candidate.artistNames?.join(", ") ?? "";
+        return {
+          trackId: candidate.trackId,
+          trackName: candidate.title,
+          artistName: joinedArtistName,
+          normalizedTrackArtistKey: candidate.normalizedTrackArtistKey ?? buildTrackArtistKey(candidate.title, joinedArtistName),
+          normalizedNameKey: candidate.normalizedNameKey ?? buildNameKey(candidate.title, joinedArtistName, candidate.albumName ?? ""),
+          artistNames: candidate.artistNames,
+          artistIds: undefined,
+          albumName: candidate.albumName,
+          durationMs: undefined,
+          imageUrl: candidate.imageUrl,
+        } satisfies TrackMetadataCandidate;
+      }),
   ];
 }
 
