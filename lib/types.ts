@@ -98,6 +98,8 @@ export type PlaylistDetail = {
   name: string;
   imageUrl?: string;
   ownerName?: string;
+  totalItems?: number;
+  trackSignature?: string;
   trackCount: number;
   uniqueArtistCount: number;
   uniqueAlbumCount: number;
@@ -114,6 +116,15 @@ export type PlaylistDetail = {
   topTracks: PlaylistTrackSummary[];
   unavailableTracks?: PlaylistUnavailableTrackSummary[];
   listenTimeline: PlaylistListenTimelinePoint[];
+  analysisState?: {
+    earliestAddedAt?: string;
+    artistCounts: Record<string, number>;
+    primaryArtistCounts: Record<string, number>;
+    albumCounts: Record<string, number>;
+    trackCounts: Record<string, number>;
+    genreCounts: Record<string, number>;
+    trackMetaById: Record<string, PlaylistTrackSummary>;
+  };
 };
 
 export type DashboardInsights = {
