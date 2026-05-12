@@ -2839,13 +2839,30 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
   ]);
 
   const cached = cachedDetails[0];
+  const isLargeStoredTrackSet = storedTrackItems.length >= PLAYLIST_LARGE_SYNC_THRESHOLD;
   const shouldRebuildFromStoredTracks = Boolean(
     cached &&
     storedTrackItems.length > 0 &&
     storedTrackItems.length !== cached.trackCount,
   );
+  const shouldDeferLargeStoredTrackRebuild = Boolean(
+    cached &&
+    isLargeStoredTrackSet &&
+    shouldRebuildFromStoredTracks,
+  );
 
-  if (cached && !isPlaylistDetailIncomplete(cached) && !shouldRebuildFromStoredTracks) {
+  if (cached && !isPlaylistDetailIncomplete(cached) && (!shouldRebuildFromStoredTracks || shouldDeferLargeStoredTrackRebuild)) {
+    logPlaylistTiming(
+      spotifyUserId,
+      playlistId,
+      shouldDeferLargeStoredTrackRebuild ? "history-returned-cached-detail-large-rebuild-deferred" : "history-complete-cached-detail",
+      startedAt,
+      `tracks=${cached.trackCount} storedTracks=${storedTrackItems.length}`,
+    );
+    return cached;
+  }
+
+  if (cached && isPlaylistDetailIncomplete(cached) && shouldDeferLargeStoredTrackRebuild) {
     logPlaylistTiming(spotifyUserId, playlistId, "history-complete-cached-detail", startedAt, `tracks=${cached.trackCount}`);
     return cached;
   }
