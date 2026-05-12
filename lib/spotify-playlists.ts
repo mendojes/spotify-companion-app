@@ -2309,6 +2309,7 @@ async function analyzePlaylistFromTrackItems(
   allTimeArtistGenres = new Map<string, string[]>(),
   accessToken?: string,
   topTrackMode: "history" | "popularity" = "history",
+  allowExternalGenreFallbacks = true,
 ): Promise<PlaylistDetail | null> {
   if (trackItems.length === 0) {
     return null;
@@ -2332,7 +2333,7 @@ async function analyzePlaylistFromTrackItems(
     topGenres = buildGenreSummaryFromArtistGenreMap(tracks, allTimeArtistGenres);
   }
 
-  if (topGenres.length === 0 && accessToken) {
+  if (topGenres.length === 0 && accessToken && allowExternalGenreFallbacks) {
     const spotifySearchGenres = await fetchSpotifyArtistGenresBySearch(
       getTopArtistNamesByFrequency(tracks),
     ).catch(() => new Map<string, string[]>());
@@ -2342,20 +2343,20 @@ async function analyzePlaylistFromTrackItems(
     }
   }
 
-if (topGenres.length === 0) {
-  const artistTags = await fetchMusicBrainzArtistTags(
-    getTopArtistNamesByFrequency(tracks),
-  ).catch(() => new Map<string, string[]>());
+  if (topGenres.length === 0 && allowExternalGenreFallbacks) {
+    const artistTags = await fetchMusicBrainzArtistTags(
+      getTopArtistNamesByFrequency(tracks),
+    ).catch(() => new Map<string, string[]>());
 
-  if (artistTags.size > 0) {
-    await writeMusicBrainzGenresToPermanentArtistCache(tracks, artistTags).catch(() => undefined);
-    topGenres = buildGenreSummaryFromArtistTags(tracks, artistTags);
+    if (artistTags.size > 0) {
+      await writeMusicBrainzGenresToPermanentArtistCache(tracks, artistTags).catch(() => undefined);
+      topGenres = buildGenreSummaryFromArtistTags(tracks, artistTags);
+    }
   }
 
   if (topGenres.length === 0) {
     topGenres = buildGenreSummaryFromTextFallback(tracks);
   }
-}
   const sampleTracks = buildSampleTracks(tracks);
   const topTracks = buildTopTracks(tracks, allTimeTrackAffinity, topTrackMode);
 
@@ -2876,6 +2877,9 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
         recentPlays,
         allTimeTrackAffinity,
         allTimeArtistGenres,
+        undefined,
+        "history",
+        false,
       );
 
       if (recoveredDetail) {
