@@ -2830,77 +2830,26 @@ export async function getPlaylistPageDataFromHistory(
 
 export async function getPlaylistDetailFromHistory(spotifyUserId: string, playlistId: string): Promise<PlaylistDetail | null> {
   const startedAt = Date.now();
-  const [storedLibrary, cachedDetails, recentPlays, storedTrackItems, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
+  const [storedLibrary, cachedDetails, recentPlays] = await Promise.all([
     getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
     getCachedPlaylistDetails(spotifyUserId, [playlistId]).catch(() => [] as CachedPlaylistDetail[]),
     getStoredRecentPlays(spotifyUserId).catch(() => [] as StoredRecentPlay[]),
-    getStoredPlaylistTrackItems(spotifyUserId, playlistId).catch(() => [] as PlaylistTrackWithMeta[]),
-    getAllTimeTrackAffinityMap(spotifyUserId),
-    getAllTimeArtistGenreMap(spotifyUserId),
   ]);
 
   const cached = cachedDetails[0];
-  const isLargeStoredTrackSet = storedTrackItems.length >= PLAYLIST_LARGE_SYNC_THRESHOLD;
-  const shouldRebuildFromStoredTracks = Boolean(
-    cached &&
-    storedTrackItems.length > 0 &&
-    storedTrackItems.length !== cached.trackCount,
-  );
-  const shouldDeferLargeStoredTrackRebuild = Boolean(
-    cached &&
-    isLargeStoredTrackSet &&
-    shouldRebuildFromStoredTracks,
-  );
-
-  if (cached && !isPlaylistDetailIncomplete(cached) && (!shouldRebuildFromStoredTracks || shouldDeferLargeStoredTrackRebuild)) {
-    logPlaylistTiming(
-      spotifyUserId,
-      playlistId,
-      shouldDeferLargeStoredTrackRebuild ? "history-returned-cached-detail-large-rebuild-deferred" : "history-complete-cached-detail",
-      startedAt,
-      `tracks=${cached.trackCount} storedTracks=${storedTrackItems.length}`,
-    );
-    return cached;
-  }
-
-  if (cached && isPlaylistDetailIncomplete(cached) && shouldDeferLargeStoredTrackRebuild) {
-    logPlaylistTiming(spotifyUserId, playlistId, "history-complete-cached-detail", startedAt, `tracks=${cached.trackCount}`);
+  if (cached) {
+    logPlaylistTiming(spotifyUserId, playlistId, "history-returned-cached-detail", startedAt, `tracks=${cached.trackCount}`);
     return cached;
   }
 
   const storedPlaylist = storedLibrary.find((playlist) => playlist.id === playlistId);
   if (storedPlaylist) {
-    if (storedTrackItems.length > 0) {
-      const recoveredDetail = await analyzePlaylistFromTrackItems(
-        storedPlaylist,
-        storedTrackItems,
-        recentPlays,
-        allTimeTrackAffinity,
-        allTimeArtistGenres,
-        undefined,
-        "history",
-        false,
-      );
-
-      if (recoveredDetail) {
-        await writeCachedPlaylistDetails(spotifyUserId, [recoveredDetail]);
-        logPlaylistTiming(
-          spotifyUserId,
-          playlistId,
-          "history-recovered-from-stored-tracks",
-          startedAt,
-          `storedTracks=${storedTrackItems.length} cachedTracks=${cached?.trackCount ?? 0} uniqueArtists=${recoveredDetail.uniqueArtistCount}`,
-        );
-        return recoveredDetail;
-      }
-    }
-
     logPlaylistTiming(
       spotifyUserId,
       playlistId,
-      "history-thin-stored-playlist-fallback",
+      "history-stored-playlist-fallback",
       startedAt,
-      `storedTracks=${storedTrackItems.length} libraryTracks=${storedPlaylist.tracks?.total ?? 0}`,
+      `libraryTracks=${storedPlaylist.tracks?.total ?? 0}`,
     );
     return {
       ...toBasicInsight(storedPlaylist, recentPlays),
@@ -2917,11 +2866,6 @@ export async function getPlaylistDetailFromHistory(spotifyUserId: string, playli
       topTracks: [],
       listenTimeline: buildListenTimeline(storedPlaylist.id, recentPlays),
     };
-  }
-
-  if (cached) {
-    logPlaylistTiming(spotifyUserId, playlistId, "history-incomplete-cached-detail-fallback", startedAt, `tracks=${cached.trackCount}`);
-    return cached;
   }
 
   logPlaylistTiming(spotifyUserId, playlistId, "history-miss", startedAt);
