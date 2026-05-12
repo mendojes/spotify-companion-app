@@ -9,6 +9,7 @@ import {
 } from "@/lib/dashboard-section-cache";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
 import { deleteImportedLastFmScrobbles, deleteUnresolvedImportedLastFmScrobbles, normalizeImportedLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
+import { syncPlaylistDetail } from "@/lib/spotify-playlists";
 import { getStoredTrackMetadataMap, TRACK_METADATA_COLLECTION } from "@/lib/track-metadata-cache";
 import { TopListsData, StoredRecentPlay } from "@/lib/types";
 
@@ -766,6 +767,7 @@ export async function buildAllTimeTopListsFromUserLibraries(
 async function findCachedTrackByNames(
   spotifyUserId: string,
   play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">,
+  preferredPlaylistId?: string,
 ) {
   const db = await getDatabase({ forceRetry: true });
   if (!db) {
@@ -816,6 +818,7 @@ async function findCachedTrackByNames(
     }>(PLAYLIST_TRACK_CACHE_COLLECTION)
       .find({
         spotifyUserId,
+        ...(preferredPlaylistId ? { playlistId: preferredPlaylistId } : {}),
         classification: "analyzable",
         $or: [
           { normalizedNameKey: `${normalizedTrack}::${normalizedArtist}::${normalizedAlbum}` },
@@ -857,6 +860,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
   accessToken: string,
   onProgress?: MaintenanceProgressReporter,
   profile: RetryUnresolvedBatchProfile = "balanced",
+  preferredPlaylistId?: string,
 ) {
   const profileSettings = {
     "cache-only": {
@@ -903,6 +907,10 @@ export async function normalizeImportedLastFmWithPermanentCache(
 
   let preResolvedCount = 0;
   const db = await getDatabase({ forceRetry: true });
+  if (preferredPlaylistId) {
+    await onProgress?.("Syncing selected playlist track cache before normalization");
+    await syncPlaylistDetail(accessToken, spotifyUserId, preferredPlaylistId).catch(() => undefined);
+  }
   if (db) {
     const unresolvedSeedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
       .find({
@@ -921,7 +929,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
 
     for (const play of unresolvedSeedPlays) {
       await onProgress?.(`Checking permanent libraries for ${play.trackName}`);
-      const cached = await findCachedTrackByNames(spotifyUserId, play);
+      const cached = await findCachedTrackByNames(spotifyUserId, play, preferredPlaylistId);
       if (!cached || !isSpotifyTrackId(cached.trackId)) {
         continue;
       }
@@ -998,6 +1006,7 @@ export async function runDashboardMaintenanceAction(
   onProgress?: MaintenanceProgressReporter,
   options?: {
     retryProfile?: RetryUnresolvedBatchProfile;
+    playlistId?: string;
   },
 ) {
   if (action === "rebuild-playlist-cache") {
@@ -1073,15 +1082,15 @@ export async function runDashboardMaintenanceAction(
     return { partial: false, deletedCount: result.deletedCount ?? 0 };
   }
 
-  if (action === "normalize-lastfm-imports") {
-    const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress, options?.retryProfile ?? "balanced");
-    return { partial: Boolean(result.stoppedEarly), result };
-  }
+    if (action === "normalize-lastfm-imports") {
+      const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress, options?.retryProfile ?? "balanced", options?.playlistId);
+      return { partial: Boolean(result.stoppedEarly), result };
+    }
 
-  if (action === "retry-unresolved-lastfm-imports") {
-    const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress, options?.retryProfile ?? "balanced");
-    return { partial: Boolean(result.stoppedEarly), result };
-  }
+    if (action === "retry-unresolved-lastfm-imports") {
+      const result = await normalizeImportedLastFmWithPermanentCache(spotifyUserId, accessToken, onProgress, options?.retryProfile ?? "balanced", options?.playlistId);
+      return { partial: Boolean(result.stoppedEarly), result };
+    }
 
   if (action === "refresh-track-library-full") {
     return syncUserLibraryFromRecentPlays(spotifyUserId, "tracks", "full", onProgress);

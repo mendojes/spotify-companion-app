@@ -100,12 +100,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Spotify connection required." }, { status: 403 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const action = typeof body?.action === "string" && isMaintenanceAction(body.action) ? body.action : null;
-  const retryProfile = isRetryUnresolvedBatchProfile(body?.retryProfile) ? body.retryProfile : "balanced";
-  if (!action) {
-    return NextResponse.json({ error: "Invalid maintenance action." }, { status: 400 });
-  }
+    const body = await request.json().catch(() => ({}));
+    const action = typeof body?.action === "string" && isMaintenanceAction(body.action) ? body.action : null;
+    const retryProfile = isRetryUnresolvedBatchProfile(body?.retryProfile) ? body.retryProfile : "balanced";
+    const playlistId = typeof body?.playlistId === "string" && body.playlistId.trim() ? body.playlistId.trim() : undefined;
+    if (!action) {
+      return NextResponse.json({ error: "Invalid maintenance action." }, { status: 400 });
+    }
 
   try {
     const authorizedSession = await getAuthorizedSession(session);
@@ -153,11 +154,12 @@ export async function POST(request: NextRequest) {
             step: action,
           }).catch(() => undefined);
         }
-      },
-      {
-        retryProfile,
-      },
-    );
+        },
+        {
+          retryProfile,
+          playlistId,
+        },
+      );
 
     const successDetail = result && typeof result === "object" && "partial" in result && result.partial
       ? `${baseDetail} saved a partial batch. Run it again to continue from the smaller remaining set.`
