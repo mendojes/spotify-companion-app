@@ -4,7 +4,7 @@ import Image from "next/image";
 import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getVibeSummary } from "@/lib/insights";
 import { deriveGenreBasedMoodInsightsFromSummaries, getMoodDescription, moodColors } from "@/lib/moods";
-import { PlaylistDetail, PlaylistUnavailableTrackSummary } from "@/lib/types";
+import { PlaylistDetail } from "@/lib/types";
 
 const genreColors = ["#7AF7FF", "#FF8AD8", "#FFD37B", "#8EFFD1", "#8FA2FF"];
 const chartTooltipContentStyle = {
@@ -126,11 +126,9 @@ function getExtraInsightCards(detail: PlaylistDetail, topGenreLabel?: string): I
 export function PlaylistDetailView({
   detail,
   mode = "authenticated",
-  unavailableTracks = [],
 }: {
   detail: PlaylistDetail;
   mode?: "authenticated" | "public";
-  unavailableTracks?: PlaylistUnavailableTrackSummary[];
 }) {
   const genreData = getGenreChartData(detail);
   const hasTimeline = mode === "authenticated" && detail.listenTimeline.length > 0;
@@ -339,35 +337,6 @@ export function PlaylistDetailView({
           </div>
         </div>
       </div>
-
-      {mode === "authenticated" && unavailableTracks.length > 0 ? (
-        <div className="glass-panel rounded-[32px] p-6">
-          <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Unavailable tracks</p>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--theme-body)]">
-            These playlist items came back from Spotify as unavailable or no longer fully resolvable, so they are excluded from genre and top-track analysis.
-          </p>
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {unavailableTracks.map((track) => (
-              <div key={`${track.position}:${track.title}:${track.artist}`} className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4 text-[var(--theme-text)]">
-                <div className="flex items-start gap-4">
-                  {track.imageUrl ? (
-                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[20px] border border-white/10 bg-white/5">
-                      <Image src={track.imageUrl} alt={track.title} fill sizes="80px" className="object-contain bg-white/[0.2]" />
-                    </div>
-                  ) : null}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs uppercase tracking-[0.18em] text-[#2b7f97]">Item #{track.position}</p>
-                    <p className="mt-2 break-words font-display text-xl leading-tight text-[var(--theme-title)]">{track.title}</p>
-                    <p className="mt-2 break-words text-sm text-[var(--theme-muted)]">{track.artist}</p>
-                    <p className="mt-2 break-words text-xs uppercase tracking-[0.16em] text-[var(--theme-muted)]">{track.album}</p>
-                    <p className="mt-3 text-sm leading-6 text-[var(--theme-body)]">{track.reason}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
 
       <div className="glass-panel rounded-[32px] p-6">
         <p className="text-sm uppercase tracking-[0.24em] text-[#2b7f97]">Top songs</p>

@@ -3,10 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { hasSpotifyConnection, requireSession, requireSpotifySession } from "@/lib/auth";
 import { getPublicSpotifyProfileInsights } from "@/lib/spotify-public";
-import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary, getStoredPlaylistTrackDiagnostics } from "@/lib/spotify-playlists";
+import { getPlaylistDetailFromHistory, getStoredPlaylistLibrary } from "@/lib/spotify-playlists";
 import { PlaylistDetailView } from "./playlist-detail-view";
 import { PlaylistDetailSync } from "./playlist-detail-sync";
-import { PublicPlaylistDetailRefresh } from "./public-playlist-detail-refresh";
+import { PlaylistTrackDiagnosticsPanel } from "./playlist-track-diagnostics";
 import { formatPstDateTime } from "@/lib/time";
 
 type PlaylistDetailPageProps = {
@@ -54,9 +54,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
     const detail = storedDetail;
     const totalPlaylistItems = libraryPlaylist?.tracks?.total ?? detail?.trackCount ?? 0;
-    const diagnostics = session.spotifyUserId
-      ? await getStoredPlaylistTrackDiagnostics(session.spotifyUserId, playlistId, totalPlaylistItems).catch(() => null)
-      : null;
 
     if (!detail && !libraryPlaylist) {
       notFound();
@@ -150,19 +147,14 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
             </div>
           ) : null}
 
-          <div className="rounded-[24px] border border-gold/25 bg-gold/10 px-5 py-4 text-sm text-ink/85">
-            <p className="font-medium text-[var(--theme-title)]">Debug counts</p>
-            <div className="mt-2 space-y-1">
-              <p>Spotify playlist items: {diagnostics?.totalItems ?? totalPlaylistItems}</p>
-              <p>Cached playlist items fetched: {diagnostics?.fetchedItems ?? fallbackDetail.trackCount}</p>
-              <p>Analyzable Spotify tracks: {diagnostics?.analyzableTracks ?? fallbackDetail.trackCount}</p>
-              <p>Rejected items: {diagnostics?.rejectedItems ?? Math.max(0, totalPlaylistItems - fallbackDetail.trackCount)}</p>
-              <p>Next sync offset: {diagnostics?.nextOffset ?? 0}</p>
-              {diagnostics?.lastError ? <p>Last sync error: {diagnostics.lastError}</p> : null}
-            </div>
-          </div>
+          <PlaylistTrackDiagnosticsPanel
+            playlistId={playlistId}
+            mode="public"
+            fallbackTotalItems={totalPlaylistItems}
+            fallbackAnalyzableTracks={fallbackDetail.trackCount}
+          />
 
-          <PlaylistDetailView detail={fallbackDetail} mode="public" unavailableTracks={diagnostics?.unavailableTracks ?? []} />
+          <PlaylistDetailView detail={fallbackDetail} mode="public" />
         </div>
       </main>
     );
@@ -180,7 +172,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
 
   const storedPlaylist = storedPlaylists.find((playlist) => playlist.id === playlistId);
   const totalPlaylistItems = storedPlaylist?.tracks?.total ?? detail.trackCount;
-  const diagnostics = await getStoredPlaylistTrackDiagnostics(spotifySession.spotifyUserId, playlistId, totalPlaylistItems).catch(() => null);
 
   const isAnalysisPending =
     detail.uniqueArtistCount === 0 ||
@@ -250,22 +241,14 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
           </div>
         )}
 
-        <div className="rounded-[24px] border border-gold/25 bg-gold/10 px-5 py-4 text-sm text-ink/85">
-          <p className="font-medium text-[var(--theme-title)]">Debug counts</p>
-          <div className="mt-2 space-y-1">
-            <p>Spotify playlist items: {diagnostics?.totalItems ?? totalPlaylistItems}</p>
-            <p>Cached playlist items fetched: {diagnostics?.fetchedItems ?? detail.trackCount}</p>
-            <p>Analyzable Spotify tracks: {diagnostics?.analyzableTracks ?? detail.trackCount}</p>
-            <p>Rejected items: {diagnostics?.rejectedItems ?? Math.max(0, totalPlaylistItems - detail.trackCount)}</p>
-            <p>Local items: {diagnostics?.localItems ?? 0}</p>
-            <p>Unavailable/taken down items: {diagnostics?.unavailableItems ?? 0}</p>
-            <p>Partial/unknown items: {(diagnostics?.partialItems ?? 0) + (diagnostics?.unknownItems ?? 0)}</p>
-            <p>Next sync offset: {diagnostics?.nextOffset ?? 0}</p>
-            {diagnostics?.lastError ? <p>Last sync error: {diagnostics.lastError}</p> : null}
-          </div>
-        </div>
+        <PlaylistTrackDiagnosticsPanel
+          playlistId={playlistId}
+          mode="authenticated"
+          fallbackTotalItems={totalPlaylistItems}
+          fallbackAnalyzableTracks={detail.trackCount}
+        />
 
-        <PlaylistDetailView detail={detail} unavailableTracks={diagnostics?.unavailableTracks ?? []} />
+        <PlaylistDetailView detail={detail} />
       </div>
     </main>
   );
