@@ -100,6 +100,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               </Link>
             </div>
 
+            {!session ? (
+              <p className="text-sm leading-7 text-[var(--theme-body)]">
+                Try connectionless signup if connecting to Spotify doesn&apos;t work.
+              </p>
+            ) : null}
+
             {!session ? <LocalAccountAccess enabled={hasLocalAccounts} initialOpen={Boolean(localError)} /> : null}
 
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
