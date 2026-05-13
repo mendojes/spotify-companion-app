@@ -1056,7 +1056,7 @@ async function writeStoredPlaylistTrackPage(
   trackItems: NormalizedStoredPlaylistTrackCacheRecord[],
   offset: number,
   totalTracks: number,
-  options: { completed: boolean; nextOffset: number; lastError?: string },
+  options: { completed: boolean; nextOffset: number; fetchedCount?: number; lastError?: string },
 ) {
   if (!hasMongoConfig()) {
     return;
@@ -1098,7 +1098,7 @@ async function writeStoredPlaylistTrackPage(
           spotifyUserId,
           playlistId,
           totalTracks,
-          fetchedCount: Math.min(totalTracks, options.nextOffset),
+          fetchedCount: Math.min(totalTracks, options.fetchedCount ?? (options.completed ? totalTracks : options.nextOffset)),
           nextOffset: options.nextOffset,
           completed: options.completed,
           updatedAt,
@@ -1140,7 +1140,8 @@ async function writeStoredPlaylistTrackSnapshotRecords(
     totalTracks,
     {
       completed: true,
-    nextOffset: trackItems.length,
+      nextOffset: trackItems.length,
+      fetchedCount: trackItems.length,
     },
   );
 }
@@ -1525,9 +1526,24 @@ async function syncPlaylistTrackCache(
 
   const maxPages = options?.maxPages ?? PLAYLIST_LARGE_SYNC_PAGES_PER_REQUEST;
   const syncState = await getStoredPlaylistTrackSyncState(spotifyUserId, playlist.id);
-  let offset = syncState?.completed ? 0 : (syncState?.nextOffset ?? 0);
-  let fetchedCount = syncState?.completed ? totalTracks : (syncState?.fetchedCount ?? 0);
-  let completed = syncState?.completed ?? false;
+  const priorTotalTracks = syncState?.totalTracks ?? 0;
+
+  if (syncState?.completed && priorTotalTracks >= totalTracks) {
+    return {
+      completed: true,
+      fetchedCount: Math.min(totalTracks, syncState.fetchedCount ?? totalTracks),
+      nextOffset: 0,
+      totalTracks,
+    };
+  }
+
+  let offset = syncState?.completed
+    ? Math.min(priorTotalTracks, totalTracks)
+    : (syncState?.nextOffset ?? 0);
+  let fetchedCount = syncState?.completed
+    ? Math.min(priorTotalTracks, totalTracks)
+    : (syncState?.fetchedCount ?? 0);
+  let completed = false;
   let pagesFetched = 0;
 
   while (pagesFetched < maxPages && offset < totalTracks) {
@@ -1549,6 +1565,7 @@ async function syncPlaylistTrackCache(
         {
           completed,
           nextOffset: completed ? 0 : nextOffset,
+          fetchedCount,
         },
       );
 
@@ -1568,6 +1585,7 @@ async function syncPlaylistTrackCache(
         {
           completed: false,
           nextOffset: offset,
+          fetchedCount,
           lastError: error instanceof Error ? error.message : String(error),
         },
       );
