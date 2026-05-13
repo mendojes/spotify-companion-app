@@ -198,6 +198,15 @@ function isSyntheticLastFmTrackId(trackId?: string) {
   return typeof trackId === "string" && /^lastfm:/i.test(trackId.trim());
 }
 
+function isMongoTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("timed out") || message.includes("mongonetworktimeouterror");
+}
+
 function isUnresolvedImportedPlay(play: Pick<StoredRecentPlay, "sourceType" | "trackId">) {
   return play.sourceType === "lastfm_import" && !isSpotifyTrackId(play.trackId);
 }
@@ -1160,6 +1169,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
   let prepassStoppedEarly = false;
   let prepassProcessedGroupCount = 0;
   let prepassResolvedPlayCount = 0;
+  let prepassStopDetail: string | undefined;
   const db = await getDatabase({ forceRetry: true });
   if (preferredPlaylistId) {
     await onProgress?.("Syncing selected playlist track cache before normalization");
@@ -1168,182 +1178,193 @@ export async function normalizeImportedLastFmWithPermanentCache(
     }).catch(() => undefined);
   }
   if (db) {
-    const unresolvedSeedGroups: UnresolvedImportGroup[] = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
-      .aggregate<UnresolvedImportGroup>([
-        {
-          $match: {
+    try {
+      const unresolvedSeedGroups: UnresolvedImportGroup[] = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+        .aggregate<UnresolvedImportGroup>([
+          {
+            $match: {
+              spotifyUserId,
+              sourceType: "lastfm_import",
+              $or: [
+                { trackId: { $regex: "^lastfm:" } },
+                { trackId: { $regex: "^local:" } },
+                { trackId: { $exists: false } },
+                { trackId: "" },
+              ],
+            },
+          },
+          {
+            $group: {
+              _id: {
+                trackName: "$trackName",
+                artistName: "$artistName",
+                albumName: "$albumName",
+              },
+              playCount: { $sum: 1 },
+              latestPlayedAt: { $max: "$playedAt" },
+              lastfmResolutionAttemptedAt: { $min: "$lastfmResolutionAttemptedAt" },
+            },
+          },
+          {
+            $sort: {
+              lastfmResolutionAttemptedAt: 1,
+              latestPlayedAt: -1,
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              trackName: "$_id.trackName",
+              artistName: "$_id.artistName",
+              albumName: "$_id.albumName",
+              playCount: 1,
+              latestPlayedAt: 1,
+              lastfmResolutionAttemptedAt: 1,
+            },
+          },
+        ])
+        .limit(profileSettings.prepassPlayLimit)
+        .toArray();
+
+      const prepassStartedAt = Date.now();
+      for (let index = 0; index < unresolvedSeedGroups.length; index += profileSettings.prepassBatchSize) {
+        if (Date.now() - prepassStartedAt >= profileSettings.prepassMaxRuntimeMs) {
+          prepassStoppedEarly = true;
+          prepassStopDetail = `Saved partial cached-track matches after ${preResolvedCount} matched groups. Run it again to continue from the smaller remaining set.`;
+          await onProgress?.(prepassStopDetail);
+          break;
+        }
+
+        const batch: UnresolvedImportGroup[] = unresolvedSeedGroups.slice(index, index + profileSettings.prepassBatchSize);
+        if (batch.length === 0) {
+          continue;
+        }
+
+        prepassProcessedGroupCount += batch.length;
+        await onProgress?.(`Checking cached libraries and playlist tracks for unresolved groups ${index + 1}-${index + batch.length}`);
+
+        const cachedMatches = await getCachedTrackMatchesForGroups(db, spotifyUserId, batch, preferredPlaylistId);
+        const matchedEntries = batch
+          .map((group: UnresolvedImportGroup) => ({ group, cached: cachedMatches.get(buildUnresolvedImportGroupKey(group)) }))
+          .filter((entry): entry is { group: UnresolvedImportGroup; cached: CachedResolutionTrack } => Boolean(entry.cached && isSpotifyTrackId(entry.cached.trackId)));
+
+        if (matchedEntries.length === 0) {
+          continue;
+        }
+
+        const matchingPlays: WithId<StoredRecentPlay>[] = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+          .find({
             spotifyUserId,
             sourceType: "lastfm_import",
-            $or: [
-              { trackId: { $regex: "^lastfm:" } },
-              { trackId: { $regex: "^local:" } },
-              { trackId: { $exists: false } },
-              { trackId: "" },
-            ],
-          },
-        },
-        {
-          $group: {
-            _id: {
-              trackName: "$trackName",
-              artistName: "$artistName",
-              albumName: "$albumName",
-            },
-            playCount: { $sum: 1 },
-            latestPlayedAt: { $max: "$playedAt" },
-            lastfmResolutionAttemptedAt: { $min: "$lastfmResolutionAttemptedAt" },
-          },
-        },
-        {
-          $sort: {
-            lastfmResolutionAttemptedAt: 1,
-            latestPlayedAt: -1,
-          },
-        },
-        {
-          $project: {
-            _id: 0,
-            trackName: "$_id.trackName",
-            artistName: "$_id.artistName",
-            albumName: "$_id.albumName",
-            playCount: 1,
-            latestPlayedAt: 1,
-            lastfmResolutionAttemptedAt: 1,
-          },
-        },
-      ])
-      .limit(profileSettings.prepassPlayLimit)
-      .toArray();
+            $or: matchedEntries.map(({ group }) => ({
+              trackName: group.trackName,
+              artistName: group.artistName,
+              albumName: group.albumName,
+            })),
+          })
+          .toArray();
 
-    const prepassStartedAt = Date.now();
-    for (let index = 0; index < unresolvedSeedGroups.length; index += profileSettings.prepassBatchSize) {
-      if (Date.now() - prepassStartedAt >= profileSettings.prepassMaxRuntimeMs) {
-        prepassStoppedEarly = true;
-        await onProgress?.(`Saved partial cached-track matches after ${preResolvedCount} matched groups. Run it again to continue from the smaller remaining set.`);
-        break;
-      }
+        const groupMatchMap = new Map(
+          matchedEntries.map(({ group, cached }) => [buildUnresolvedImportGroupKey(group), cached]),
+        );
 
-      const batch: UnresolvedImportGroup[] = unresolvedSeedGroups.slice(index, index + profileSettings.prepassBatchSize);
-      if (batch.length === 0) {
-        continue;
-      }
+        const eligiblePlays = matchingPlays
+          .map((play) => ({ play, cached: groupMatchMap.get(buildStoredPlayNameKey(play)) }))
+          .filter((entry): entry is { play: WithId<StoredRecentPlay>; cached: CachedResolutionTrack } => Boolean(entry.cached));
 
-      prepassProcessedGroupCount += batch.length;
-      await onProgress?.(`Checking cached libraries and playlist tracks for unresolved groups ${index + 1}-${index + batch.length}`);
-
-      const cachedMatches = await getCachedTrackMatchesForGroups(db, spotifyUserId, batch, preferredPlaylistId);
-      const matchedEntries = batch
-        .map((group: UnresolvedImportGroup) => ({ group, cached: cachedMatches.get(buildUnresolvedImportGroupKey(group)) }))
-        .filter((entry): entry is { group: UnresolvedImportGroup; cached: CachedResolutionTrack } => Boolean(entry.cached && isSpotifyTrackId(entry.cached.trackId)));
-
-      if (matchedEntries.length === 0) {
-        continue;
-      }
-
-      const matchingPlays: WithId<StoredRecentPlay>[] = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
-        .find({
-          spotifyUserId,
-          sourceType: "lastfm_import",
-          $or: matchedEntries.map(({ group }) => ({
-            trackName: group.trackName,
-            artistName: group.artistName,
-            albumName: group.albumName,
-          })),
-        })
-        .toArray();
-
-      const groupMatchMap = new Map(
-        matchedEntries.map(({ group, cached }) => [buildUnresolvedImportGroupKey(group), cached]),
-      );
-
-      const eligiblePlays = matchingPlays
-        .map((play) => ({ play, cached: groupMatchMap.get(buildStoredPlayNameKey(play)) }))
-        .filter((entry): entry is { play: WithId<StoredRecentPlay>; cached: CachedResolutionTrack } => Boolean(entry.cached));
-
-      if (eligiblePlays.length === 0) {
-        continue;
-      }
-
-      preResolvedCount += matchedEntries.length;
-      prepassResolvedPlayCount += eligiblePlays.length;
-
-      const playedAtValues: string[] = [...new Set(eligiblePlays.map((entry) => entry.play.playedAt))];
-      const resolvedTrackIds: string[] = [...new Set(eligiblePlays.map((entry) => entry.cached.trackId))];
-      const existingResolvedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
-        .find({
-          spotifyUserId,
-          playedAt: { $in: playedAtValues },
-          trackId: { $in: resolvedTrackIds },
-        })
-        .toArray();
-      const existingByKey = new Map(existingResolvedPlays.map((play) => [`${play.playedAt}::${play.trackId}`, play]));
-      const seenResolvedKeys = new Set<string>();
-
-      const bulkOps = eligiblePlays.map(({ play, cached }: { play: WithId<StoredRecentPlay>; cached: CachedResolutionTrack }) => {
-        const resolvedKey = `${play.playedAt}::${cached.trackId}`;
-        const conflictingResolvedPlay = existingByKey.get(resolvedKey);
-
-        if (conflictingResolvedPlay && String(conflictingResolvedPlay._id) !== String(play._id)) {
-          return {
-            deleteOne: {
-              filter: { _id: play._id },
-            },
-          };
+        if (eligiblePlays.length === 0) {
+          continue;
         }
 
-        if (seenResolvedKeys.has(resolvedKey)) {
+        preResolvedCount += matchedEntries.length;
+        prepassResolvedPlayCount += eligiblePlays.length;
+
+        const playedAtValues: string[] = [...new Set(eligiblePlays.map((entry) => entry.play.playedAt))];
+        const resolvedTrackIds: string[] = [...new Set(eligiblePlays.map((entry) => entry.cached.trackId))];
+        const existingResolvedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+          .find({
+            spotifyUserId,
+            playedAt: { $in: playedAtValues },
+            trackId: { $in: resolvedTrackIds },
+          })
+          .toArray();
+        const existingByKey = new Map(existingResolvedPlays.map((play) => [`${play.playedAt}::${play.trackId}`, play]));
+        const seenResolvedKeys = new Set<string>();
+
+        const bulkOps = eligiblePlays.map(({ play, cached }: { play: WithId<StoredRecentPlay>; cached: CachedResolutionTrack }) => {
+          const resolvedKey = `${play.playedAt}::${cached.trackId}`;
+          const conflictingResolvedPlay = existingByKey.get(resolvedKey);
+
+          if (conflictingResolvedPlay && String(conflictingResolvedPlay._id) !== String(play._id)) {
+            return {
+              deleteOne: {
+                filter: { _id: play._id },
+              },
+            };
+          }
+
+          if (seenResolvedKeys.has(resolvedKey)) {
+            return {
+              deleteOne: {
+                filter: { _id: play._id },
+              },
+            };
+          }
+
+          seenResolvedKeys.add(resolvedKey);
+
           return {
-            deleteOne: {
+            updateOne: {
               filter: { _id: play._id },
-            },
-          };
-        }
-
-        seenResolvedKeys.add(resolvedKey);
-
-        return {
-          updateOne: {
-            filter: { _id: play._id },
-            update: {
-              $set: {
-                trackId: cached.trackId,
-                trackName: cached.trackName,
-                artistName: cached.artistName,
-                artistNames: cached.artistNames,
-                artistIds: cached.artistIds,
-                albumName: cached.albumName,
-                durationMs: cached.durationMs,
-                imageUrl: cached.imageUrl,
+              update: {
+                $set: {
+                  trackId: cached.trackId,
+                  trackName: cached.trackName,
+                  artistName: cached.artistName,
+                  artistNames: cached.artistNames,
+                  artistIds: cached.artistIds,
+                  albumName: cached.albumName,
+                  durationMs: cached.durationMs,
+                  imageUrl: cached.imageUrl,
+                },
               },
             },
-          },
-        };
-      });
+          };
+        });
 
-      if (bulkOps.length > 0) {
-        await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).bulkWrite(bulkOps, { ordered: false });
+        if (bulkOps.length > 0) {
+          await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).bulkWrite(bulkOps, { ordered: false });
+        }
+
+        const uniqueCachedMatches: CachedResolutionTrack[] = [...new Map<string, CachedResolutionTrack>(eligiblePlays.map(({ cached }) => [cached.trackId, cached])).values()];
+        await Promise.all(
+          uniqueCachedMatches.map((cached: CachedResolutionTrack) =>
+            upsertTrackMetadataCacheEntry({
+              trackId: cached.trackId,
+              trackName: cached.trackName,
+              artistName: cached.artistName,
+              artistNames: cached.artistNames,
+              artistIds: cached.artistIds,
+              albumId: cached.albumId,
+              albumName: cached.albumName,
+              durationMs: cached.durationMs,
+              imageUrl: cached.imageUrl,
+            }).catch(() => undefined),
+          ),
+        );
       }
 
-      const uniqueCachedMatches: CachedResolutionTrack[] = [...new Map<string, CachedResolutionTrack>(eligiblePlays.map(({ cached }) => [cached.trackId, cached])).values()];
-      await Promise.all(
-        uniqueCachedMatches.map((cached: CachedResolutionTrack) =>
-          upsertTrackMetadataCacheEntry({
-            trackId: cached.trackId,
-            trackName: cached.trackName,
-            artistName: cached.artistName,
-            artistNames: cached.artistNames,
-            artistIds: cached.artistIds,
-            albumId: cached.albumId,
-            albumName: cached.albumName,
-            durationMs: cached.durationMs,
-            imageUrl: cached.imageUrl,
-          }).catch(() => undefined),
-        ),
-      );
-    }
+      if (preResolvedCount > 0) {
+        await onProgress?.(`Resolved ${preResolvedCount} unresolved song groups from permanent libraries and playlist cache before any Spotify lookup`);
+      }
+    } catch (error) {
+      if (!isMongoTimeoutError(error)) {
+        throw error;
+      }
 
-    if (preResolvedCount > 0) {
-      await onProgress?.(`Resolved ${preResolvedCount} unresolved song groups from permanent libraries and playlist cache before any Spotify lookup`);
+      prepassStoppedEarly = true;
+      prepassStopDetail = `Mongo timed out during cached-track matching. Saved progress from completed batches and stopped early so you can continue from a smaller remaining set.`;
+      await onProgress?.(prepassStopDetail);
     }
   }
 
@@ -1363,7 +1384,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
         `Scanned ${prepassProcessedGroupCount} unresolved song groups in cache-only mode.`,
         `Matched from cache: ${preResolvedCount} groups affecting ${prepassResolvedPlayCount} plays. Remaining in scanned batch: ${Math.max(0, prepassProcessedGroupCount - preResolvedCount)} groups.`,
         prepassStoppedEarly
-          ? `Stopped early because the cache-only runtime budget (${Math.round(profileSettings.prepassMaxRuntimeMs / 1000)}s) was reached.`
+          ? (prepassStopDetail ?? `Stopped early because the cache-only runtime budget (${Math.round(profileSettings.prepassMaxRuntimeMs / 1000)}s) was reached.`)
           : "Cache-only pass finished its local batch.",
         preferredPlaylistId
           ? "Playlist source restriction: selected playlist only."
