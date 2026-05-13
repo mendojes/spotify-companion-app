@@ -43,6 +43,8 @@ const PLAYLIST_PUBLIC_TAG_FETCH_LIMIT = 30;
 const PLAYLIST_ARTIST_METADATA_LIMIT = 150;
 const PLAYLIST_AUDIO_FEATURE_SAMPLE_LIMIT = 200;
 const PLAYLIST_LARGE_SYNC_THRESHOLD = 1000;
+const PLAYLIST_INCREMENTAL_STATE_TRACK_LIMIT = 2500;
+const PLAYLIST_EXTREME_SYNC_THRESHOLD = 5000;
 const PLAYLIST_SYNC_PAGE_SIZE = 100;
 const PLAYLIST_LARGE_SYNC_PAGES_PER_REQUEST = 8;
 const PLAYLIST_SYNC_PAGE_RETRY_LIMIT = 2;
@@ -2243,6 +2245,10 @@ function trackMetaMapToObject(value: Map<string, PlaylistTrackSummary>) {
   return Object.fromEntries(value.entries());
 }
 
+function shouldPersistIncrementalAnalysisState(trackCount: number) {
+  return trackCount > 0 && trackCount <= PLAYLIST_INCREMENTAL_STATE_TRACK_LIMIT;
+}
+
 function stripPlaylistDetailInternalState(detail: PlaylistDetail): PlaylistDetail {
   const { analysisState: _analysisState, ...rest } = detail;
   return rest;
@@ -2627,6 +2633,25 @@ async function analyzePlaylistFromTrackItems(
   const { trackCounts, trackMetaById } = buildTrackCountsAndMeta(tracks);
   const sampleTracks = buildSampleTracks(tracks);
   const topTracks = buildTopTracks(tracks, allTimeTrackAffinity, topTrackMode);
+  const analysisState = shouldPersistIncrementalAnalysisState(trackItems.length)
+    ? {
+      earliestAddedAt: deriveCreatedAt(trackItems),
+      artistCounts: countMapToObject(artistCounts),
+      primaryArtistCounts: countMapToObject(primaryArtistCounts),
+      albumCounts: countMapToObject(albumCounts),
+      trackCounts: countMapToObject(trackCounts),
+      genreCounts: countMapToObject(
+        topGenres.length > 0
+          ? (
+            artists.length > 0
+              ? buildGenreCountsFromArtists(artists)
+              : buildGenreCountsFromArtistGenreMap(tracks, allTimeArtistGenres)
+          )
+          : new Map<string, number>(),
+      ),
+      trackMetaById: trackMetaMapToObject(trackMetaById),
+    }
+    : undefined;
 
   return {
     id: playlist.id,
@@ -2652,23 +2677,7 @@ async function analyzePlaylistFromTrackItems(
     sampleTracks,
     topTracks,
     listenTimeline: buildListenTimeline(playlist.id, recentPlays),
-    analysisState: {
-      earliestAddedAt: deriveCreatedAt(trackItems),
-      artistCounts: countMapToObject(artistCounts),
-      primaryArtistCounts: countMapToObject(primaryArtistCounts),
-      albumCounts: countMapToObject(albumCounts),
-      trackCounts: countMapToObject(trackCounts),
-      genreCounts: countMapToObject(
-        topGenres.length > 0
-          ? (
-            artists.length > 0
-              ? buildGenreCountsFromArtists(artists)
-              : buildGenreCountsFromArtistGenreMap(tracks, allTimeArtistGenres)
-          )
-          : new Map<string, number>(),
-      ),
-      trackMetaById: trackMetaMapToObject(trackMetaById),
-    },
+    analysisState,
   };
 }
 
@@ -3331,6 +3340,50 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
     cachedDetail.trackSignature === currentTrackSignature &&
     (cachedDetail.totalItems ?? storedPlaylistBeforeRefresh?.tracks?.total ?? cachedDetail.trackCount) === (playlist.tracks?.total ?? trackItems.length),
   );
+  const isExtremePlaylist = (playlist.tracks?.total ?? trackItems.length) >= PLAYLIST_EXTREME_SYNC_THRESHOLD;
+
+  if (isExtremePlaylist && cachedDetail) {
+    const lightweightDetail = refreshCachedPlaylistDetailDynamics(
+      {
+        ...cachedDetail,
+        totalItems: playlist.tracks?.total ?? cachedDetail.totalItems,
+        trackCount: trackItems.length > 0 ? trackItems.length : cachedDetail.trackCount,
+        trackSignature: currentTrackSignature ?? cachedDetail.trackSignature,
+      },
+      playlist.id,
+      trackItems,
+      recentPlays,
+      allTimeTrackAffinity,
+    );
+
+    await writeCachedPlaylistDetails(spotifyUserId, [lightweightDetail]);
+    const nextInsights = uniqueById([
+      {
+        ...toInsight(lightweightDetail, recentPlays),
+        lastListenedAt: storedInsights.find((entry) => entry.id === lightweightDetail.id)?.lastListenedAt ?? lightweightDetail.lastListenedAt,
+      },
+      ...storedInsights,
+    ]);
+
+    if (nextInsights.length > 0) {
+      await writeStoredPlaylistInsights(spotifyUserId, nextInsights);
+    }
+
+    logPlaylistTiming(
+      spotifyUserId,
+      playlistId,
+      "detail-sync-extreme-lightweight-refresh",
+      startedAt,
+      `tracks=${lightweightDetail.trackCount} totalItems=${lightweightDetail.totalItems ?? 0}`,
+    );
+
+    return {
+      detail: stripPlaylistDetailInternalState(lightweightDetail),
+      completed: syncState.completed,
+      fetchedCount: syncState.fetchedCount,
+      totalTracks: syncState.totalTracks,
+    };
+  }
 
   const detail = playlistItemsUnchanged && cachedDetail
     ? refreshCachedPlaylistDetailDynamics(
