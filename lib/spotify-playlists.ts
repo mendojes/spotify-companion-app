@@ -94,6 +94,7 @@ type StoredPlaylistTrackCacheItem = {
   title?: string;
   artistNames?: string[];
   albumName?: string;
+  normalizedTrackKey?: string;
   normalizedTrackArtistKey?: string;
   normalizedNameKey?: string;
   imageUrl?: string;
@@ -335,6 +336,7 @@ function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTr
       title: rawTrack.name,
       artistNames: rawTrack.artists.map((artist) => artist.name).filter(Boolean),
       albumName: rawTrack.album?.name,
+      normalizedTrackKey: normalizeText(rawTrack.name),
       normalizedTrackArtistKey: `${normalizeText(rawTrack.name)}::${normalizeText(joinedArtistNames)}`,
       normalizedNameKey: `${normalizeText(rawTrack.name)}::${normalizeText(joinedArtistNames)}::${normalizeText(rawTrack.album?.name ?? "")}`,
       imageUrl: rawTrack.album?.images?.[0]?.url,
@@ -369,6 +371,7 @@ function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTr
       title,
       artistNames,
       albumName,
+      normalizedTrackKey: normalizeText(title),
       normalizedTrackArtistKey: `${normalizeText(title)}::${normalizeText(joinedArtistNames)}`,
       normalizedNameKey: `${normalizeText(title)}::${normalizeText(joinedArtistNames)}::${normalizeText(albumName)}`,
       imageUrl: candidate.album?.images?.[0]?.url,
@@ -408,6 +411,7 @@ function normalizeStoredPlaylistTrackRecordFromTrack(trackItem: PlaylistTrackWit
     title: trackItem.track.name,
     artistNames,
     albumName: trackItem.track.album?.name,
+    normalizedTrackKey: normalizeText(trackItem.track.name),
     normalizedTrackArtistKey: `${normalizeText(trackItem.track.name)}::${normalizeText(joinedArtistNames)}`,
     normalizedNameKey: `${normalizeText(trackItem.track.name)}::${normalizeText(joinedArtistNames)}::${normalizeText(trackItem.track.album?.name ?? "")}`,
     imageUrl: trackItem.track.album?.images?.[0]?.url,

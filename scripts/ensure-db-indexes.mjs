@@ -164,6 +164,9 @@ try {
       .createIndex({ spotifyUserId: 1, playlistId: 1, updatedAt: -1 }),
     db
       .collection(PLAYLIST_TRACK_CACHE_COLLECTION)
+      .createIndex({ spotifyUserId: 1, normalizedTrackKey: 1 }),
+    db
+      .collection(PLAYLIST_TRACK_CACHE_COLLECTION)
       .createIndex({ spotifyUserId: 1, normalizedTrackArtistKey: 1 }),
     db
       .collection(PLAYLIST_TRACK_CACHE_COLLECTION)

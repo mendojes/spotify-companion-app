@@ -140,6 +140,56 @@ function normalizeText(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function normalizeLooseText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[â€œâ€"'"`Â´â€™]/g, "")
+    .replace(/[()[\]{}]/g, " ")
+    .replace(/[\/\\|:_\-â€“â€”,.;!?]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function tokenizeLooseText(value: string) {
+  return normalizeLooseText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function containsNonLatinCharacters(value: string) {
+  return /[^\u0000-\u024f]/.test(value);
+}
+
+function computeTokenOverlapScore(left: string, right: string) {
+  const leftTokens = tokenizeLooseText(left);
+  const rightTokens = tokenizeLooseText(right);
+  if (leftTokens.length === 0 || rightTokens.length === 0) {
+    return 0;
+  }
+
+  const rightSet = new Set(rightTokens);
+  const matched = leftTokens.filter((token) => rightSet.has(token)).length;
+  return matched / Math.max(leftTokens.length, rightTokens.length);
+}
+
+function computeLooseFieldScore(left: string, right: string) {
+  const normalizedLeft = normalizeLooseText(left);
+  const normalizedRight = normalizeLooseText(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return 0;
+  }
+  if (normalizedLeft === normalizedRight) {
+    return 1;
+  }
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) {
+    return 0.92;
+  }
+  return computeTokenOverlapScore(normalizedLeft, normalizedRight);
+}
+
 function isSpotifyTrackId(trackId?: string) {
   return typeof trackId === "string" && /^[A-Za-z0-9]{22}$/.test(trackId.trim());
 }
@@ -860,6 +910,7 @@ type CachedResolutionTrack = {
   trackId: string;
   trackName: string;
   artistName: string;
+  normalizedTrackKey?: string;
   normalizedTrackArtistKey?: string;
   normalizedNameKey?: string;
   artistNames?: string[];
@@ -917,6 +968,7 @@ async function getCachedTrackMatchesForPlays(
       title?: string;
       artistNames?: string[];
       albumName?: string;
+      normalizedTrackKey?: string;
       normalizedTrackArtistKey?: string;
       normalizedNameKey?: string;
       imageUrl?: string;
@@ -928,6 +980,7 @@ async function getCachedTrackMatchesForPlays(
         classification: "analyzable",
         trackId: { $regex: "^[A-Za-z0-9]{22}$" },
         $or: [
+          { normalizedTrackKey: { $in: [...new Set(plays.map((play) => normalizeText(play.trackName)))] } },
           { normalizedNameKey: { $in: uniqueNameKeys } },
           { normalizedTrackArtistKey: { $in: uniqueTrackArtistKeys } },
         ],
@@ -956,6 +1009,7 @@ async function getCachedTrackMatchesForPlays(
         trackId: candidate.trackId,
         trackName: candidate.title,
         artistName: candidate.artistNames?.join(", ") ?? "",
+        normalizedTrackKey: candidate.normalizedTrackKey ?? normalizeText(candidate.title),
         normalizedTrackArtistKey: candidate.normalizedTrackArtistKey,
         normalizedNameKey: candidate.normalizedNameKey,
         artistNames: candidate.artistNames,
@@ -971,7 +1025,55 @@ async function getCachedTrackMatchesForPlays(
   for (const play of plays) {
     const exactKey = buildStoredPlayNameKey(play);
     const trackArtistKey = buildStoredPlayTrackArtistKey(play);
-    const match = byExactNameKey.get(exactKey) ?? byTrackArtistKey.get(trackArtistKey);
+    const exactMatch = byExactNameKey.get(exactKey) ?? byTrackArtistKey.get(trackArtistKey);
+    if (exactMatch) {
+      resolved.set(String(play._id), exactMatch);
+      continue;
+    }
+
+    const normalizedTrackKey = normalizeText(play.trackName);
+    const playlistCandidates = playlistTracks
+      .filter((candidate): candidate is typeof candidate & { trackId: string; title: string } =>
+        Boolean(candidate.trackId && candidate.title) && (candidate.normalizedTrackKey ?? normalizeText(candidate.title ?? "")) === normalizedTrackKey,
+      )
+      .map((candidate) => {
+        const title = candidate.title ?? "";
+        return ({
+        trackId: candidate.trackId,
+        trackName: title,
+        artistName: candidate.artistNames?.join(", ") ?? "",
+        normalizedTrackKey: candidate.normalizedTrackKey ?? normalizeText(title),
+        normalizedTrackArtistKey: candidate.normalizedTrackArtistKey,
+        normalizedNameKey: candidate.normalizedNameKey,
+        artistNames: candidate.artistNames,
+        artistIds: undefined,
+        albumId: undefined,
+        albumName: candidate.albumName ?? "",
+        imageUrl: candidate.imageUrl,
+        durationMs: undefined,
+      } satisfies CachedResolutionTrack);
+      });
+
+    let bestCandidate: CachedResolutionTrack | undefined;
+    let bestScore = 0;
+    for (const candidate of playlistCandidates) {
+      const trackScore = computeLooseFieldScore(candidate.trackName, play.trackName);
+      const artistScore = computeLooseFieldScore(candidate.artistName, play.artistName);
+      const albumScore = computeLooseFieldScore(candidate.albumName, play.albumName);
+      const totalScore = trackScore * 0.5 + artistScore * 0.3 + albumScore * 0.2;
+      const isNonLatinTrackQuery = containsNonLatinCharacters(play.trackName);
+      const accept =
+        (trackScore >= 0.95 && albumScore >= 0.8 && totalScore >= 0.68) ||
+        (isNonLatinTrackQuery && trackScore >= 0.99 && totalScore >= 0.48) ||
+        (trackScore >= 0.9 && artistScore >= 0.58 && totalScore >= 0.74 && albumScore >= 0.2);
+      if (!accept || totalScore <= bestScore) {
+        continue;
+      }
+      bestCandidate = candidate;
+      bestScore = totalScore;
+    }
+
+    const match = bestCandidate;
     if (match) {
       resolved.set(String(play._id), match);
     }
