@@ -18,7 +18,7 @@ export function PlaylistDetailSync({ playlistId }: PlaylistDetailSyncProps) {
     let cancelled = false;
 
     async function runSyncLoop() {
-      for (let attempt = 0; attempt < 8 && !cancelled; attempt += 1) {
+      for (let attempt = 0; attempt < 10 && !cancelled; attempt += 1) {
         try {
           const response = await fetch(`/api/dashboard/playlists/${playlistId}/detail-sync`, {
             method: "POST",

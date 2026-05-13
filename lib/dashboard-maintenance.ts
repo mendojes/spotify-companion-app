@@ -9,7 +9,7 @@ import {
 } from "@/lib/dashboard-section-cache";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
 import { deleteImportedLastFmScrobbles, deleteUnresolvedImportedLastFmScrobbles, normalizeImportedLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
-import { syncPlaylistDetail } from "@/lib/spotify-playlists";
+import { ensureStoredPlaylistTrackCache } from "@/lib/spotify-playlists";
 import { getStoredTrackMetadataMap, TRACK_METADATA_COLLECTION } from "@/lib/track-metadata-cache";
 import { TopListsData, StoredRecentPlay } from "@/lib/types";
 
@@ -909,7 +909,9 @@ export async function normalizeImportedLastFmWithPermanentCache(
   const db = await getDatabase({ forceRetry: true });
   if (preferredPlaylistId) {
     await onProgress?.("Syncing selected playlist track cache before normalization");
-    await syncPlaylistDetail(accessToken, spotifyUserId, preferredPlaylistId).catch(() => undefined);
+    await ensureStoredPlaylistTrackCache(accessToken, spotifyUserId, preferredPlaylistId, {
+      maxPages: profile === "cache-only" ? 6 : 2,
+    }).catch(() => undefined);
   }
   if (db) {
     const unresolvedSeedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)

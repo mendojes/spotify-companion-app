@@ -3239,15 +3239,10 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
 
 export async function syncPlaylistDetail(accessToken: string, spotifyUserId: string, playlistId: string) {
   const startedAt = Date.now();
-  const [recentPlays, storedInsights, allTimeTrackAffinity, allTimeArtistGenres, cachedDetails, storedLibrary] = await Promise.all([
-    getRecentHistory(accessToken, spotifyUserId),
-    getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
-    getAllTimeTrackAffinityMap(spotifyUserId),
-    getAllTimeArtistGenreMap(spotifyUserId),
+  const [cachedDetails, storedLibrary] = await Promise.all([
     getCachedPlaylistDetails(spotifyUserId, [playlistId]).catch(() => [] as CachedPlaylistDetail[]),
     getStoredPlaylistLibrary(spotifyUserId).catch(() => [] as SpotifyPlaylist[]),
   ]);
-  logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-recent-history", startedAt, `recentPlays=${recentPlays.length}`);
   const cachedDetail = cachedDetails[0];
   const storedPlaylistBeforeRefresh = storedLibrary.find((playlist) => playlist.id === playlistId);
 
@@ -3284,6 +3279,31 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
       logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-wrote-track-snapshot", startedAt, `count=${playlistSnapshot.trackItems.length}`);
     }
   }
+
+  if (isLargePlaylist && !syncState.completed) {
+    logPlaylistTiming(
+      spotifyUserId,
+      playlistId,
+      "detail-sync-deferred-analysis",
+      startedAt,
+      `fetched=${syncState.fetchedCount} total=${syncState.totalTracks ?? 0}`,
+    );
+
+    return {
+      detail: null,
+      completed: false,
+      fetchedCount: syncState.fetchedCount,
+      totalTracks: syncState.totalTracks,
+    };
+  }
+
+  const [recentPlays, storedInsights, allTimeTrackAffinity, allTimeArtistGenres] = await Promise.all([
+    getRecentHistory(accessToken, spotifyUserId),
+    getStoredPlaylistInsights(spotifyUserId).catch(() => [] as PlaylistInsight[]),
+    getAllTimeTrackAffinityMap(spotifyUserId),
+    getAllTimeArtistGenreMap(spotifyUserId),
+  ]);
+  logPlaylistTiming(spotifyUserId, playlistId, "detail-sync-recent-history", startedAt, `recentPlays=${recentPlays.length}`);
 
   const currentTrackSignature = trackItems.length > 0 ? buildTrackSignature(trackItems) : undefined;
   const playlistItemsUnchanged = Boolean(
@@ -3371,6 +3391,39 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
     completed: syncState.completed,
     fetchedCount: syncState.fetchedCount,
     totalTracks: syncState.totalTracks,
+  };
+}
+
+export async function ensureStoredPlaylistTrackCache(
+  accessToken: string,
+  spotifyUserId: string,
+  playlistId: string,
+  options?: { maxPages?: number },
+) {
+  const playlist = await fetchPlaylistById(accessToken, playlistId);
+  await upsertStoredPlaylist(spotifyUserId, playlist);
+
+  if ((playlist.tracks?.total ?? 0) >= PLAYLIST_LARGE_SYNC_THRESHOLD) {
+    return syncPlaylistTrackCache(accessToken, spotifyUserId, playlist, {
+      maxPages: options?.maxPages ?? 2,
+    });
+  }
+
+  const snapshot = await fetchPlaylistTrackSnapshot(accessToken, playlistId);
+  if (snapshot.cacheRecords.length > 0) {
+    await writeStoredPlaylistTrackSnapshotRecords(
+      spotifyUserId,
+      playlistId,
+      snapshot.cacheRecords,
+      playlist.tracks?.total ?? snapshot.fetchedItems,
+    );
+  }
+
+  return {
+    completed: true,
+    fetchedCount: snapshot.fetchedItems,
+    nextOffset: 0,
+    totalTracks: playlist.tracks?.total ?? snapshot.fetchedItems,
   };
 }
 
