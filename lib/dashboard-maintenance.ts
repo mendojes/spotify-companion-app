@@ -1101,9 +1101,11 @@ export async function normalizeImportedLastFmWithPermanentCache(
         })
         .toArray();
       const existingByKey = new Map(existingResolvedPlays.map((play) => [`${play.playedAt}::${play.trackId}`, play]));
+      const seenResolvedKeys = new Set<string>();
 
       const bulkOps = matchedEntries.map(({ play, cached }: { play: WithId<StoredRecentPlay>; cached: CachedResolutionTrack }) => {
-        const conflictingResolvedPlay = existingByKey.get(`${play.playedAt}::${cached.trackId}`);
+        const resolvedKey = `${play.playedAt}::${cached.trackId}`;
+        const conflictingResolvedPlay = existingByKey.get(resolvedKey);
         preResolvedCount += 1;
 
         if (conflictingResolvedPlay && String(conflictingResolvedPlay._id) !== String(play._id)) {
@@ -1113,6 +1115,16 @@ export async function normalizeImportedLastFmWithPermanentCache(
             },
           };
         }
+
+        if (seenResolvedKeys.has(resolvedKey)) {
+          return {
+            deleteOne: {
+              filter: { _id: play._id },
+            },
+          };
+        }
+
+        seenResolvedKeys.add(resolvedKey);
 
         return {
           updateOne: {
