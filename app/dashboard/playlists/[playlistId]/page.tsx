@@ -179,7 +179,6 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     detail.mood.toLowerCase().includes("analysis pending");
   const shouldRunDetailSync =
     isAnalysisPending ||
-    detail.topGenres.length === 0 ||
     detail.trackCount < totalPlaylistItems;
 
   return (

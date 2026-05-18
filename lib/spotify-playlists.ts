@@ -2775,6 +2775,103 @@ async function buildStoredOnlyExtremePlaylistDetail(
   );
 }
 
+async function analyzePlaylistDetailWithStoredFallback(
+  playlist: SpotifyPlaylist,
+  trackItems: PlaylistTrackWithMeta[],
+  recentPlays: StoredRecentPlay[] = [],
+  allTimeTrackAffinity = new Map<string, TrackAffinity>(),
+  allTimeArtistGenres = new Map<string, string[]>(),
+  accessToken?: string,
+) {
+  const primaryDetail = await analyzePlaylistFromTrackItems(
+    playlist,
+    trackItems,
+    recentPlays,
+    allTimeTrackAffinity,
+    allTimeArtistGenres,
+    accessToken,
+  );
+
+  if (!primaryDetail || !isPlaylistDetailIncomplete(primaryDetail)) {
+    return primaryDetail;
+  }
+
+  const storedFallbackDetail = await analyzePlaylistFromTrackItems(
+    playlist,
+    trackItems,
+    recentPlays,
+    allTimeTrackAffinity,
+    allTimeArtistGenres,
+    undefined,
+    "history",
+    false,
+  );
+
+  if (!storedFallbackDetail) {
+    return primaryDetail;
+  }
+
+  if (isPlaylistDetailIncomplete(primaryDetail) && !isPlaylistDetailIncomplete(storedFallbackDetail)) {
+    return storedFallbackDetail;
+  }
+
+  if (storedFallbackDetail.topGenres.length > primaryDetail.topGenres.length) {
+    return storedFallbackDetail;
+  }
+
+  if (storedFallbackDetail.uniqueArtistCount > primaryDetail.uniqueArtistCount) {
+    return storedFallbackDetail;
+  }
+
+  if (storedFallbackDetail.uniqueAlbumCount > primaryDetail.uniqueAlbumCount) {
+    return storedFallbackDetail;
+  }
+
+  return primaryDetail;
+}
+
+function buildBestEffortPlaylistDetail(
+  playlist: SpotifyPlaylist,
+  trackItems: PlaylistTrackWithMeta[],
+  recentPlays: StoredRecentPlay[] = [],
+  allTimeTrackAffinity = new Map<string, TrackAffinity>(),
+): PlaylistDetail | null {
+  if (trackItems.length === 0) {
+    return null;
+  }
+
+  const tracks = trackItems.map((item) => item.track);
+  const uniqueArtists = new Set(tracks.flatMap((track) => track.artists.map((artist) => artist.name)));
+  const uniqueAlbums = new Set(tracks.map((track) => track.album.id ?? track.album.name));
+  const { trackCounts, trackMetaById } = buildTrackCountsAndMeta(tracks);
+
+  return {
+    id: playlist.id,
+    name: playlist.name,
+    imageUrl: playlist.images?.[0]?.url ?? tracks[0]?.album.images?.[0]?.url,
+    ownerName: playlist.owner?.display_name,
+    totalItems: playlist.tracks?.total ?? trackItems.length,
+    trackSignature: buildTrackSignature(trackItems),
+    trackCount: tracks.length,
+    uniqueArtistCount: uniqueArtists.size,
+    uniqueAlbumCount: uniqueAlbums.size,
+    mood: getFallbackMood(tracks),
+    diversity: buildGenreSummaryFromTextFallback(tracks).length > 0
+      ? getGenreDiversityFromTopGenres(buildGenreSummaryFromTextFallback(tracks), tracks.length)
+      : "Genre metadata is sparse here",
+    overlap: getRedundancy(tracks),
+    listeningCadence: getPlaylistListeningCadence(playlist.id, recentPlays),
+    createdAt: deriveCreatedAt(trackItems),
+    lastListenedAt: deriveLastListenedAt(playlist.id, recentPlays),
+    topGenres: buildGenreSummaryFromTextFallback(tracks),
+    topArtists: buildArtistSummary(tracks),
+    repeatedTracks: buildRepeatedTracksFromCounts(trackCounts, trackMetaById),
+    sampleTracks: buildSampleTracks(tracks),
+    topTracks: buildTopTracks(tracks, allTimeTrackAffinity),
+    listenTimeline: buildListenTimeline(playlist.id, recentPlays),
+  };
+}
+
 async function analyzeManyPlaylists(
   accessToken: string,
   playlists: SpotifyPlaylist[],
@@ -3284,13 +3381,22 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
           return null;
         }
 
-        return analyzePlaylistFromTrackItems(
-          playlist,
-          storedTrackItems,
-          recentPlays,
-          allTimeTrackAffinity,
-          allTimeArtistGenres,
-        );
+        try {
+          return await analyzePlaylistDetailWithStoredFallback(
+            playlist,
+            storedTrackItems,
+            recentPlays,
+            allTimeTrackAffinity,
+            allTimeArtistGenres,
+          );
+        } catch {
+          return buildBestEffortPlaylistDetail(
+            playlist,
+            storedTrackItems,
+            recentPlays,
+            allTimeTrackAffinity,
+          );
+        }
       })()
       : await (async () => {
         const snapshot = await fetchPlaylistTrackSnapshot(accessToken, playlist.id);
@@ -3303,14 +3409,23 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
           );
         }
 
-        return analyzePlaylistFromTrackItems(
-          playlist,
-          snapshot.trackItems,
-          recentPlays,
-          allTimeTrackAffinity,
-          allTimeArtistGenres,
-          accessToken,
-        );
+        try {
+          return await analyzePlaylistDetailWithStoredFallback(
+            playlist,
+            snapshot.trackItems,
+            recentPlays,
+            allTimeTrackAffinity,
+            allTimeArtistGenres,
+            accessToken,
+          );
+        } catch {
+          return buildBestEffortPlaylistDetail(
+            playlist,
+            snapshot.trackItems,
+            recentPlays,
+            allTimeTrackAffinity,
+          );
+        }
       })();
 
     if (detail) {
@@ -3519,45 +3634,56 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
     };
   }
 
-  const detail = playlistItemsUnchanged && cachedDetail
-    ? refreshCachedPlaylistDetailDynamics(
-      {
-        ...cachedDetail,
-        totalItems: playlist.tracks?.total ?? cachedDetail.totalItems,
-      },
-      playlist.id,
-      trackItems,
-      recentPlays,
-      allTimeTrackAffinity,
-    )
-    : cachedDetail
-      ? await incrementallyRefreshChangedPlaylistDetail(
-        {
-          ...cachedDetail,
-          totalItems: playlist.tracks?.total ?? cachedDetail.totalItems,
-        },
+  const detail = await (async () => {
+    try {
+      return playlistItemsUnchanged && cachedDetail
+        ? refreshCachedPlaylistDetailDynamics(
+          {
+            ...cachedDetail,
+            totalItems: playlist.tracks?.total ?? cachedDetail.totalItems,
+          },
+          playlist.id,
+          trackItems,
+          recentPlays,
+          allTimeTrackAffinity,
+        )
+        : cachedDetail
+          ? await incrementallyRefreshChangedPlaylistDetail(
+            {
+              ...cachedDetail,
+              totalItems: playlist.tracks?.total ?? cachedDetail.totalItems,
+            },
+            playlist,
+            trackItems,
+            recentPlays,
+            allTimeTrackAffinity,
+            allTimeArtistGenres,
+            accessToken,
+          ) ?? await analyzePlaylistDetailWithStoredFallback(
+            playlist,
+            trackItems,
+            recentPlays,
+            allTimeTrackAffinity,
+            allTimeArtistGenres,
+            accessToken,
+          )
+          : await analyzePlaylistDetailWithStoredFallback(
+            playlist,
+            trackItems,
+            recentPlays,
+            allTimeTrackAffinity,
+            allTimeArtistGenres,
+            accessToken,
+          );
+    } catch {
+      return buildBestEffortPlaylistDetail(
         playlist,
         trackItems,
         recentPlays,
         allTimeTrackAffinity,
-        allTimeArtistGenres,
-        accessToken,
-      ) ?? await analyzePlaylistFromTrackItems(
-        playlist,
-        trackItems,
-        recentPlays,
-        allTimeTrackAffinity,
-        allTimeArtistGenres,
-        accessToken,
-      )
-      : await analyzePlaylistFromTrackItems(
-        playlist,
-        trackItems,
-        recentPlays,
-        allTimeTrackAffinity,
-        allTimeArtistGenres,
-        accessToken,
       );
+    }
+  })();
   const protectedDetail = detail && cachedDetail
     ? preserveRicherCachedPlaylistDetail(
       cachedDetail,
