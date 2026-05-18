@@ -40,6 +40,7 @@ export function PlaylistDetailSync({ playlistId }: PlaylistDetailSyncProps) {
 
           if (payload.updated) {
             router.refresh();
+            break;
           }
 
           if (payload.completed) {
