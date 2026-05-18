@@ -49,7 +49,12 @@ export async function POST(_request: Request, context: RouteContext) {
       totalTracks: result.totalTracks,
       updated: Boolean(result.updated),
     });
-  } catch {
+  } catch (error) {
+    console.error("[playlist-detail-sync-route] failed", {
+      spotifyUserId: authorizedSession.spotifyUserId,
+      playlistId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: "Could not sync playlist detail." }, { status: 500 });
   }
 }
