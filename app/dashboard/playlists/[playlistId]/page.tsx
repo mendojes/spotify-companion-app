@@ -177,10 +177,14 @@ export default async function PlaylistDetailPage({ params }: PlaylistDetailPageP
     detail.uniqueArtistCount === 0 ||
     detail.uniqueAlbumCount === 0 ||
     detail.mood.toLowerCase().includes("analysis pending");
+  const shouldRunDetailSync =
+    isAnalysisPending ||
+    detail.topGenres.length === 0 ||
+    detail.trackCount < totalPlaylistItems;
 
   return (
     <main className="relative min-h-screen overflow-hidden px-6 py-10 md:px-10">
-      <PlaylistDetailSync playlistId={playlistId} />
+      {shouldRunDetailSync ? <PlaylistDetailSync playlistId={playlistId} /> : null}
       <div className="mx-auto max-w-7xl space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-6">
