@@ -2233,6 +2233,66 @@ function refreshCachedPlaylistDetailDynamics(
   };
 }
 
+function shouldProtectCachedPlaylistDetail(
+  cachedDetail: PlaylistDetail | CachedPlaylistDetail,
+  candidateDetail: PlaylistDetail,
+  options: {
+    expectedTotalItems: number;
+    fetchedItems: number;
+  },
+) {
+  const cachedTotalItems = cachedDetail.totalItems ?? cachedDetail.trackCount;
+  const expectedTotalItems = Math.max(options.expectedTotalItems, candidateDetail.totalItems ?? 0, candidateDetail.trackCount);
+  const cachedIsComplete = !isPlaylistDetailIncomplete(cachedDetail);
+  const candidateIsIncomplete = isPlaylistDetailIncomplete(candidateDetail);
+  const fetchedItemsArePartial = options.fetchedItems > 0 && options.fetchedItems < expectedTotalItems;
+  const playlistDidNotShrink = expectedTotalItems >= cachedTotalItems;
+  const trackCountRegressed = playlistDidNotShrink && candidateDetail.trackCount < cachedDetail.trackCount;
+  const uniqueArtistCountRegressed = playlistDidNotShrink && candidateDetail.uniqueArtistCount < cachedDetail.uniqueArtistCount;
+  const uniqueAlbumCountRegressed = playlistDidNotShrink && candidateDetail.uniqueAlbumCount < cachedDetail.uniqueAlbumCount;
+  const lostGenres = cachedDetail.topGenres.length > 0 && candidateDetail.topGenres.length === 0;
+  const lostTopArtists = cachedDetail.topArtists.length > 0 && candidateDetail.topArtists.length === 0;
+
+  return cachedIsComplete && (
+    candidateIsIncomplete ||
+    fetchedItemsArePartial ||
+    trackCountRegressed ||
+    uniqueArtistCountRegressed ||
+    uniqueAlbumCountRegressed ||
+    lostGenres ||
+    lostTopArtists
+  );
+}
+
+function preserveRicherCachedPlaylistDetail(
+  cachedDetail: PlaylistDetail | CachedPlaylistDetail,
+  playlist: SpotifyPlaylist,
+  candidateDetail: PlaylistDetail,
+  trackItems: PlaylistTrackWithMeta[],
+  recentPlays: StoredRecentPlay[],
+  allTimeTrackAffinity = new Map<string, TrackAffinity>(),
+  fetchedItems = 0,
+) {
+  if (!shouldProtectCachedPlaylistDetail(cachedDetail, candidateDetail, {
+    expectedTotalItems: playlist.tracks?.total ?? candidateDetail.totalItems ?? candidateDetail.trackCount,
+    fetchedItems,
+  })) {
+    return candidateDetail;
+  }
+
+  const canSafelyRefreshTrackDerivedFields = fetchedItems >= Math.max(cachedDetail.trackCount, trackItems.length);
+  return refreshCachedPlaylistDetailDynamics(
+    {
+      ...cachedDetail,
+      totalItems: playlist.tracks?.total ?? cachedDetail.totalItems,
+    },
+    playlist.id,
+    canSafelyRefreshTrackDerivedFields ? trackItems : [],
+    recentPlays,
+    allTimeTrackAffinity,
+  );
+}
+
 function objectToCountMap(value?: Record<string, number>) {
   return new Map(Object.entries(value ?? {}));
 }
@@ -2256,6 +2316,17 @@ function shouldPersistIncrementalAnalysisState(trackCount: number) {
 function stripPlaylistDetailInternalState(detail: PlaylistDetail): PlaylistDetail {
   const { analysisState: _analysisState, ...rest } = detail;
   return rest;
+}
+
+function didPlaylistDetailMeaningfullyChange(
+  previousDetail: PlaylistDetail | CachedPlaylistDetail | null | undefined,
+  nextDetail: PlaylistDetail,
+) {
+  if (!previousDetail) {
+    return true;
+  }
+
+  return JSON.stringify(stripPlaylistDetailInternalState(previousDetail)) !== JSON.stringify(stripPlaylistDetailInternalState(nextDetail));
 }
 
 async function getArtistGenreMapForTracks(
@@ -3224,18 +3295,35 @@ export async function getPlaylistDetail(accessToken: string, spotifyUserId: stri
       })();
 
     if (detail) {
-      await writeCachedPlaylistDetails(spotifyUserId, [detail]);
-      const nextInsights = uniqueById([
-        {
-          ...toInsight(detail, recentPlays),
-          lastListenedAt: storedInsights.find((entry) => entry.id === detail.id)?.lastListenedAt ?? detail.lastListenedAt,
-        },
-        ...storedInsights,
-      ]);
-      if (nextInsights.length > 0) {
-        await writeStoredPlaylistInsights(spotifyUserId, nextInsights);
+      const cachedDetail = cachedDetails[0];
+      const protectedDetail = cachedDetails[0]
+        ? preserveRicherCachedPlaylistDetail(
+          cachedDetail,
+          playlist,
+          detail,
+          isLargePlaylist ? await getStoredPlaylistTrackItems(spotifyUserId, playlist.id) : [],
+          recentPlays,
+          allTimeTrackAffinity,
+          isLargePlaylist
+            ? (playlist.tracks?.total ?? detail.totalItems ?? detail.trackCount)
+            : (detail.totalItems ?? detail.trackCount),
+        )
+        : detail;
+      const updated = didPlaylistDetailMeaningfullyChange(cachedDetail, protectedDetail);
+      if (updated) {
+        await writeCachedPlaylistDetails(spotifyUserId, [protectedDetail]);
+        const nextInsights = uniqueById([
+          {
+            ...toInsight(protectedDetail, recentPlays),
+            lastListenedAt: storedInsights.find((entry) => entry.id === protectedDetail.id)?.lastListenedAt ?? protectedDetail.lastListenedAt,
+          },
+          ...storedInsights,
+        ]);
+        if (nextInsights.length > 0) {
+          await writeStoredPlaylistInsights(spotifyUserId, nextInsights);
+        }
       }
-      return stripPlaylistDetailInternalState(detail);
+      return stripPlaylistDetailInternalState(protectedDetail);
     }
   } catch {
     // Fall through to cached and stored fallbacks below.
@@ -3322,6 +3410,7 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
 
     return {
       detail: null,
+      updated: false,
       completed: false,
       fetchedCount: syncState.fetchedCount,
       totalTracks: syncState.totalTracks,
@@ -3360,7 +3449,10 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
       allTimeTrackAffinity,
     );
 
-    await writeCachedPlaylistDetails(spotifyUserId, [lightweightDetail]);
+    const updated = didPlaylistDetailMeaningfullyChange(cachedDetail, lightweightDetail);
+    if (updated) {
+      await writeCachedPlaylistDetails(spotifyUserId, [lightweightDetail]);
+    }
     const nextInsights = uniqueById([
       {
         ...toInsight(lightweightDetail, recentPlays),
@@ -3383,6 +3475,7 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
 
     return {
       detail: stripPlaylistDetailInternalState(lightweightDetail),
+      updated,
       completed: syncState.completed,
       fetchedCount: syncState.fetchedCount,
       totalTracks: syncState.totalTracks,
@@ -3428,22 +3521,37 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
         allTimeArtistGenres,
         accessToken,
       );
+  const protectedDetail = detail && cachedDetail
+    ? preserveRicherCachedPlaylistDetail(
+      cachedDetail,
+      playlist,
+      detail,
+      trackItems,
+      recentPlays,
+      allTimeTrackAffinity,
+      isLargePlaylist
+        ? syncState.fetchedCount
+        : (playlistSnapshot?.fetchedItems ?? trackItems.length),
+    )
+    : detail;
   logPlaylistTiming(
     spotifyUserId,
     playlistId,
     "detail-sync-analyzed",
     startedAt,
-    detail
-      ? `updated=true incremental=${playlistItemsUnchanged} uniqueArtists=${detail.uniqueArtistCount} uniqueAlbums=${detail.uniqueAlbumCount}`
+    protectedDetail
+      ? `updated=true incremental=${playlistItemsUnchanged} uniqueArtists=${protectedDetail.uniqueArtistCount} uniqueAlbums=${protectedDetail.uniqueAlbumCount}`
       : "updated=false",
   );
 
-  if (detail) {
-    await writeCachedPlaylistDetails(spotifyUserId, [detail]);
+  const updated = protectedDetail ? didPlaylistDetailMeaningfullyChange(cachedDetail, protectedDetail) : false;
+
+  if (protectedDetail && updated) {
+    await writeCachedPlaylistDetails(spotifyUserId, [protectedDetail]);
     const nextInsights = uniqueById([
       {
-        ...toInsight(detail, recentPlays),
-        lastListenedAt: storedInsights.find((entry) => entry.id === detail.id)?.lastListenedAt ?? detail.lastListenedAt,
+        ...toInsight(protectedDetail, recentPlays),
+        lastListenedAt: storedInsights.find((entry) => entry.id === protectedDetail.id)?.lastListenedAt ?? protectedDetail.lastListenedAt,
       },
       ...storedInsights,
     ]);
@@ -3458,11 +3566,12 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
     playlistId,
     "detail-sync-total",
     startedAt,
-    `updated=${Boolean(detail)} completed=${syncState.completed}`,
+    `updated=${updated} completed=${syncState.completed}`,
   );
 
   return {
-    detail,
+    detail: protectedDetail,
+    updated,
     completed: syncState.completed,
     fetchedCount: syncState.fetchedCount,
     totalTracks: syncState.totalTracks,

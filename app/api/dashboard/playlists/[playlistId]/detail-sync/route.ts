@@ -35,9 +35,9 @@ export async function POST(_request: Request, context: RouteContext) {
   try {
     const result = await syncPlaylistDetail(authorizedSession.accessToken, authorizedSession.spotifyUserId, playlistId);
     console.log(
-      `[playlist-detail-sync-route] user=${authorizedSession.spotifyUserId} playlist=${playlistId} completed=${result.completed} fetchedCount=${result.fetchedCount} totalTracks=${result.totalTracks} updated=${Boolean(result.detail)}`,
+      `[playlist-detail-sync-route] user=${authorizedSession.spotifyUserId} playlist=${playlistId} completed=${result.completed} fetchedCount=${result.fetchedCount} totalTracks=${result.totalTracks} updated=${Boolean(result.updated)}`,
     );
-    if (result.detail) {
+    if (result.updated) {
       invalidatePlaylistInsightsCache(authorizedSession.spotifyUserId);
       invalidateDashboardPlaylistPreviewCache(authorizedSession.spotifyUserId);
       invalidateDashboardSectionRuntimeCache(authorizedSession.spotifyUserId);
@@ -47,7 +47,7 @@ export async function POST(_request: Request, context: RouteContext) {
       completed: result.completed,
       fetchedCount: result.fetchedCount,
       totalTracks: result.totalTracks,
-      updated: Boolean(result.detail),
+      updated: Boolean(result.updated),
     });
   } catch {
     return NextResponse.json({ error: "Could not sync playlist detail." }, { status: 500 });
