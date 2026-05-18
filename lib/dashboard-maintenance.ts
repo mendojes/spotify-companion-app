@@ -10,7 +10,7 @@ import {
 } from "@/lib/dashboard-section-cache";
 import { backfillMissingArtistMetadataForUser } from "@/lib/spotify-dashboard";
 import { deleteImportedLastFmScrobbles, deleteUnresolvedImportedLastFmScrobbles, normalizeImportedLastFmScrobbles, refreshLastFmImportCaches } from "@/lib/lastfm-import";
-import { ensureStoredPlaylistTrackCache } from "@/lib/spotify-playlists";
+import { ensureStoredPlaylistTrackCache, getStoredPlaylistTrackDiagnostics } from "@/lib/spotify-playlists";
 import { getStoredTrackMetadataMap, TRACK_METADATA_COLLECTION } from "@/lib/track-metadata-cache";
 import { TopListsData, StoredRecentPlay } from "@/lib/types";
 
@@ -930,6 +930,18 @@ type CachedResolutionTrack = {
   durationMs?: number;
 };
 
+type CachedPlaylistTrackCandidate = {
+  trackId?: string;
+  title?: string;
+  artistNames?: string[];
+  albumName?: string;
+  normalizedTrackKey?: string;
+  normalizedTrackArtistKey?: string;
+  normalizedNameKey?: string;
+  imageUrl?: string;
+  classification?: string;
+};
+
 type UnresolvedImportGroup = {
   trackName: string;
   artistName: string;
@@ -956,6 +968,7 @@ async function getCachedTrackMatchesForGroups(
   spotifyUserId: string,
   groups: Array<Pick<UnresolvedImportGroup, "trackName" | "artistName" | "albumName">>,
   preferredPlaylistId?: string,
+  preloadedSelectedPlaylistTracks?: CachedPlaylistTrackCandidate[],
 ) {
   if (!db || groups.length === 0) {
     return new Map<string, CachedResolutionTrack>();
@@ -965,7 +978,7 @@ async function getCachedTrackMatchesForGroups(
   const uniqueTrackArtistKeys = [...new Set(groups.map((group) => buildStoredPlayTrackArtistKey(group)))];
   const uniqueTrackKeys = [...new Set(groups.map((group) => normalizeText(group.trackName)))];
 
-  const [libraryTracks, globalTracks, playlistTracks] = await Promise.all([
+  const [libraryTracks, globalTracks, playlistTracksFromDb] = await Promise.all([
     db.collection<UserTrackLibraryDoc>(USER_TRACK_LIBRARY_COLLECTION)
       .find({
         spotifyUserId,
@@ -986,30 +999,23 @@ async function getCachedTrackMatchesForGroups(
         ],
       })
       .toArray(),
-    db.collection<{
-      trackId?: string;
-      title?: string;
-      artistNames?: string[];
-      albumName?: string;
-      normalizedTrackKey?: string;
-      normalizedTrackArtistKey?: string;
-      normalizedNameKey?: string;
-      imageUrl?: string;
-      classification?: string;
-    }>(PLAYLIST_TRACK_CACHE_COLLECTION)
-      .find({
-        spotifyUserId,
-        ...(preferredPlaylistId ? { playlistId: preferredPlaylistId } : {}),
-        classification: "analyzable",
-        trackId: { $regex: "^[A-Za-z0-9]{22}$" },
-        $or: [
-          { normalizedTrackKey: { $in: uniqueTrackKeys } },
-          { normalizedNameKey: { $in: uniqueNameKeys } },
-          { normalizedTrackArtistKey: { $in: uniqueTrackArtistKeys } },
-        ],
-      })
-      .toArray(),
+    preloadedSelectedPlaylistTracks
+      ? Promise.resolve([] as CachedPlaylistTrackCandidate[])
+      : db.collection<CachedPlaylistTrackCandidate>(PLAYLIST_TRACK_CACHE_COLLECTION)
+        .find({
+          spotifyUserId,
+          ...(preferredPlaylistId ? { playlistId: preferredPlaylistId } : {}),
+          classification: "analyzable",
+          trackId: { $regex: "^[A-Za-z0-9]{22}$" },
+          $or: [
+            { normalizedTrackKey: { $in: uniqueTrackKeys } },
+            { normalizedNameKey: { $in: uniqueNameKeys } },
+            { normalizedTrackArtistKey: { $in: uniqueTrackArtistKeys } },
+          ],
+        })
+        .toArray(),
   ]);
+  const playlistTracks = preloadedSelectedPlaylistTracks ?? playlistTracksFromDb;
 
   const byExactNameKey = new Map<string, CachedResolutionTrack>();
   const byTrackArtistKey = new Map<string, CachedResolutionTrack>();
@@ -1085,10 +1091,13 @@ async function getCachedTrackMatchesForGroups(
       const albumScore = computeLooseFieldScore(candidate.albumName, group.albumName);
       const totalScore = trackScore * 0.5 + artistScore * 0.3 + albumScore * 0.2;
       const isNonLatinTrackQuery = containsNonLatinCharacters(group.trackName);
+      const hasExactTrackTitle = trackScore >= 0.99;
       const accept =
         (trackScore >= 0.95 && albumScore >= 0.8 && totalScore >= 0.68) ||
         (isNonLatinTrackQuery && trackScore >= 0.99 && totalScore >= 0.48) ||
-        (trackScore >= 0.9 && artistScore >= 0.58 && totalScore >= 0.74 && albumScore >= 0.2);
+        (trackScore >= 0.9 && artistScore >= 0.58 && totalScore >= 0.74 && albumScore >= 0.2) ||
+        (hasExactTrackTitle && (artistScore >= 0.3 || albumScore >= 0.3) && totalScore >= 0.58) ||
+        (preferredPlaylistId && hasExactTrackTitle && (artistScore >= 0.18 || albumScore >= 0.18) && totalScore >= 0.48);
       if (!accept || totalScore <= bestScore) {
         continue;
       }
@@ -1170,12 +1179,45 @@ export async function normalizeImportedLastFmWithPermanentCache(
   let prepassProcessedGroupCount = 0;
   let prepassResolvedPlayCount = 0;
   let prepassStopDetail: string | undefined;
+  let playlistCacheDetail: string | undefined;
   const db = await getDatabase({ forceRetry: true });
+  let preloadedSelectedPlaylistTracks: CachedPlaylistTrackCandidate[] | undefined;
   if (preferredPlaylistId) {
     await onProgress?.("Syncing selected playlist track cache before normalization");
-    await ensureStoredPlaylistTrackCache(accessToken, spotifyUserId, preferredPlaylistId, {
-      maxPages: profile === "cache-only" ? 6 : 2,
+    const syncResult = await ensureStoredPlaylistTrackCache(accessToken, spotifyUserId, preferredPlaylistId, {
+      maxPages: profile === "cache-only" ? 20 : 4,
     }).catch(() => undefined);
+    const diagnostics = await getStoredPlaylistTrackDiagnostics(
+      spotifyUserId,
+      preferredPlaylistId,
+      syncResult?.totalTracks ?? 0,
+    ).catch(() => undefined);
+    if (diagnostics) {
+      playlistCacheDetail = `Selected playlist cache: ${diagnostics.analyzableTracks}/${diagnostics.totalItems || diagnostics.fetchedItems || 0} analyzable tracks stored${diagnostics.completed ? " (complete)" : " (partial cache so far)"}.`;
+    }
+    if (db) {
+      preloadedSelectedPlaylistTracks = await db.collection<CachedPlaylistTrackCandidate>(PLAYLIST_TRACK_CACHE_COLLECTION)
+        .find({
+          spotifyUserId,
+          playlistId: preferredPlaylistId,
+          classification: "analyzable",
+          trackId: { $regex: "^[A-Za-z0-9]{22}$" },
+        })
+        .project({
+          _id: 0,
+          trackId: 1,
+          title: 1,
+          artistNames: 1,
+          albumName: 1,
+          normalizedTrackKey: 1,
+          normalizedTrackArtistKey: 1,
+          normalizedNameKey: 1,
+          imageUrl: 1,
+          classification: 1,
+        })
+        .toArray()
+        .catch(() => [] as CachedPlaylistTrackCandidate[]);
+    }
   }
   if (db) {
     try {
@@ -1243,7 +1285,13 @@ export async function normalizeImportedLastFmWithPermanentCache(
         prepassProcessedGroupCount += batch.length;
         await onProgress?.(`Checking cached libraries and playlist tracks for unresolved groups ${index + 1}-${index + batch.length}`);
 
-        const cachedMatches = await getCachedTrackMatchesForGroups(db, spotifyUserId, batch, preferredPlaylistId);
+        const cachedMatches = await getCachedTrackMatchesForGroups(
+          db,
+          spotifyUserId,
+          batch,
+          preferredPlaylistId,
+          preloadedSelectedPlaylistTracks,
+        );
         const matchedEntries = batch
           .map((group: UnresolvedImportGroup) => ({ group, cached: cachedMatches.get(buildUnresolvedImportGroupKey(group)) }))
           .filter((entry): entry is { group: UnresolvedImportGroup; cached: CachedResolutionTrack } => Boolean(entry.cached && isSpotifyTrackId(entry.cached.trackId)));
@@ -1389,6 +1437,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
         preferredPlaylistId
           ? "Playlist source restriction: selected playlist only."
           : "Playlist source restriction: all cached playlists.",
+        playlistCacheDetail,
         "Spotify lookup mode: disabled (cache-only pass).",
       ].join("\n"),
     };
@@ -1407,6 +1456,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
     result.debugSummary = [
       `Pre-resolved from permanent libraries / playlist cache: ${preResolvedCount}.`,
       `Cache prepass scanned ${prepassProcessedGroupCount} unresolved song groups${prepassStoppedEarly ? " before stopping early on its own runtime budget" : ""}.`,
+      playlistCacheDetail ?? "",
       result.debugSummary ?? "",
     ].filter(Boolean).join("\n");
   }
