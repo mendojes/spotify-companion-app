@@ -54,7 +54,14 @@ export async function POST(_request: Request, context: RouteContext) {
       spotifyUserId: authorizedSession.spotifyUserId,
       playlistId,
       error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     });
-    return NextResponse.json({ error: "Could not sync playlist detail." }, { status: 500 });
+    return NextResponse.json({
+      completed: false,
+      fetchedCount: 0,
+      totalTracks: 0,
+      updated: false,
+      error: "Could not sync playlist detail.",
+    });
   }
 }
