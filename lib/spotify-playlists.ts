@@ -2756,6 +2756,25 @@ async function analyzePlaylistFromTrackItems(
   };
 }
 
+async function buildStoredOnlyExtremePlaylistDetail(
+  playlist: SpotifyPlaylist,
+  trackItems: PlaylistTrackWithMeta[],
+  recentPlays: StoredRecentPlay[] = [],
+  allTimeTrackAffinity = new Map<string, TrackAffinity>(),
+  allTimeArtistGenres = new Map<string, string[]>(),
+) {
+  return analyzePlaylistFromTrackItems(
+    playlist,
+    trackItems,
+    recentPlays,
+    allTimeTrackAffinity,
+    allTimeArtistGenres,
+    undefined,
+    "history",
+    false,
+  );
+}
+
 async function analyzeManyPlaylists(
   accessToken: string,
   playlists: SpotifyPlaylist[],
@@ -3435,19 +3454,37 @@ export async function syncPlaylistDetail(accessToken: string, spotifyUserId: str
   );
   const isExtremePlaylist = (playlist.tracks?.total ?? trackItems.length) >= PLAYLIST_EXTREME_SYNC_THRESHOLD;
 
-  if (isExtremePlaylist && cachedDetail) {
-    const lightweightDetail = refreshCachedPlaylistDetailDynamics(
-      {
-        ...cachedDetail,
-        totalItems: playlist.tracks?.total ?? cachedDetail.totalItems,
-        trackCount: trackItems.length > 0 ? trackItems.length : cachedDetail.trackCount,
-        trackSignature: currentTrackSignature ?? cachedDetail.trackSignature,
-      },
-      playlist.id,
-      trackItems,
-      recentPlays,
-      allTimeTrackAffinity,
-    );
+  if (isExtremePlaylist) {
+    const lightweightDetail = cachedDetail && !isPlaylistDetailIncomplete(cachedDetail)
+      ? refreshCachedPlaylistDetailDynamics(
+        {
+          ...cachedDetail,
+          totalItems: playlist.tracks?.total ?? cachedDetail.totalItems,
+          trackCount: trackItems.length > 0 ? trackItems.length : cachedDetail.trackCount,
+          trackSignature: currentTrackSignature ?? cachedDetail.trackSignature,
+        },
+        playlist.id,
+        trackItems,
+        recentPlays,
+        allTimeTrackAffinity,
+      )
+      : await buildStoredOnlyExtremePlaylistDetail(
+        playlist,
+        trackItems,
+        recentPlays,
+        allTimeTrackAffinity,
+        allTimeArtistGenres,
+      );
+
+    if (!lightweightDetail) {
+      return {
+        detail: null,
+        updated: false,
+        completed: syncState.completed,
+        fetchedCount: syncState.fetchedCount,
+        totalTracks: syncState.totalTracks,
+      };
+    }
 
     const updated = didPlaylistDetailMeaningfullyChange(cachedDetail, lightweightDetail);
     if (updated) {
