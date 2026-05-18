@@ -781,7 +781,7 @@ async function searchSpotifyTrackMetadataForStoredPlay(
   };
 }
 
-async function getSpotifyTrackMetadataById(accessToken: string, rawSpotifyTrackIdOrLink: string) {
+export async function getSpotifyTrackMetadataById(accessToken: string, rawSpotifyTrackIdOrLink: string) {
   const spotifyTrackId = parseSpotifyTrackId(rawSpotifyTrackIdOrLink);
   if (!spotifyTrackId) {
     throw new Error("Enter a valid Spotify track link or URI.");

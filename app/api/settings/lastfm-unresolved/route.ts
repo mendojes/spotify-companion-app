@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
-import { resolveImportedLastFmGroupManuallyAsLocalTrack, resolveImportedLastFmGroupWithSpotifyTrack } from "@/lib/lastfm-import";
+import { getSpotifyTrackMetadataById, resolveImportedLastFmGroupManuallyAsLocalTrack, resolveImportedLastFmGroupWithSpotifyTrack } from "@/lib/lastfm-import";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
+  const intent = body?.intent === "preview" ? "preview" : "save";
   const mode = body?.mode === "local" ? "local" : "spotify";
   const trackName = isNonEmptyString(body?.trackName) ? body.trackName.trim() : "";
   const artistName = isNonEmptyString(body?.artistName) ? body.artistName.trim() : "";
@@ -38,6 +39,26 @@ export async function POST(request: NextRequest) {
 
   try {
     const authorizedSession = await getAuthorizedSession(session);
+    if (intent === "preview" && mode === "spotify") {
+      const metadata = await getSpotifyTrackMetadataById(authorizedSession.accessToken, spotifyLink);
+      if (!metadata.trackId) {
+        return NextResponse.json({ error: "Could not load that Spotify track." }, { status: 404 });
+      }
+
+      return NextResponse.json({
+        preview: {
+          trackId: metadata.trackId,
+          trackName: metadata.trackName,
+          artistName: metadata.artistName,
+          artistNames: metadata.artistNames,
+          albumName: metadata.albumName,
+          durationMs: metadata.durationMs,
+          imageUrl: metadata.imageUrl,
+        },
+        message: "Preview loaded. Confirm to save this Spotify match.",
+      });
+    }
+
     const result = mode === "local"
       ? await resolveImportedLastFmGroupManuallyAsLocalTrack(
         authorizedSession.spotifyUserId,
