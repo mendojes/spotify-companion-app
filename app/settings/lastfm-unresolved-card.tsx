@@ -12,18 +12,22 @@ type LastFmUnresolvedCardProps = {
     totalPages: number;
   };
   saved?: string;
+  search?: string;
 };
 
-function buildSettingsPageHref(page: number, saved?: string) {
+function buildSettingsPageHref(page: number, saved?: string, search?: string) {
   const params = new URLSearchParams();
   if (saved) {
     params.set("saved", saved);
+  }
+  if (search?.trim()) {
+    params.set("unresolvedSearch", search.trim());
   }
   params.set("unresolvedPage", String(page));
   return `/settings?${params.toString()}`;
 }
 
-export function LastFmUnresolvedCard({ unresolvedGroups, saved }: LastFmUnresolvedCardProps) {
+export function LastFmUnresolvedCard({ unresolvedGroups, saved, search }: LastFmUnresolvedCardProps) {
   const { items, totalCount, page, totalPages } = unresolvedGroups;
 
   return (
@@ -38,9 +42,38 @@ export function LastFmUnresolvedCard({ unresolvedGroups, saved }: LastFmUnresolv
         </p>
       </div>
 
+      <form action="/settings" method="get" className="rounded-[24px] border-[2px] border-[rgba(44,12,70,0.18)] bg-white/[0.36] p-4">
+        {saved ? <input type="hidden" name="saved" value={saved} /> : null}
+        <input type="hidden" name="unresolvedPage" value="1" />
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input
+            type="search"
+            name="unresolvedSearch"
+            defaultValue={search ?? ""}
+            placeholder="Search unresolved tracks, artists, or albums..."
+            className="min-w-0 flex-1 rounded-[20px] border-[2px] border-[rgba(44,12,70,0.28)] bg-white/[0.72] px-4 py-3 text-sm text-[var(--theme-text)]"
+          />
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="submit"
+              className="rounded-full border-[3px] border-[rgba(44,12,70,0.85)] bg-[rgba(255,236,245,0.9)] px-5 py-3 font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-text)] transition hover:bg-[rgba(255,225,239,0.96)]"
+            >
+              Search
+            </button>
+            {search?.trim() ? (
+              <Link href={buildSettingsPageHref(1, saved)} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                Clear search
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      </form>
+
       {items.length === 0 ? (
         <div className="rounded-[24px] border-[2px] border-[rgba(44,12,70,0.18)] bg-white/[0.36] px-4 py-4 text-sm leading-7 text-[var(--theme-body)]">
-          Every imported Last.fm track currently has a resolved Spotify match.
+          {search?.trim()
+            ? "No unresolved imported tracks matched that search."
+            : "Every imported Last.fm track currently has a resolved Spotify match."}
         </div>
       ) : (
         <>
@@ -76,12 +109,12 @@ export function LastFmUnresolvedCard({ unresolvedGroups, saved }: LastFmUnresolv
             </p>
             <div className="flex flex-wrap gap-3">
               {page > 1 ? (
-                <Link href={buildSettingsPageHref(page - 1, saved)} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                <Link href={buildSettingsPageHref(page - 1, saved, search)} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                   Previous page
                 </Link>
               ) : null}
               {page < totalPages ? (
-                <Link href={buildSettingsPageHref(page + 1, saved)} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
+                <Link href={buildSettingsPageHref(page + 1, saved, search)} className="pixel-chip text-[var(--theme-text)] transition hover:text-[#2d0d46]">
                   Next page
                 </Link>
               ) : null}

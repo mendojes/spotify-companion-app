@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
-import { resolveImportedLastFmGroupWithSpotifyTrack } from "@/lib/lastfm-import";
+import { resolveImportedLastFmGroupManuallyAsLocalTrack, resolveImportedLastFmGroupWithSpotifyTrack } from "@/lib/lastfm-import";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -16,30 +16,54 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
+  const mode = body?.mode === "local" ? "local" : "spotify";
   const trackName = isNonEmptyString(body?.trackName) ? body.trackName.trim() : "";
   const artistName = isNonEmptyString(body?.artistName) ? body.artistName.trim() : "";
   const albumName = typeof body?.albumName === "string" ? body.albumName.trim() : "";
   const spotifyLink = isNonEmptyString(body?.spotifyLink) ? body.spotifyLink.trim() : "";
+  const localTrackName = isNonEmptyString(body?.localTrackName) ? body.localTrackName.trim() : "";
+  const localArtistName = isNonEmptyString(body?.localArtistName) ? body.localArtistName.trim() : "";
+  const localAlbumName = typeof body?.localAlbumName === "string" ? body.localAlbumName.trim() : "";
+  const localImageUrl = typeof body?.localImageUrl === "string" ? body.localImageUrl.trim() : "";
 
-  if (!trackName || !artistName || !spotifyLink) {
-    return NextResponse.json({ error: "Track, artist, and Spotify link are required." }, { status: 400 });
+  if (!trackName || !artistName) {
+    return NextResponse.json({ error: "Track and artist are required." }, { status: 400 });
+  }
+  if (mode === "spotify" && !spotifyLink) {
+    return NextResponse.json({ error: "A Spotify link is required for Spotify-based resolution." }, { status: 400 });
+  }
+  if (mode === "local" && (!localTrackName || !localArtistName)) {
+    return NextResponse.json({ error: "Track and artist are required for a manual local song." }, { status: 400 });
   }
 
   try {
     const authorizedSession = await getAuthorizedSession(session);
-    const result = await resolveImportedLastFmGroupWithSpotifyTrack(
-      authorizedSession.spotifyUserId,
-      { trackName, artistName, albumName },
-      spotifyLink,
-      authorizedSession.accessToken,
-    );
+    const result = mode === "local"
+      ? await resolveImportedLastFmGroupManuallyAsLocalTrack(
+        authorizedSession.spotifyUserId,
+        { trackName, artistName, albumName },
+        {
+          trackName: localTrackName,
+          artistName: localArtistName,
+          albumName: localAlbumName,
+          imageUrl: localImageUrl,
+        },
+      )
+      : await resolveImportedLastFmGroupWithSpotifyTrack(
+        authorizedSession.spotifyUserId,
+        { trackName, artistName, albumName },
+        spotifyLink,
+        authorizedSession.accessToken,
+      );
 
     return NextResponse.json({
       ...result,
       message:
         result.matchedPlayCount === 0
           ? "No unresolved imported plays were left for that exact track, artist, and album."
-          : `Resolved ${result.updatedPlayCount} imported play${result.updatedPlayCount === 1 ? "" : "s"} and removed ${result.deletedDuplicatePlayCount} duplicate${result.deletedDuplicatePlayCount === 1 ? "" : "s"}.`,
+          : mode === "local"
+            ? `Created a manual local-song match for ${result.updatedPlayCount} imported play${result.updatedPlayCount === 1 ? "" : "s"} and removed ${result.deletedDuplicatePlayCount} duplicate${result.deletedDuplicatePlayCount === 1 ? "" : "s"}.`
+            : `Resolved ${result.updatedPlayCount} imported play${result.updatedPlayCount === 1 ? "" : "s"} and removed ${result.deletedDuplicatePlayCount} duplicate${result.deletedDuplicatePlayCount === 1 ? "" : "s"}.`,
     });
   } catch (error) {
     if (isSessionRefreshFailure(error)) {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { AnyBulkWriteOperation } from "mongodb";
 import { getDatabase, hasMongoConfig } from "@/lib/mongodb";
 import { invalidateDashboardOverviewRuntimeCache, writeStoredDashboardOverviewCache } from "@/lib/dashboard-overview";
@@ -115,6 +116,13 @@ export type ResolveImportedLastFmGroupResult = {
   updatedPlayCount: number;
   deletedDuplicatePlayCount: number;
   trackId: string;
+};
+
+export type ManualLocalLastFmResolutionInput = {
+  trackName: string;
+  artistName: string;
+  albumName: string;
+  imageUrl?: string;
 };
 
 export type LastFmImportPayload = {
@@ -249,6 +257,10 @@ function buildNameKey(trackName: string, artistName: string, albumName: string) 
 
 function isSpotifyTrackId(trackId?: string) {
   return typeof trackId === "string" && /^[A-Za-z0-9]{22}$/.test(trackId.trim());
+}
+
+function buildManualLocalTrackId(trackName: string, artistName: string, albumName: string) {
+  return `local:${createHash("sha1").update(`${trackName}::${artistName}::${albumName}`).digest("hex").slice(0, 24)}`;
 }
 
 function buildUnresolvedImportedTrackMatch(spotifyUserId: string) {
@@ -1416,6 +1428,7 @@ export async function listUnresolvedImportedLastFmGroups(
   spotifyUserId: string,
   page = 1,
   pageSize = 12,
+  search = "",
 ) {
   if (!hasMongoConfig()) {
     return {
@@ -1441,6 +1454,16 @@ export async function listUnresolvedImportedLastFmGroups(
   const safePage = Math.max(1, page);
   const safePageSize = Math.max(1, Math.min(50, pageSize));
   const skip = (safePage - 1) * safePageSize;
+  const trimmedSearch = search.trim();
+  const searchMatch = trimmedSearch
+    ? {
+      $or: [
+        { trackName: { $regex: trimmedSearch, $options: "i" } },
+        { artistName: { $regex: trimmedSearch, $options: "i" } },
+        { albumName: { $regex: trimmedSearch, $options: "i" } },
+      ],
+    }
+    : {};
 
   const [result] = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).aggregate<{
     items: UnresolvedImportedLastFmGroup[];
@@ -1450,6 +1473,7 @@ export async function listUnresolvedImportedLastFmGroups(
       $match: {
         spotifyUserId,
         sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+        ...searchMatch,
         $or: [
           { trackId: { $regex: "^lastfm:" } },
           { trackId: { $regex: "^local:" } },
@@ -1471,9 +1495,9 @@ export async function listUnresolvedImportedLastFmGroups(
       },
     },
     {
-      $facet: {
-        items: [
-          { $sort: { latestPlayedAt: -1, playCount: -1 } },
+        $facet: {
+          items: [
+          { $sort: { playCount: -1, latestPlayedAt: -1, "_id.trackName": 1 } },
           { $skip: skip },
           { $limit: safePageSize },
           {
@@ -1502,6 +1526,148 @@ export async function listUnresolvedImportedLastFmGroups(
     page: safePage,
     pageSize: safePageSize,
     totalPages: totalCount > 0 ? Math.ceil(totalCount / safePageSize) : 0,
+  };
+}
+
+export async function resolveImportedLastFmGroupManuallyAsLocalTrack(
+  spotifyUserId: string,
+  group: Pick<UnresolvedImportedLastFmGroup, "trackName" | "artistName" | "albumName">,
+  localInput: ManualLocalLastFmResolutionInput,
+): Promise<ResolveImportedLastFmGroupResult> {
+  if (!hasMongoConfig()) {
+    return {
+      matchedPlayCount: 0,
+      updatedPlayCount: 0,
+      deletedDuplicatePlayCount: 0,
+      trackId: "",
+    };
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return {
+      matchedPlayCount: 0,
+      updatedPlayCount: 0,
+      deletedDuplicatePlayCount: 0,
+      trackId: "",
+    };
+  }
+
+  const normalizedTrackName = localInput.trackName.trim();
+  const normalizedArtistName = localInput.artistName.trim();
+  const normalizedAlbumName = localInput.albumName.trim();
+  if (!normalizedTrackName || !normalizedArtistName) {
+    throw new Error("Track name and artist name are required for a manual local song.");
+  }
+
+  const resolvedTrackId = buildManualLocalTrackId(normalizedTrackName, normalizedArtistName, normalizedAlbumName);
+  const matchingImportedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      spotifyUserId,
+      sourceType: LASTFM_IMPORT_SOURCE_TYPE,
+      trackName: group.trackName,
+      artistName: group.artistName,
+      albumName: group.albumName,
+    })
+    .toArray();
+
+  if (matchingImportedPlays.length === 0) {
+    return {
+      matchedPlayCount: 0,
+      updatedPlayCount: 0,
+      deletedDuplicatePlayCount: 0,
+      trackId: resolvedTrackId,
+    };
+  }
+
+  const existingResolvedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      spotifyUserId,
+      trackId: resolvedTrackId,
+      playedAt: { $in: matchingImportedPlays.map((play) => play.playedAt) },
+    })
+    .toArray();
+  const existingByPlayedAt = new Map(existingResolvedPlays.map((play) => [play.playedAt, play]));
+
+  let updatedPlayCount = 0;
+  let deletedDuplicatePlayCount = 0;
+  const resolvedPlaysForMetadata: StoredRecentPlay[] = [];
+
+  const bulkOps: AnyBulkWriteOperation<StoredRecentPlay>[] = matchingImportedPlays.map((play) => {
+    const conflictingPlay = existingByPlayedAt.get(play.playedAt);
+    if (conflictingPlay && String(conflictingPlay._id) !== String(play._id)) {
+      deletedDuplicatePlayCount += 1;
+      return {
+        deleteOne: {
+          filter: { _id: play._id },
+        },
+      };
+    }
+
+    const resolvedPlay: StoredRecentPlay = {
+      ...play,
+      trackId: resolvedTrackId,
+      trackName: normalizedTrackName,
+      artistName: normalizedArtistName,
+      artistNames: [normalizedArtistName],
+      artistIds: [],
+      albumName: normalizedAlbumName,
+      durationMs: play.durationMs ?? 0,
+      imageUrl: localInput.imageUrl?.trim() || undefined,
+    };
+
+    resolvedPlaysForMetadata.push(resolvedPlay);
+    updatedPlayCount += 1;
+
+    return {
+      updateOne: {
+        filter: { _id: play._id },
+        update: {
+          $set: {
+            trackId: resolvedPlay.trackId,
+            trackName: resolvedPlay.trackName,
+            artistName: resolvedPlay.artistName,
+            artistNames: resolvedPlay.artistNames,
+            artistIds: resolvedPlay.artistIds,
+            albumName: resolvedPlay.albumName,
+            durationMs: resolvedPlay.durationMs,
+            imageUrl: resolvedPlay.imageUrl,
+          },
+          $unset: {
+            lastfmResolutionAttemptedAt: "",
+            lastfmResolutionAttemptCount: "",
+          },
+        },
+      },
+    };
+  });
+
+  if (bulkOps.length > 0) {
+    await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).bulkWrite(bulkOps, { ordered: false });
+  }
+
+  if (resolvedPlaysForMetadata.length > 0) {
+    await upsertStoredTrackMetadataFromRecentPlays(resolvedPlaysForMetadata).catch(() => undefined);
+  }
+
+  const staleSyntheticTrackIds = [...new Set(
+    matchingImportedPlays
+      .map((play) => play.trackId)
+      .filter((trackId): trackId is string => Boolean(trackId) && (/^lastfm:/i.test(trackId) || /^local:/i.test(trackId))),
+  )];
+  if (staleSyntheticTrackIds.length > 0) {
+    await db.collection(TRACK_METADATA_COLLECTION).deleteMany({
+      trackId: { $in: staleSyntheticTrackIds.filter((trackId) => trackId !== resolvedTrackId) },
+    }).catch(() => undefined);
+  }
+
+  await invalidateLastFmImportCaches(spotifyUserId).catch(() => undefined);
+
+  return {
+    matchedPlayCount: matchingImportedPlays.length,
+    updatedPlayCount,
+    deletedDuplicatePlayCount,
+    trackId: resolvedTrackId,
   };
 }
 

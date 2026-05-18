@@ -9,7 +9,7 @@ import { LastFmImportCard } from "./lastfm-import-card";
 import { LastFmUnresolvedCard } from "./lastfm-unresolved-card";
 
 type SettingsPageProps = {
-  searchParams: Promise<{ saved?: string; unresolvedPage?: string }>;
+  searchParams: Promise<{ saved?: string; unresolvedPage?: string; unresolvedSearch?: string }>;
 };
 
 function ToggleRow({
@@ -41,7 +41,7 @@ function ToggleRow({
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const session = await requireSession();
-  const { saved, unresolvedPage } = await searchParams;
+  const { saved, unresolvedPage, unresolvedSearch } = await searchParams;
   const adminSession = isAdminSession(session);
   const spotifyConnected = hasSpotifyConnection(session);
 
@@ -182,6 +182,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     session.spotifyUserId,
     Number(unresolvedPage ?? "1") || 1,
     10,
+    unresolvedSearch ?? "",
   );
   const initialModesByPlaylistId = Object.fromEntries(
     (connectedUser?.ignoredPlaylists ?? []).map((rule) => [rule.playlistId, rule.mode]),
@@ -264,7 +265,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </form>
 
         <LastFmImportCard />
-        <LastFmUnresolvedCard unresolvedGroups={unresolvedGroups} saved={saved} />
+        <LastFmUnresolvedCard unresolvedGroups={unresolvedGroups} saved={saved} search={unresolvedSearch} />
       </div>
     </main>
   );
