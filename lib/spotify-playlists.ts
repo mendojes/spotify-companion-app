@@ -97,6 +97,8 @@ type StoredPlaylistTrackCacheItem = {
   normalizedTrackKey?: string;
   normalizedTrackArtistKey?: string;
   normalizedNameKey?: string;
+  normalizedArtistKey?: string;
+  normalizedAlbumArtistKey?: string;
   imageUrl?: string;
   classification?: "analyzable" | "local" | "unavailable" | "partial" | "unknown";
   reason?: string;
@@ -158,6 +160,14 @@ function normalizeText(value: string | undefined | null) {
     .toLocaleLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function buildNormalizedArtistKey(artistNames: string[]) {
+  return normalizeText(artistNames.join(", "));
+}
+
+function buildNormalizedAlbumArtistKey(albumName: string | undefined, artistNames: string[]) {
+  return `${normalizeText(albumName ?? "")}::${buildNormalizedArtistKey(artistNames)}`;
 }
 
 function wait(ms: number) {
@@ -339,6 +349,8 @@ function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTr
       normalizedTrackKey: normalizeText(rawTrack.name),
       normalizedTrackArtistKey: `${normalizeText(rawTrack.name)}::${normalizeText(joinedArtistNames)}`,
       normalizedNameKey: `${normalizeText(rawTrack.name)}::${normalizeText(joinedArtistNames)}::${normalizeText(rawTrack.album?.name ?? "")}`,
+      normalizedArtistKey: buildNormalizedArtistKey(rawTrack.artists.map((artist) => artist.name).filter(Boolean)),
+      normalizedAlbumArtistKey: buildNormalizedAlbumArtistKey(rawTrack.album?.name, rawTrack.artists.map((artist) => artist.name).filter(Boolean)),
       imageUrl: rawTrack.album?.images?.[0]?.url,
       classification: "analyzable",
       reason: rawTrack.is_playable === false ? "Spotify marked this track as unavailable to play." : undefined,
@@ -374,6 +386,8 @@ function normalizeStoredPlaylistTrackRecordFromTrackItem(item: SpotifyPlaylistTr
       normalizedTrackKey: normalizeText(title),
       normalizedTrackArtistKey: `${normalizeText(title)}::${normalizeText(joinedArtistNames)}`,
       normalizedNameKey: `${normalizeText(title)}::${normalizeText(joinedArtistNames)}::${normalizeText(albumName)}`,
+      normalizedArtistKey: buildNormalizedArtistKey(artistNames),
+      normalizedAlbumArtistKey: buildNormalizedAlbumArtistKey(albumName, artistNames),
       imageUrl: candidate.album?.images?.[0]?.url,
     } satisfies Omit<NormalizedStoredPlaylistTrackCacheRecord, "classification" | "reason" | "track">;
 
@@ -414,6 +428,8 @@ function normalizeStoredPlaylistTrackRecordFromTrack(trackItem: PlaylistTrackWit
     normalizedTrackKey: normalizeText(trackItem.track.name),
     normalizedTrackArtistKey: `${normalizeText(trackItem.track.name)}::${normalizeText(joinedArtistNames)}`,
     normalizedNameKey: `${normalizeText(trackItem.track.name)}::${normalizeText(joinedArtistNames)}::${normalizeText(trackItem.track.album?.name ?? "")}`,
+    normalizedArtistKey: buildNormalizedArtistKey(artistNames),
+    normalizedAlbumArtistKey: buildNormalizedAlbumArtistKey(trackItem.track.album?.name, artistNames),
     imageUrl: trackItem.track.album?.images?.[0]?.url,
     classification: "analyzable",
   };

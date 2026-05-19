@@ -189,6 +189,10 @@ function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function normalizeText(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -1455,32 +1459,29 @@ export async function listUnresolvedImportedLastFmGroups(
   const safePageSize = Math.max(1, Math.min(50, pageSize));
   const skip = (safePage - 1) * safePageSize;
   const trimmedSearch = search.trim();
-  const searchMatch = trimmedSearch
+  const searchRegex = trimmedSearch ? new RegExp(escapeRegExp(trimmedSearch), "i") : null;
+  const unresolvedMatch = buildUnresolvedImportedTrackMatch(spotifyUserId);
+  const matchStage = searchRegex
     ? {
-      $or: [
-        { trackName: { $regex: trimmedSearch, $options: "i" } },
-        { artistName: { $regex: trimmedSearch, $options: "i" } },
-        { albumName: { $regex: trimmedSearch, $options: "i" } },
+      $and: [
+        unresolvedMatch,
+        {
+          $or: [
+            { trackName: searchRegex },
+            { artistName: searchRegex },
+            { albumName: searchRegex },
+          ],
+        },
       ],
     }
-    : {};
+    : unresolvedMatch;
 
   const [result] = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).aggregate<{
     items: UnresolvedImportedLastFmGroup[];
     total: Array<{ count: number }>;
   }>([
     {
-      $match: {
-        spotifyUserId,
-        sourceType: LASTFM_IMPORT_SOURCE_TYPE,
-        ...searchMatch,
-        $or: [
-          { trackId: { $regex: "^lastfm:" } },
-          { trackId: { $regex: "^local:" } },
-          { trackId: { $exists: false } },
-          { trackId: "" },
-        ],
-      },
+      $match: matchStage,
     },
     {
       $group: {

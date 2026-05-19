@@ -922,6 +922,8 @@ type CachedResolutionTrack = {
   normalizedTrackKey?: string;
   normalizedTrackArtistKey?: string;
   normalizedNameKey?: string;
+  normalizedArtistKey?: string;
+  normalizedAlbumArtistKey?: string;
   artistNames?: string[];
   artistIds?: string[];
   albumId?: string;
@@ -938,6 +940,8 @@ type CachedPlaylistTrackCandidate = {
   normalizedTrackKey?: string;
   normalizedTrackArtistKey?: string;
   normalizedNameKey?: string;
+  normalizedArtistKey?: string;
+  normalizedAlbumArtistKey?: string;
   imageUrl?: string;
   classification?: string;
 };
@@ -959,8 +963,113 @@ function buildStoredPlayTrackArtistKey(play: Pick<StoredRecentPlay, "trackName" 
   return `${normalizeText(play.trackName)}::${normalizeText(play.artistName)}`;
 }
 
+function buildStoredPlayArtistKey(play: Pick<StoredRecentPlay, "artistName">) {
+  return normalizeText(play.artistName);
+}
+
+function buildStoredPlayAlbumArtistKey(play: Pick<StoredRecentPlay, "albumName" | "artistName">) {
+  return `${normalizeText(play.albumName)}::${normalizeText(play.artistName)}`;
+}
+
 function buildUnresolvedImportGroupKey(group: Pick<UnresolvedImportGroup, "trackName" | "artistName" | "albumName">) {
   return `${normalizeText(group.trackName)}::${normalizeText(group.artistName)}::${normalizeText(group.albumName)}`;
+}
+
+const KATAKANA_START = 0x30A1;
+const KATAKANA_END = 0x30F6;
+
+const JAPANESE_DIGRAPHS: Array<[string, string]> = [
+  ["\u304d\u3083", "kya"], ["\u304d\u3085", "kyu"], ["\u304d\u3087", "kyo"],
+  ["\u304e\u3083", "gya"], ["\u304e\u3085", "gyu"], ["\u304e\u3087", "gyo"],
+  ["\u3057\u3083", "sha"], ["\u3057\u3085", "shu"], ["\u3057\u3087", "sho"],
+  ["\u3058\u3083", "ja"], ["\u3058\u3085", "ju"], ["\u3058\u3087", "jo"],
+  ["\u3061\u3083", "cha"], ["\u3061\u3085", "chu"], ["\u3061\u3087", "cho"],
+  ["\u3062\u3083", "ja"], ["\u3062\u3085", "ju"], ["\u3062\u3087", "jo"],
+  ["\u306b\u3083", "nya"], ["\u306b\u3085", "nyu"], ["\u306b\u3087", "nyo"],
+  ["\u3072\u3083", "hya"], ["\u3072\u3085", "hyu"], ["\u3072\u3087", "hyo"],
+  ["\u3073\u3083", "bya"], ["\u3073\u3085", "byu"], ["\u3073\u3087", "byo"],
+  ["\u3074\u3083", "pya"], ["\u3074\u3085", "pyu"], ["\u3074\u3087", "pyo"],
+  ["\u307f\u3083", "mya"], ["\u307f\u3085", "myu"], ["\u307f\u3087", "myo"],
+  ["\u308a\u3083", "rya"], ["\u308a\u3085", "ryu"], ["\u308a\u3087", "ryo"],
+  ["\u3094\u3041", "va"], ["\u3094\u3043", "vi"], ["\u3094\u3047", "ve"], ["\u3094\u3049", "vo"], ["\u3094\u3085", "vyu"],
+  ["\u3075\u3041", "fa"], ["\u3075\u3043", "fi"], ["\u3075\u3047", "fe"], ["\u3075\u3049", "fo"], ["\u3075\u3085", "fyu"],
+  ["\u3066\u3043", "ti"], ["\u3067\u3043", "di"], ["\u3068\u3045", "tu"], ["\u3069\u3045", "du"],
+  ["\u3064\u3041", "tsa"], ["\u3064\u3043", "tsi"], ["\u3064\u3047", "tse"], ["\u3064\u3049", "tso"],
+  ["\u3046\u3043", "wi"], ["\u3046\u3047", "we"], ["\u3046\u3049", "wo"],
+  ["\u3057\u3047", "she"], ["\u3058\u3047", "je"], ["\u3061\u3047", "che"],
+];
+
+const JAPANESE_MONOGRAPHS = new Map<string, string>([
+  ["\u3042", "a"], ["\u3044", "i"], ["\u3046", "u"], ["\u3048", "e"], ["\u304a", "o"],
+  ["\u304b", "ka"], ["\u304d", "ki"], ["\u304f", "ku"], ["\u3051", "ke"], ["\u3053", "ko"],
+  ["\u304c", "ga"], ["\u304e", "gi"], ["\u3050", "gu"], ["\u3052", "ge"], ["\u3054", "go"],
+  ["\u3055", "sa"], ["\u3057", "shi"], ["\u3059", "su"], ["\u305b", "se"], ["\u305d", "so"],
+  ["\u3056", "za"], ["\u3058", "ji"], ["\u305a", "zu"], ["\u305c", "ze"], ["\u305e", "zo"],
+  ["\u305f", "ta"], ["\u3061", "chi"], ["\u3064", "tsu"], ["\u3066", "te"], ["\u3068", "to"],
+  ["\u3060", "da"], ["\u3062", "ji"], ["\u3065", "zu"], ["\u3067", "de"], ["\u3069", "do"],
+  ["\u306a", "na"], ["\u306b", "ni"], ["\u306c", "nu"], ["\u306d", "ne"], ["\u306e", "no"],
+  ["\u306f", "ha"], ["\u3072", "hi"], ["\u3075", "fu"], ["\u3078", "he"], ["\u307b", "ho"],
+  ["\u3070", "ba"], ["\u3073", "bi"], ["\u3076", "bu"], ["\u3079", "be"], ["\u307c", "bo"],
+  ["\u3071", "pa"], ["\u3074", "pi"], ["\u3077", "pu"], ["\u307a", "pe"], ["\u307d", "po"],
+  ["\u307e", "ma"], ["\u307f", "mi"], ["\u3080", "mu"], ["\u3081", "me"], ["\u3082", "mo"],
+  ["\u3084", "ya"], ["\u3086", "yu"], ["\u3088", "yo"],
+  ["\u3089", "ra"], ["\u308a", "ri"], ["\u308b", "ru"], ["\u308c", "re"], ["\u308d", "ro"],
+  ["\u308f", "wa"], ["\u3092", "o"], ["\u3093", "n"],
+  ["\u3041", "a"], ["\u3043", "i"], ["\u3045", "u"], ["\u3047", "e"], ["\u3049", "o"],
+  ["\u3083", "ya"], ["\u3085", "yu"], ["\u3087", "yo"],
+  ["\u308e", "wa"], ["\u3094", "vu"],
+]);
+
+function toHiragana(value: string) {
+  return [...value].map((character) => {
+    const code = character.charCodeAt(0);
+    if (code >= KATAKANA_START && code <= KATAKANA_END) {
+      return String.fromCharCode(code - 0x60);
+    }
+    return character;
+  }).join("");
+}
+
+function getLastRomanizedVowel(value: string) {
+  const match = value.match(/[aeiou](?!.*[aeiou])/);
+  return match?.[0] ?? "";
+}
+
+function romanizeJapaneseKana(value: string) {
+  const hiraganaValue = toHiragana(value.normalize("NFKC"));
+  let output = "";
+
+  for (let index = 0; index < hiraganaValue.length; index += 1) {
+    const digraph = hiraganaValue.slice(index, index + 2);
+    const digraphMatch = JAPANESE_DIGRAPHS.find(([kana]) => kana === digraph)?.[1];
+    if (digraphMatch) {
+      output += digraphMatch;
+      index += 1;
+      continue;
+    }
+
+    const character = hiraganaValue[index];
+
+    if (character === "\u3063") {
+      const nextDigraph = hiraganaValue.slice(index + 1, index + 3);
+      const nextDigraphMatch = JAPANESE_DIGRAPHS.find(([kana]) => kana === nextDigraph)?.[1];
+      const nextSingleMatch = JAPANESE_MONOGRAPHS.get(hiraganaValue[index + 1] ?? "");
+      const nextSound = nextDigraphMatch ?? nextSingleMatch ?? "";
+      if (nextSound) {
+        output += nextSound[0];
+      }
+      continue;
+    }
+
+    if (character === "\u30fc") {
+      output += getLastRomanizedVowel(output);
+      continue;
+    }
+
+    output += JAPANESE_MONOGRAPHS.get(character) ?? character;
+  }
+
+  return output;
 }
 
 async function getCachedTrackMatchesForGroups(
@@ -977,6 +1086,8 @@ async function getCachedTrackMatchesForGroups(
   const uniqueNameKeys = [...new Set(groups.map((group) => buildStoredPlayNameKey(group)))];
   const uniqueTrackArtistKeys = [...new Set(groups.map((group) => buildStoredPlayTrackArtistKey(group)))];
   const uniqueTrackKeys = [...new Set(groups.map((group) => normalizeText(group.trackName)))];
+  const uniqueArtistKeys = [...new Set(groups.map((group) => buildStoredPlayArtistKey(group)))];
+  const uniqueAlbumArtistKeys = [...new Set(groups.map((group) => buildStoredPlayAlbumArtistKey(group)))];
 
   const [libraryTracks, globalTracks, playlistTracksFromDb] = await Promise.all([
     db.collection<UserTrackLibraryDoc>(USER_TRACK_LIBRARY_COLLECTION)
@@ -1011,6 +1122,8 @@ async function getCachedTrackMatchesForGroups(
             { normalizedTrackKey: { $in: uniqueTrackKeys } },
             { normalizedNameKey: { $in: uniqueNameKeys } },
             { normalizedTrackArtistKey: { $in: uniqueTrackArtistKeys } },
+            { normalizedArtistKey: { $in: uniqueArtistKeys } },
+            { normalizedAlbumArtistKey: { $in: uniqueAlbumArtistKeys } },
           ],
         })
         .toArray(),
@@ -1041,6 +1154,8 @@ async function getCachedTrackMatchesForGroups(
         normalizedTrackKey: candidate.normalizedTrackKey ?? normalizeText(candidate.title),
         normalizedTrackArtistKey: candidate.normalizedTrackArtistKey,
         normalizedNameKey: candidate.normalizedNameKey,
+        normalizedArtistKey: candidate.normalizedArtistKey,
+        normalizedAlbumArtistKey: candidate.normalizedAlbumArtistKey,
         artistNames: candidate.artistNames,
         artistIds: undefined,
         albumId: undefined,
@@ -1061,9 +1176,17 @@ async function getCachedTrackMatchesForGroups(
     }
 
     const normalizedTrackKey = normalizeText(group.trackName);
+    const normalizedArtistKey = buildStoredPlayArtistKey(group);
+    const normalizedAlbumArtistKey = buildStoredPlayAlbumArtistKey(group);
     const playlistCandidates = playlistTracks
       .filter((candidate): candidate is typeof candidate & { trackId: string; title: string } =>
-        Boolean(candidate.trackId && candidate.title) && (candidate.normalizedTrackKey ?? normalizeText(candidate.title ?? "")) === normalizedTrackKey,
+        Boolean(candidate.trackId && candidate.title) && (
+          (candidate.normalizedTrackKey ?? normalizeText(candidate.title ?? "")) === normalizedTrackKey ||
+          candidate.normalizedTrackArtistKey === trackArtistKey ||
+          candidate.normalizedNameKey === exactKey ||
+          candidate.normalizedArtistKey === normalizedArtistKey ||
+          candidate.normalizedAlbumArtistKey === normalizedAlbumArtistKey
+        ),
       )
       .map((candidate) => {
         const title = candidate.title ?? "";
@@ -1074,6 +1197,8 @@ async function getCachedTrackMatchesForGroups(
         normalizedTrackKey: candidate.normalizedTrackKey ?? normalizeText(title),
         normalizedTrackArtistKey: candidate.normalizedTrackArtistKey,
         normalizedNameKey: candidate.normalizedNameKey,
+        normalizedArtistKey: candidate.normalizedArtistKey,
+        normalizedAlbumArtistKey: candidate.normalizedAlbumArtistKey,
         artistNames: candidate.artistNames,
         artistIds: undefined,
         albumId: undefined,
@@ -1082,6 +1207,7 @@ async function getCachedTrackMatchesForGroups(
         durationMs: undefined,
       } satisfies CachedResolutionTrack);
       });
+    const sameAlbumArtistCandidateCount = playlistCandidates.filter((candidate) => candidate.normalizedAlbumArtistKey === normalizedAlbumArtistKey).length;
 
     let bestCandidate: CachedResolutionTrack | undefined;
     let bestScore = 0;
@@ -1092,11 +1218,18 @@ async function getCachedTrackMatchesForGroups(
       const totalScore = trackScore * 0.5 + artistScore * 0.3 + albumScore * 0.2;
       const isNonLatinTrackQuery = containsNonLatinCharacters(group.trackName);
       const hasExactTrackTitle = trackScore >= 0.99;
+      const scriptMismatch = containsNonLatinCharacters(candidate.trackName) !== isNonLatinTrackQuery;
+      const romanizedTrackScore = computeTokenOverlapScore(
+        normalizeLooseText(romanizeJapaneseKana(candidate.trackName)),
+        normalizeLooseText(romanizeJapaneseKana(group.trackName)),
+      );
       const accept =
         (trackScore >= 0.95 && albumScore >= 0.8 && totalScore >= 0.68) ||
         (isNonLatinTrackQuery && trackScore >= 0.99 && totalScore >= 0.48) ||
+        (romanizedTrackScore >= 0.94 && artistScore >= 0.58 && totalScore >= 0.44) ||
         (trackScore >= 0.9 && artistScore >= 0.58 && totalScore >= 0.74 && albumScore >= 0.2) ||
         (hasExactTrackTitle && (artistScore >= 0.3 || albumScore >= 0.3) && totalScore >= 0.58) ||
+        (preferredPlaylistId && scriptMismatch && sameAlbumArtistCandidateCount === 1 && artistScore >= 0.95 && albumScore >= 0.95) ||
         (preferredPlaylistId && hasExactTrackTitle && (artistScore >= 0.18 || albumScore >= 0.18) && totalScore >= 0.48);
       if (!accept || totalScore <= bestScore) {
         continue;
@@ -1212,6 +1345,8 @@ export async function normalizeImportedLastFmWithPermanentCache(
           normalizedTrackKey: 1,
           normalizedTrackArtistKey: 1,
           normalizedNameKey: 1,
+          normalizedArtistKey: 1,
+          normalizedAlbumArtistKey: 1,
           imageUrl: 1,
           classification: 1,
         })
