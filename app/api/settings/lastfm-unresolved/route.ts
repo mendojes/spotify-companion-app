@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthorizedSession, getSession, hasSpotifyConnection, isSessionRefreshFailure } from "@/lib/auth";
-import { getSpotifyTrackMetadataById, resolveImportedLastFmGroupManuallyAsLocalTrack, resolveImportedLastFmGroupWithSpotifyTrack } from "@/lib/lastfm-import";
+import { listCachedResolutionSuggestionsForImportedGroup } from "@/lib/dashboard-maintenance";
+import { getSpotifyTrackMetadataById, resolveImportedLastFmGroupManuallyAsLocalTrack, resolveImportedLastFmGroupWithSpotifyTrack, skipImportedLastFmGroupMatching } from "@/lib/lastfm-import";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const intent = body?.intent === "preview" ? "preview" : "save";
+  const intent = body?.intent === "preview" || body?.intent === "suggest" || body?.intent === "skip" ? body.intent : "save";
   const mode = body?.mode === "local" ? "local" : "spotify";
   const trackName = isNonEmptyString(body?.trackName) ? body.trackName.trim() : "";
   const artistName = isNonEmptyString(body?.artistName) ? body.artistName.trim() : "";
@@ -30,14 +31,36 @@ export async function POST(request: NextRequest) {
   if (!trackName || !artistName) {
     return NextResponse.json({ error: "Track and artist are required." }, { status: 400 });
   }
-  if (mode === "spotify" && !spotifyLink) {
+  if ((intent === "preview" || intent === "save") && mode === "spotify" && !spotifyLink) {
     return NextResponse.json({ error: "A Spotify link is required for Spotify-based resolution." }, { status: 400 });
   }
-  if (mode === "local" && (!localTrackName || !localArtistName)) {
+  if (intent === "save" && mode === "local" && (!localTrackName || !localArtistName)) {
     return NextResponse.json({ error: "Track and artist are required for a manual local song." }, { status: 400 });
   }
 
   try {
+    if (intent === "suggest") {
+      const suggestions = await listCachedResolutionSuggestionsForImportedGroup(
+        session.spotifyUserId,
+        { trackName, artistName, albumName },
+        { limit: 5 },
+      );
+      return NextResponse.json({ suggestions });
+    }
+    if (intent === "skip") {
+      const result = await skipImportedLastFmGroupMatching(
+        session.spotifyUserId,
+        { trackName, artistName, albumName },
+      );
+      return NextResponse.json({
+        ...result,
+        message:
+          result.matchedPlayCount === 0
+            ? "No unresolved imported plays were left for that exact track, artist, and album."
+            : "Marked this unresolved song group as skipped. Cache-only retries will leave it alone until you manually resolve it later.",
+      });
+    }
+
     const authorizedSession = await getAuthorizedSession(session);
     if (intent === "preview" && mode === "spotify") {
       const metadata = await getSpotifyTrackMetadataById(authorizedSession.accessToken, spotifyLink);

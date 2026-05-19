@@ -136,6 +136,21 @@ export type MaintenanceHistoryEntry = {
   updatedAt: string;
 };
 
+export type CachedLastFmResolutionSuggestion = {
+  trackId: string;
+  trackName: string;
+  artistName: string;
+  artistNames?: string[];
+  albumName: string;
+  imageUrl?: string;
+  score: number;
+  titleScore: number;
+  artistScore: number;
+  albumScore: number;
+  romanizedTitleScore: number;
+  source: "playlist-cache" | "track-library" | "track-metadata";
+};
+
 function normalizeText(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -953,6 +968,7 @@ type UnresolvedImportGroup = {
   playCount: number;
   latestPlayedAt: string;
   lastfmResolutionAttemptedAt?: string;
+  lastfmResolutionSkippedAt?: string;
 };
 
 function buildStoredPlayNameKey(play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">) {
@@ -1070,6 +1086,42 @@ function romanizeJapaneseKana(value: string) {
   }
 
   return output;
+}
+
+function scoreCachedResolutionCandidate(
+  group: Pick<UnresolvedImportGroup, "trackName" | "artistName" | "albumName">,
+  candidate: CachedResolutionTrack,
+  preferredPlaylistId?: string,
+  sameAlbumArtistCandidateCount = 0,
+) {
+  const titleScore = computeLooseFieldScore(candidate.trackName, group.trackName);
+  const artistScore = computeLooseFieldScore(candidate.artistName, group.artistName);
+  const albumScore = computeLooseFieldScore(candidate.albumName, group.albumName);
+  const score = titleScore * 0.5 + artistScore * 0.3 + albumScore * 0.2;
+  const isNonLatinTrackQuery = containsNonLatinCharacters(group.trackName);
+  const hasExactTrackTitle = titleScore >= 0.99;
+  const scriptMismatch = containsNonLatinCharacters(candidate.trackName) !== isNonLatinTrackQuery;
+  const romanizedTitleScore = computeTokenOverlapScore(
+    normalizeLooseText(romanizeJapaneseKana(candidate.trackName)),
+    normalizeLooseText(romanizeJapaneseKana(group.trackName)),
+  );
+  const accepted =
+    (titleScore >= 0.95 && albumScore >= 0.8 && score >= 0.68) ||
+    (isNonLatinTrackQuery && titleScore >= 0.99 && score >= 0.48) ||
+    (romanizedTitleScore >= 0.94 && artistScore >= 0.58 && score >= 0.44) ||
+    (titleScore >= 0.9 && artistScore >= 0.58 && score >= 0.74 && albumScore >= 0.2) ||
+    (hasExactTrackTitle && (artistScore >= 0.3 || albumScore >= 0.3) && score >= 0.58) ||
+    (preferredPlaylistId && scriptMismatch && sameAlbumArtistCandidateCount === 1 && artistScore >= 0.95 && albumScore >= 0.95) ||
+    (preferredPlaylistId && hasExactTrackTitle && (artistScore >= 0.18 || albumScore >= 0.18) && score >= 0.48);
+
+  return {
+    accepted,
+    score,
+    titleScore,
+    artistScore,
+    albumScore,
+    romanizedTitleScore,
+  };
 }
 
 async function getCachedTrackMatchesForGroups(
@@ -1212,30 +1264,12 @@ async function getCachedTrackMatchesForGroups(
     let bestCandidate: CachedResolutionTrack | undefined;
     let bestScore = 0;
     for (const candidate of playlistCandidates) {
-      const trackScore = computeLooseFieldScore(candidate.trackName, group.trackName);
-      const artistScore = computeLooseFieldScore(candidate.artistName, group.artistName);
-      const albumScore = computeLooseFieldScore(candidate.albumName, group.albumName);
-      const totalScore = trackScore * 0.5 + artistScore * 0.3 + albumScore * 0.2;
-      const isNonLatinTrackQuery = containsNonLatinCharacters(group.trackName);
-      const hasExactTrackTitle = trackScore >= 0.99;
-      const scriptMismatch = containsNonLatinCharacters(candidate.trackName) !== isNonLatinTrackQuery;
-      const romanizedTrackScore = computeTokenOverlapScore(
-        normalizeLooseText(romanizeJapaneseKana(candidate.trackName)),
-        normalizeLooseText(romanizeJapaneseKana(group.trackName)),
-      );
-      const accept =
-        (trackScore >= 0.95 && albumScore >= 0.8 && totalScore >= 0.68) ||
-        (isNonLatinTrackQuery && trackScore >= 0.99 && totalScore >= 0.48) ||
-        (romanizedTrackScore >= 0.94 && artistScore >= 0.58 && totalScore >= 0.44) ||
-        (trackScore >= 0.9 && artistScore >= 0.58 && totalScore >= 0.74 && albumScore >= 0.2) ||
-        (hasExactTrackTitle && (artistScore >= 0.3 || albumScore >= 0.3) && totalScore >= 0.58) ||
-        (preferredPlaylistId && scriptMismatch && sameAlbumArtistCandidateCount === 1 && artistScore >= 0.95 && albumScore >= 0.95) ||
-        (preferredPlaylistId && hasExactTrackTitle && (artistScore >= 0.18 || albumScore >= 0.18) && totalScore >= 0.48);
-      if (!accept || totalScore <= bestScore) {
+      const scored = scoreCachedResolutionCandidate(group, candidate, preferredPlaylistId, sameAlbumArtistCandidateCount);
+      if (!scored.accepted || scored.score <= bestScore) {
         continue;
       }
       bestCandidate = candidate;
-      bestScore = totalScore;
+      bestScore = scored.score;
     }
 
     const match = bestCandidate;
@@ -1245,6 +1279,150 @@ async function getCachedTrackMatchesForGroups(
   }
 
   return resolved;
+}
+
+export async function listCachedResolutionSuggestionsForImportedGroup(
+  spotifyUserId: string,
+  group: Pick<UnresolvedImportGroup, "trackName" | "artistName" | "albumName">,
+  options?: {
+    preferredPlaylistId?: string;
+    limit?: number;
+  },
+) {
+  if (!hasMongoConfig()) {
+    return [] as CachedLastFmResolutionSuggestion[];
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return [] as CachedLastFmResolutionSuggestion[];
+  }
+
+  const preferredPlaylistId = options?.preferredPlaylistId;
+  const limit = Math.max(1, Math.min(options?.limit ?? 5, 10));
+  const exactKey = buildStoredPlayNameKey(group);
+  const trackArtistKey = buildStoredPlayTrackArtistKey(group);
+  const normalizedTrackKey = normalizeText(group.trackName);
+  const normalizedArtistKey = buildStoredPlayArtistKey(group);
+  const normalizedAlbumArtistKey = buildStoredPlayAlbumArtistKey(group);
+
+  const [libraryTracks, globalTracks, playlistTracks] = await Promise.all([
+    db.collection<UserTrackLibraryDoc>(USER_TRACK_LIBRARY_COLLECTION)
+      .find({
+        spotifyUserId,
+        trackId: { $regex: "^[A-Za-z0-9]{22}$" },
+        $or: [
+          { normalizedNameKey: exactKey },
+          { normalizedTrackArtistKey: trackArtistKey },
+        ],
+      })
+      .sort({ totalPlayCount: -1, lastPlayedAt: -1 })
+      .limit(limit)
+      .toArray(),
+    db.collection<CachedResolutionTrack>(TRACK_METADATA_COLLECTION)
+      .find({
+        trackId: { $regex: "^[A-Za-z0-9]{22}$" },
+        $or: [
+          { normalizedNameKey: exactKey },
+          { normalizedTrackArtistKey: trackArtistKey },
+        ],
+      })
+      .limit(limit)
+      .toArray(),
+    db.collection<CachedPlaylistTrackCandidate>(PLAYLIST_TRACK_CACHE_COLLECTION)
+      .find({
+        spotifyUserId,
+        ...(preferredPlaylistId ? { playlistId: preferredPlaylistId } : {}),
+        classification: "analyzable",
+        trackId: { $regex: "^[A-Za-z0-9]{22}$" },
+        $or: [
+          { normalizedTrackKey: normalizedTrackKey },
+          { normalizedNameKey: exactKey },
+          { normalizedTrackArtistKey: trackArtistKey },
+          { normalizedArtistKey: normalizedArtistKey },
+          { normalizedAlbumArtistKey: normalizedAlbumArtistKey },
+        ],
+      })
+      .limit(50)
+      .toArray(),
+  ]);
+
+  const playlistResolutionCandidates = playlistTracks
+    .filter((candidate): candidate is typeof candidate & { trackId: string; title: string } => Boolean(candidate.trackId && candidate.title))
+    .map((candidate) => ({
+      trackId: candidate.trackId,
+      trackName: candidate.title,
+      artistName: candidate.artistNames?.join(", ") ?? "",
+      normalizedTrackKey: candidate.normalizedTrackKey ?? normalizeText(candidate.title),
+      normalizedTrackArtistKey: candidate.normalizedTrackArtistKey,
+      normalizedNameKey: candidate.normalizedNameKey,
+      normalizedArtistKey: candidate.normalizedArtistKey,
+      normalizedAlbumArtistKey: candidate.normalizedAlbumArtistKey,
+      artistNames: candidate.artistNames,
+      artistIds: undefined,
+      albumId: undefined,
+      albumName: candidate.albumName ?? "",
+      imageUrl: candidate.imageUrl,
+      durationMs: undefined,
+      source: "playlist-cache" as const,
+    }));
+
+  const sameAlbumArtistCandidateCount = playlistResolutionCandidates
+    .filter((candidate) => candidate.normalizedAlbumArtistKey === normalizedAlbumArtistKey)
+    .length;
+
+  const mergedCandidates = [
+    ...libraryTracks.map((candidate) => ({ ...candidate, source: "track-library" as const })),
+    ...globalTracks.map((candidate) => ({ ...candidate, source: "track-metadata" as const })),
+    ...playlistResolutionCandidates,
+  ];
+
+  const deduped = new Map<string, CachedLastFmResolutionSuggestion>();
+  for (const candidate of mergedCandidates) {
+    if (!candidate.trackId) {
+      continue;
+    }
+
+    const scored = scoreCachedResolutionCandidate(group, candidate, preferredPlaylistId, sameAlbumArtistCandidateCount);
+    const isExactCacheHit =
+      candidate.normalizedNameKey === exactKey ||
+      candidate.normalizedTrackArtistKey === trackArtistKey;
+    if (!scored.accepted && !isExactCacheHit) {
+      continue;
+    }
+
+    const suggestion: CachedLastFmResolutionSuggestion = {
+      trackId: candidate.trackId,
+      trackName: candidate.trackName,
+      artistName: candidate.artistName,
+      artistNames: candidate.artistNames,
+      albumName: candidate.albumName,
+      imageUrl: candidate.imageUrl,
+      score: scored.score,
+      titleScore: scored.titleScore,
+      artistScore: scored.artistScore,
+      albumScore: scored.albumScore,
+      romanizedTitleScore: scored.romanizedTitleScore,
+      source: candidate.source,
+    };
+
+    const existing = deduped.get(candidate.trackId);
+    if (!existing || suggestion.score > existing.score) {
+      deduped.set(candidate.trackId, suggestion);
+    }
+  }
+
+  return [...deduped.values()]
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      if (right.romanizedTitleScore !== left.romanizedTitleScore) {
+        return right.romanizedTitleScore - left.romanizedTitleScore;
+      }
+      return right.titleScore - left.titleScore;
+    })
+    .slice(0, limit);
 }
 
 export async function normalizeImportedLastFmWithPermanentCache(
@@ -1360,13 +1538,25 @@ export async function normalizeImportedLastFmWithPermanentCache(
         .aggregate<UnresolvedImportGroup>([
           {
             $match: {
-              spotifyUserId,
-              sourceType: "lastfm_import",
-              $or: [
-                { trackId: { $regex: "^lastfm:" } },
-                { trackId: { $regex: "^local:" } },
-                { trackId: { $exists: false } },
-                { trackId: "" },
+              $and: [
+                {
+                  spotifyUserId,
+                  sourceType: "lastfm_import",
+                },
+                {
+                  $or: [
+                    { lastfmResolutionSkippedAt: { $exists: false } },
+                    { lastfmResolutionSkippedAt: "" },
+                  ],
+                },
+                {
+                  $or: [
+                    { trackId: { $regex: "^lastfm:" } },
+                    { trackId: { $regex: "^local:" } },
+                    { trackId: { $exists: false } },
+                    { trackId: "" },
+                  ],
+                },
               ],
             },
           },
@@ -1380,6 +1570,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
               playCount: { $sum: 1 },
               latestPlayedAt: { $max: "$playedAt" },
               lastfmResolutionAttemptedAt: { $min: "$lastfmResolutionAttemptedAt" },
+              lastfmResolutionSkippedAt: { $max: "$lastfmResolutionSkippedAt" },
             },
           },
           {
@@ -1397,6 +1588,7 @@ export async function normalizeImportedLastFmWithPermanentCache(
               playCount: 1,
               latestPlayedAt: 1,
               lastfmResolutionAttemptedAt: 1,
+              lastfmResolutionSkippedAt: 1,
             },
           },
         ])

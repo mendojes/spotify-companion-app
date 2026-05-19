@@ -8,6 +8,7 @@ type ManualLastFmResolutionFormProps = {
   trackName: string;
   artistName: string;
   albumName: string;
+  skippedAt?: string;
 };
 
 type ResolutionMode = "spotify" | "local";
@@ -20,6 +21,15 @@ type SpotifyPreview = {
   albumName?: string;
   durationMs?: number;
   imageUrl?: string;
+};
+
+type CachedSuggestion = SpotifyPreview & {
+  score: number;
+  titleScore: number;
+  artistScore: number;
+  albumScore: number;
+  romanizedTitleScore: number;
+  source: "playlist-cache" | "track-library" | "track-metadata";
 };
 
 function parseJsonSafely(rawText: string) {
@@ -38,6 +48,7 @@ export function ManualLastFmResolutionForm({
   trackName,
   artistName,
   albumName,
+  skippedAt,
 }: ManualLastFmResolutionFormProps) {
   const router = useRouter();
   const [mode, setMode] = useState<ResolutionMode>("spotify");
@@ -47,11 +58,142 @@ export function ManualLastFmResolutionForm({
   const [localAlbumName, setLocalAlbumName] = useState(albumName);
   const [localImageUrl, setLocalImageUrl] = useState("");
   const [spotifyPreview, setSpotifyPreview] = useState<SpotifyPreview | null>(null);
+  const [cachedSuggestions, setCachedSuggestions] = useState<CachedSuggestion[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  async function handleSkipMatching() {
+    setError(null);
+    setSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/settings/lastfm-unresolved", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          intent: "skip",
+          trackName,
+          artistName,
+          albumName,
+        }),
+      });
+
+      const rawText = await response.text();
+      const payload = parseJsonSafely(rawText);
+      if (!response.ok) {
+        setError(
+          typeof payload?.error === "string"
+            ? payload.error
+            : `Could not skip this imported track right now. Request failed with status ${response.status}.`,
+        );
+        return;
+      }
+
+      setSuccess(
+        typeof payload?.message === "string"
+          ? payload.message
+          : "Marked this unresolved song group as skipped.",
+      );
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch {
+      setError("Could not skip this imported track right now. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function loadCachedSuggestions() {
+    setIsLoadingSuggestions(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await fetch("/api/settings/lastfm-unresolved", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          intent: "suggest",
+          trackName,
+          artistName,
+          albumName,
+        }),
+      });
+
+      const rawText = await response.text();
+      const payload = parseJsonSafely(rawText) as ({ error?: string; suggestions?: CachedSuggestion[] } | null);
+      if (!response.ok) {
+        setError(typeof payload?.error === "string" ? payload.error : "Could not load cached suggestions right now.");
+        return;
+      }
+
+      setCachedSuggestions(Array.isArray(payload?.suggestions) ? payload.suggestions : []);
+    } catch {
+      setError("Could not load cached suggestions right now. Please try again.");
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  }
+
+  async function handleUseSuggestedMatch(suggestion: CachedSuggestion) {
+    setMode("spotify");
+    setSpotifyLink(suggestion.trackId);
+    setSpotifyPreview(suggestion);
+    setError(null);
+    setSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/settings/lastfm-unresolved", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "spotify",
+          trackName,
+          artistName,
+          albumName,
+          spotifyLink: suggestion.trackId,
+        }),
+      });
+
+      const rawText = await response.text();
+      const payload = parseJsonSafely(rawText);
+
+      if (!response.ok) {
+        setError(
+          typeof payload?.error === "string"
+            ? payload.error
+            : `Could not resolve this imported track right now. Request failed with status ${response.status}.`,
+        );
+        return;
+      }
+
+      setSuccess(
+        typeof payload?.message === "string"
+          ? payload.message
+          : "Resolved imported Last.fm plays.",
+      );
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch {
+      setError("Could not resolve this imported track right now. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   async function handlePreviewSpotifyMatch() {
     const trimmedLink = spotifyLink.trim();
@@ -185,6 +327,9 @@ export function ManualLastFmResolutionForm({
             setError(null);
             setSuccess(null);
             setSpotifyPreview(null);
+            if (cachedSuggestions.length === 0) {
+              void loadCachedSuggestions();
+            }
           }}
           className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
             mode === "spotify"
@@ -213,21 +358,83 @@ export function ManualLastFmResolutionForm({
       </div>
 
       {mode === "spotify" ? (
-        <label className="block">
-          <span className="mb-2 block font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-body)]">Spotify track link</span>
-          <input
-            type="text"
-            value={spotifyLink}
-            onChange={(event) => {
-              setSpotifyLink(event.target.value);
-              setSpotifyPreview(null);
-              setError(null);
-              setSuccess(null);
-            }}
-            placeholder="https://open.spotify.com/track/..."
-            className="w-full rounded-[20px] border-[2px] border-[rgba(44,12,70,0.28)] bg-white/[0.72] px-4 py-3 text-sm text-[var(--theme-text)]"
-          />
-        </label>
+        <div className="space-y-4">
+          <div className="rounded-[20px] border-[2px] border-[rgba(44,12,70,0.18)] bg-white/[0.36] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-body)]">Best cached matches</p>
+                <p className="mt-1 text-sm text-[var(--theme-muted)]">These come from the same cache-only resolver sources: playlist cache, permanent track library, and stored track metadata.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadCachedSuggestions()}
+                disabled={isLoadingSuggestions || isSubmitting || isPending}
+                className="rounded-full border border-[rgba(44,12,70,0.28)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--theme-title)] transition hover:border-[rgba(44,12,70,0.55)] disabled:opacity-60"
+              >
+                {isLoadingSuggestions ? "Loading..." : cachedSuggestions.length > 0 ? "Refresh cached suggestions" : "Load cached suggestions"}
+              </button>
+            </div>
+            {cachedSuggestions.length > 0 ? (
+              <div className="mt-3 grid gap-3">
+                {cachedSuggestions.map((suggestion) => (
+                  <div key={suggestion.trackId} className="rounded-[18px] border border-[rgba(44,12,70,0.18)] bg-white/80 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{suggestion.trackName}</p>
+                        <p className="text-sm text-[var(--theme-body)]">{suggestion.artistName}</p>
+                        <p className="text-sm text-[var(--theme-muted)]">{suggestion.albumName || "Unknown album"}</p>
+                        <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-muted)]">
+                          {suggestion.source === "playlist-cache" ? "Playlist cache" : suggestion.source === "track-library" ? "Track library" : "Track metadata"} | match {Math.round(suggestion.score * 100)}%
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleUseSuggestedMatch(suggestion)}
+                        disabled={isSubmitting || isPending}
+                        className="rounded-full border-[3px] border-[rgba(44,12,70,0.85)] bg-[rgba(255,236,245,0.9)] px-4 py-2 font-mono text-xs uppercase tracking-[0.16em] text-[var(--theme-text)] transition enabled:hover:bg-[rgba(255,225,239,0.96)] disabled:opacity-50"
+                      >
+                        {isSubmitting || isPending ? "Saving..." : "Use this match"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : !isLoadingSuggestions ? (
+              <p className="mt-3 text-sm text-[var(--theme-muted)]">No cached suggestions loaded yet.</p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleSkipMatching()}
+                disabled={isSubmitting || isPending}
+                className="rounded-full border border-[rgba(44,12,70,0.28)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--theme-title)] transition hover:border-[rgba(44,12,70,0.55)] disabled:opacity-60"
+              >
+                {isSubmitting || isPending ? "Saving..." : "Skip this group for cache-only matching"}
+              </button>
+              <p className="text-sm text-[var(--theme-muted)]">
+                {skippedAt
+                  ? `Already skipped on ${new Date(skippedAt).toLocaleString()}.`
+                  : "Use this when none of the cached suggestions are the right song."}
+              </p>
+            </div>
+          </div>
+
+          <label className="block">
+            <span className="mb-2 block font-mono text-xs uppercase tracking-[0.18em] text-[var(--theme-body)]">Spotify track link</span>
+            <input
+              type="text"
+              value={spotifyLink}
+              onChange={(event) => {
+                setSpotifyLink(event.target.value);
+                setSpotifyPreview(null);
+                setError(null);
+                setSuccess(null);
+              }}
+              placeholder="https://open.spotify.com/track/..."
+              className="w-full rounded-[20px] border-[2px] border-[rgba(44,12,70,0.28)] bg-white/[0.72] px-4 py-3 text-sm text-[var(--theme-text)]"
+            />
+          </label>
+        </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block md:col-span-2">

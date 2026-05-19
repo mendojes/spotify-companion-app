@@ -88,6 +88,11 @@ export function LastFmUnresolvedCard({ unresolvedGroups, saved, search }: LastFm
                   <p className="text-sm text-[var(--theme-body)]">
                     {item.artistName} / {item.albumName || "Unknown album"}
                   </p>
+                  {item.skippedAt ? (
+                    <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-muted)]">
+                      Skipped for cache-only matching on {formatPstDateTime(item.skippedAt)}
+                    </p>
+                  ) : null}
                   <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-muted)]">
                     {item.playCount} imported play{item.playCount === 1 ? "" : "s"} | earliest {formatPstDateTime(item.earliestPlayedAt)} | latest {formatPstDateTime(item.latestPlayedAt)}
                   </p>
@@ -97,6 +102,7 @@ export function LastFmUnresolvedCard({ unresolvedGroups, saved, search }: LastFm
                     trackName={item.trackName}
                     artistName={item.artistName}
                     albumName={item.albumName}
+                    skippedAt={item.skippedAt}
                   />
                 </div>
               </div>

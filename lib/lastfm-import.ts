@@ -109,6 +109,7 @@ export type UnresolvedImportedLastFmGroup = {
   playCount: number;
   earliestPlayedAt: string;
   latestPlayedAt: string;
+  skippedAt?: string;
 };
 
 export type ResolveImportedLastFmGroupResult = {
@@ -116,6 +117,12 @@ export type ResolveImportedLastFmGroupResult = {
   updatedPlayCount: number;
   deletedDuplicatePlayCount: number;
   trackId: string;
+};
+
+export type SkipImportedLastFmGroupResult = {
+  matchedPlayCount: number;
+  skippedPlayCount: number;
+  skippedAt: string;
 };
 
 export type ManualLocalLastFmResolutionInput = {
@@ -1493,6 +1500,7 @@ export async function listUnresolvedImportedLastFmGroups(
         playCount: { $sum: 1 },
         earliestPlayedAt: { $min: "$playedAt" },
         latestPlayedAt: { $max: "$playedAt" },
+        skippedAt: { $max: "$lastfmResolutionSkippedAt" },
       },
     },
     {
@@ -1510,6 +1518,7 @@ export async function listUnresolvedImportedLastFmGroups(
               playCount: 1,
               earliestPlayedAt: 1,
               latestPlayedAt: 1,
+              skippedAt: 1,
             },
           },
         ],
@@ -1637,6 +1646,7 @@ export async function resolveImportedLastFmGroupManuallyAsLocalTrack(
           $unset: {
             lastfmResolutionAttemptedAt: "",
             lastfmResolutionAttemptCount: "",
+            lastfmResolutionSkippedAt: "",
           },
         },
       },
@@ -1778,6 +1788,7 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
           $unset: {
             lastfmResolutionAttemptedAt: "",
             lastfmResolutionAttemptCount: "",
+            lastfmResolutionSkippedAt: "",
           },
         },
       },
@@ -1810,6 +1821,70 @@ export async function resolveImportedLastFmGroupWithSpotifyTrack(
     updatedPlayCount,
     deletedDuplicatePlayCount,
       trackId: resolvedTrackId,
+  };
+}
+
+export async function skipImportedLastFmGroupMatching(
+  spotifyUserId: string,
+  group: Pick<UnresolvedImportedLastFmGroup, "trackName" | "artistName" | "albumName">,
+): Promise<SkipImportedLastFmGroupResult> {
+  if (!hasMongoConfig()) {
+    return {
+      matchedPlayCount: 0,
+      skippedPlayCount: 0,
+      skippedAt: "",
+    };
+  }
+
+  const db = await getDatabase({ forceRetry: true });
+  if (!db) {
+    return {
+      matchedPlayCount: 0,
+      skippedPlayCount: 0,
+      skippedAt: "",
+    };
+  }
+
+  const skippedAt = new Date().toISOString();
+  const matchingImportedPlays = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION)
+    .find({
+      ...buildUnresolvedImportedTrackMatch(spotifyUserId),
+      trackName: group.trackName,
+      artistName: group.artistName,
+      albumName: group.albumName,
+    })
+    .project({ _id: 1 })
+    .toArray();
+
+  if (matchingImportedPlays.length === 0) {
+    return {
+      matchedPlayCount: 0,
+      skippedPlayCount: 0,
+      skippedAt,
+    };
+  }
+
+  const updateResult = await db.collection<StoredRecentPlay>(RECENT_PLAYS_COLLECTION).updateMany(
+    {
+      _id: { $in: matchingImportedPlays.map((play) => play._id) },
+    },
+    {
+      $set: {
+        lastfmResolutionAttemptedAt: skippedAt,
+        lastfmResolutionSkippedAt: skippedAt,
+      },
+      $inc: {
+        lastfmResolutionAttemptCount: 1,
+      },
+    },
+  );
+
+  await invalidateLastFmImportCaches(spotifyUserId).catch(() => undefined);
+
+  return {
+    matchedPlayCount: matchingImportedPlays.length,
+    skippedPlayCount: updateResult.modifiedCount ?? 0,
+    skippedAt,
   };
 }
 
