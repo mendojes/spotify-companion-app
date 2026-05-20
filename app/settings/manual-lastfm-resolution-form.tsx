@@ -24,6 +24,8 @@ type SpotifyPreview = {
 };
 
 type CachedSuggestion = SpotifyPreview & {
+  playlistId?: string;
+  playlistName?: string;
   score: number;
   titleScore: number;
   artistScore: number;
@@ -387,13 +389,29 @@ export function ManualLastFmResolutionForm({
                 {cachedSuggestions.map((suggestion) => (
                   <div key={suggestion.trackId} className="rounded-[18px] border border-[rgba(44,12,70,0.18)] bg-white/80 p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 space-y-1">
-                        <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{suggestion.trackName}</p>
-                        <p className="text-sm text-[var(--theme-body)]">{suggestion.artistName}</p>
-                        <p className="text-sm text-[var(--theme-muted)]">{suggestion.albumName || "Unknown album"}</p>
-                        <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-muted)]">
-                          {suggestion.source === "playlist-cache" ? "Playlist cache" : suggestion.source === "track-library" ? "Track library" : "Track metadata"} | match {Math.round(suggestion.score * 100)}%
-                        </p>
+                      <div className="flex min-w-0 gap-3">
+                        {suggestion.imageUrl ? (
+                          <Image
+                            src={suggestion.imageUrl}
+                            alt={`${suggestion.trackName} cover art`}
+                            width={72}
+                            height={72}
+                            className="h-[72px] w-[72px] shrink-0 rounded-[14px] border border-[rgba(44,12,70,0.18)] object-cover"
+                          />
+                        ) : null}
+                        <div className="min-w-0 space-y-1">
+                          <p className="font-display text-lg uppercase tracking-[0.08em] text-[var(--theme-title)]">{suggestion.trackName}</p>
+                          <p className="text-sm text-[var(--theme-body)]">{suggestion.artistName}</p>
+                          <p className="text-sm text-[var(--theme-muted)]">{suggestion.albumName || "Unknown album"}</p>
+                          <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-muted)]">
+                            {suggestion.source === "playlist-cache" ? "Playlist cache" : suggestion.source === "track-library" ? "Track library" : "Track metadata"} | match {Math.round(suggestion.score * 100)}%
+                          </p>
+                          {suggestion.source === "playlist-cache" && suggestion.playlistName ? (
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--theme-muted)]">
+                              From playlist: {suggestion.playlistName}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
                       <button
                         type="button"

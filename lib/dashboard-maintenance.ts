@@ -143,6 +143,8 @@ export type CachedLastFmResolutionSuggestion = {
   artistNames?: string[];
   albumName: string;
   imageUrl?: string;
+  playlistId?: string;
+  playlistName?: string;
   score: number;
   titleScore: number;
   artistScore: number;
@@ -948,6 +950,7 @@ type CachedResolutionTrack = {
 };
 
 type CachedPlaylistTrackCandidate = {
+  playlistId?: string;
   trackId?: string;
   title?: string;
   artistNames?: string[];
@@ -969,6 +972,12 @@ type UnresolvedImportGroup = {
   latestPlayedAt: string;
   lastfmResolutionAttemptedAt?: string;
   lastfmResolutionSkippedAt?: string;
+};
+
+type StoredPlaylistLibraryDoc = {
+  spotifyUserId: string;
+  id: string;
+  name: string;
 };
 
 function buildStoredPlayNameKey(play: Pick<StoredRecentPlay, "trackName" | "artistName" | "albumName">) {
@@ -1201,6 +1210,7 @@ async function getCachedTrackMatchesForGroups(
     .forEach((candidate) => {
       applyCandidate({
         trackId: candidate.trackId,
+        playlistId: candidate.playlistId,
         trackName: candidate.title,
         artistName: candidate.artistNames?.join(", ") ?? "",
         normalizedTrackKey: candidate.normalizedTrackKey ?? normalizeText(candidate.title),
@@ -1349,10 +1359,28 @@ export async function listCachedResolutionSuggestionsForImportedGroup(
       .limit(50)
       .toArray(),
   ]);
+  const playlistIds = [...new Set(
+    playlistTracks
+      .map((candidate) => candidate.playlistId)
+      .filter((playlistId): playlistId is string => Boolean(playlistId)),
+  )];
+  const playlistNamesById = playlistIds.length > 0
+    ? new Map(
+      (await db.collection<StoredPlaylistLibraryDoc>("spotify_playlist_library")
+        .find({
+          spotifyUserId,
+          id: { $in: playlistIds },
+        })
+        .project({ _id: 0, id: 1, name: 1, spotifyUserId: 1 })
+        .toArray())
+        .map((playlist) => [playlist.id, playlist.name]),
+    )
+    : new Map<string, string>();
 
   const playlistResolutionCandidates = playlistTracks
     .filter((candidate): candidate is typeof candidate & { trackId: string; title: string } => Boolean(candidate.trackId && candidate.title))
     .map((candidate) => ({
+      playlistId: candidate.playlistId,
       trackId: candidate.trackId,
       trackName: candidate.title,
       artistName: candidate.artistNames?.join(", ") ?? "",
@@ -1367,6 +1395,7 @@ export async function listCachedResolutionSuggestionsForImportedGroup(
       albumName: candidate.albumName ?? "",
       imageUrl: candidate.imageUrl,
       durationMs: undefined,
+      playlistName: candidate.playlistId ? playlistNamesById.get(candidate.playlistId) : undefined,
       source: "playlist-cache" as const,
     }));
 
@@ -1401,6 +1430,8 @@ export async function listCachedResolutionSuggestionsForImportedGroup(
       artistNames: candidate.artistNames,
       albumName: candidate.albumName,
       imageUrl: candidate.imageUrl,
+      playlistId: "playlistId" in candidate ? candidate.playlistId : undefined,
+      playlistName: "playlistName" in candidate ? candidate.playlistName : undefined,
       score: scored.score,
       titleScore: scored.titleScore,
       artistScore: scored.artistScore,
