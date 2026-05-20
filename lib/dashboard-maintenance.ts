@@ -1305,6 +1305,7 @@ export async function listCachedResolutionSuggestionsForImportedGroup(
   const normalizedTrackKey = normalizeText(group.trackName);
   const normalizedArtistKey = buildStoredPlayArtistKey(group);
   const normalizedAlbumArtistKey = buildStoredPlayAlbumArtistKey(group);
+  const artistNameTokens = group.artistName.split(/,\s*/).map((token) => token.trim()).filter(Boolean);
 
   const [libraryTracks, globalTracks, playlistTracks] = await Promise.all([
     db.collection<UserTrackLibraryDoc>(USER_TRACK_LIBRARY_COLLECTION)
@@ -1341,6 +1342,8 @@ export async function listCachedResolutionSuggestionsForImportedGroup(
           { normalizedTrackArtistKey: trackArtistKey },
           { normalizedArtistKey: normalizedArtistKey },
           { normalizedAlbumArtistKey: normalizedAlbumArtistKey },
+          { albumName: group.albumName },
+          ...(artistNameTokens.length > 0 ? [{ artistNames: { $in: artistNameTokens } }] : []),
         ],
       })
       .limit(50)

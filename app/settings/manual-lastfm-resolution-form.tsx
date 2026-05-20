@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useState, useTransition } from "react";
+import { FormEvent, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 type ManualLastFmResolutionFormProps = {
@@ -59,6 +59,7 @@ export function ManualLastFmResolutionForm({
   const [localImageUrl, setLocalImageUrl] = useState("");
   const [spotifyPreview, setSpotifyPreview] = useState<SpotifyPreview | null>(null);
   const [cachedSuggestions, setCachedSuggestions] = useState<CachedSuggestion[]>([]);
+  const [hasLoadedSuggestions, setHasLoadedSuggestions] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -138,12 +139,19 @@ export function ManualLastFmResolutionForm({
       }
 
       setCachedSuggestions(Array.isArray(payload?.suggestions) ? payload.suggestions : []);
+      setHasLoadedSuggestions(true);
     } catch {
       setError("Could not load cached suggestions right now. Please try again.");
     } finally {
       setIsLoadingSuggestions(false);
     }
   }
+
+  useEffect(() => {
+    if (mode === "spotify" && !hasLoadedSuggestions && !isLoadingSuggestions) {
+      void loadCachedSuggestions();
+    }
+  }, [mode, hasLoadedSuggestions, isLoadingSuggestions]);
 
   async function handleUseSuggestedMatch(suggestion: CachedSuggestion) {
     setMode("spotify");
@@ -327,7 +335,7 @@ export function ManualLastFmResolutionForm({
             setError(null);
             setSuccess(null);
             setSpotifyPreview(null);
-            if (cachedSuggestions.length === 0) {
+            if (!hasLoadedSuggestions && cachedSuggestions.length === 0) {
               void loadCachedSuggestions();
             }
           }}
@@ -371,7 +379,7 @@ export function ManualLastFmResolutionForm({
                 disabled={isLoadingSuggestions || isSubmitting || isPending}
                 className="rounded-full border border-[rgba(44,12,70,0.28)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--theme-title)] transition hover:border-[rgba(44,12,70,0.55)] disabled:opacity-60"
               >
-                {isLoadingSuggestions ? "Loading..." : cachedSuggestions.length > 0 ? "Refresh cached suggestions" : "Load cached suggestions"}
+                {isLoadingSuggestions ? "Loading..." : hasLoadedSuggestions ? "Refresh cached suggestions" : "Load cached suggestions"}
               </button>
             </div>
             {cachedSuggestions.length > 0 ? (
@@ -399,8 +407,10 @@ export function ManualLastFmResolutionForm({
                   </div>
                 ))}
               </div>
+            ) : !isLoadingSuggestions && hasLoadedSuggestions ? (
+              <p className="mt-3 text-sm text-[var(--theme-muted)]">No cached suggestions matched this unresolved song group.</p>
             ) : !isLoadingSuggestions ? (
-              <p className="mt-3 text-sm text-[var(--theme-muted)]">No cached suggestions loaded yet.</p>
+              <p className="mt-3 text-sm text-[var(--theme-muted)]">Cached suggestions have not loaded yet.</p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <button
